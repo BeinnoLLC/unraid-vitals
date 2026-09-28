@@ -1,0 +1,7 @@
+# build output — never commit; the .txz ships via GitHub Releases
+dist/
+
+# node / editor noise
+node_modules/
+*.swp
+.DS_Store

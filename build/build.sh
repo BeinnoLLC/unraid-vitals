@@ -20,9 +20,9 @@ if [ -z "$VERSION" ]; then
 fi
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SRC="$ROOT/src"
 NAME="unraid-vitals"
-AUTHOR="hazemhagrass"
+SRC="$ROOT/src/usr/local/emhttp/plugins/$NAME"
+AUTHOR="BeinnoLLC"
 GITHUB="${AUTHOR}/${NAME}"
 ARCH="x86_64"
 BUILD="1"

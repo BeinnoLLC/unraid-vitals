@@ -16,12 +16,12 @@
     The stock dashboard is never modified — Vitals adds a page, a tile you can place
     wherever you like, and an optional "make it my start page" switch.
   </Profile>
-  <Icon>https://raw.githubusercontent.com/hazemhagrass/unraid-vitals/main/assets/icon.png</Icon>
+  <Icon>https://raw.githubusercontent.com/BeinnoLLC/unraid-vitals/main/assets/icon.png</Icon>
   <Screenshots>
-    <Screenshot>https://raw.githubusercontent.com/hazemhagrass/unraid-vitals/main/assets/screenshot-dashboard.png</Screenshot>
+    <Screenshot>https://raw.githubusercontent.com/BeinnoLLC/unraid-vitals/main/assets/screenshot-dashboard.png</Screenshot>
   </Screenshots>
   <Support>https://forums.unraid.net/topic/TODO-vitals/</Support>
-  <Project>https://github.com/hazemhagrass/unraid-vitals</Project>
+  <Project>https://github.com/BeinnoLLC/unraid-vitals</Project>
   <DonateText></DonateText>
   <DonateLink></DonateLink>
 </CommunityApplications>
