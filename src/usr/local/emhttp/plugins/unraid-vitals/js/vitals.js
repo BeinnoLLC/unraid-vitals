@@ -1,540 +1,746 @@
-/* unraid-vitals — front-end. Vanilla JS, no frameworks, no CDN. */
-window.Vitals = (function () {
-  'use strict';
+/*! unraid-vitals app — Preact + htm + uPlot, all vendored (no CDN). */
+(function () {
+'use strict';
 
-  var cfg = { endpoint: '', range: 360, timer: null, snap: null, ring: [] };
+var mountEl = document.getElementById('vitals-root');
+function bail(msg) { if (mountEl) mountEl.textContent = 'unraid-vitals: ' + msg; }
+if (typeof preact === 'undefined') return bail('preact failed to load.');
+if (typeof uPlot === 'undefined') return bail('uPlot failed to load.');
+if (typeof preactHooks === 'undefined') return bail('preact hooks failed to load.');
 
-  /* ------------------------------------------------------------- utilities */
+/* preact.h IS createElement: h(type, props, ...children) — exactly the call
+   shape used throughout. (htm.bind() would return a tagged-template function
+   that only works as h`<div/>`, so it is deliberately not used.) */
+var h = preact.h;
+var render = preact.render;
+var useState = preactHooks.useState;
+var useEffect = preactHooks.useEffect;
+var useRef = preactHooks.useRef;
+var ENDPOINT = (mountEl && mountEl.getAttribute('data-endpoint')) ||
+               '/plugins/unraid-vitals/include/ajax.php';
 
-  function el(id) { return document.getElementById(id); }
+/* --------------------------------------------------------------- helpers */
 
-  function esc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
-      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
-    });
-  }
+function bytes(n, p) {
+  if (n == null || n === '' || isNaN(n)) return '—';
+  var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'], i = 0;
+  n = Number(n);
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return (i ? n.toFixed(p === undefined ? 1 : p) : String(Math.round(n))) + ' ' + u[i];
+}
+function pctStr(n, d) { return n == null ? '—' : Number(n).toFixed(d === undefined ? 1 : d) + '%'; }
+function dur(s) {
+  if (s == null) return '—';
+  s = Math.floor(s);
+  var d = Math.floor(s / 86400), hh = Math.floor((s % 86400) / 3600), mm = Math.floor((s % 3600) / 60);
+  return (d ? d + 'd ' : '') + (d || hh ? hh + 'h ' : '') + mm + 'm';
+}
+function lvl(v, w, c) { return v == null ? '' : (v >= c ? 'crit' : v >= w ? 'warn' : 'ok'); }
+function ts(t) {
+  var d = new Date(t * 1000);
+  return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
 
-  function bytes(n, p) {
-    if (n == null || isNaN(n)) return '—';
-    var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'], i = 0;
-    n = Number(n);
-    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
-    return n.toFixed(p == null ? (i > 2 ? 2 : 0) : p) + ' ' + u[i];
-  }
+/* uPlot needs concrete colours; the vars live on .vitals, not :root. */
+var PAL = {
+  'v-cpu': '#4f9cf9', 'v-mem': '#b07cf9', 'v-load': '#f9a94f', 'v-rx': '#35c48a',
+  'v-tx': '#f97066', 'v-temp': '#f97066', 'v-gpu': '#22d3ee', 'v-accent': '#818cf8',
+  'v-ok-fg': '#4ade80', 'v-warn-fg': '#fbbf24', 'v-bad-fg': '#f87171'
+};
+function resolvePalette() {
+  var host = document.querySelector('.vitals') || document.documentElement;
+  var cs = getComputedStyle(host);
+  Object.keys(PAL).forEach(function (k) {
+    var v = cs.getPropertyValue('--' + k).trim();
+    if (v) PAL[k] = v;
+  });
+}
+var SERIES_COLORS = ['#4f9cf9', '#b07cf9', '#35c48a', '#f97066', '#22d3ee',
+                     '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#60a5fa',
+                     '#fb7185', '#facc15', '#4ade80', '#38bdf8', '#e879f9',
+                     '#c4b5fd', '#fdba74', '#67e8f9', '#86efac', '#fca5a5'];
+function pickColor(i) { return SERIES_COLORS[i % SERIES_COLORS.length]; }
 
-  function rate(n) { return n == null ? '—' : bytes(n, 1) + '/s'; }
+/* ------------------------------------------------------------ primitives */
 
-  function pct(n) { return n == null ? '—' : Number(n).toFixed(1) + '%'; }
+function Panel(P) {
+  return h('section', { class: 'v-panel' + (P.span2 ? ' v-span2' : '') },
+    h('h3', null, P.title, P.hint ? h('span', { class: 'v-hint' }, P.hint) : null),
+    P.children);
+}
 
-  function dur(sec) {
-    if (sec == null) return '—';
-    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
-    if (d) return d + 'd ' + h + 'h';
-    if (h) return h + 'h ' + m + 'm';
-    return m + 'm';
-  }
+function Pill(P) {
+  return h('span', { class: 'v-pill ' + (P.kind || '') }, P.children);
+}
 
-  function timeAgo(ts) {
-    if (!ts) return '';
-    var s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-    if (s < 60) return s + 's ago';
-    if (s < 3600) return Math.floor(s / 60) + 'm ago';
-    return Math.floor(s / 3600) + 'h ago';
-  }
+function StatCard(P) {
+  return h('div', { class: 'v-card' },
+    P.icon ? h('div', { class: 'v-card-icon',
+      style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
+      h('i', { class: 'fa ' + P.icon })) : null,
+    h('div', { class: 'v-card-label' }, P.label),
+    h('div', { class: 'v-card-value ' + (P.level || '') },
+      P.value, P.unit ? h('small', null, ' ' + P.unit) : null),
+    P.sub ? h('div', { class: 'v-card-sub' }, P.sub) : null,
+    P.bar != null ? h('div', { class: 'v-bar' },
+      h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null);
+}
 
-  /** green / amber / red by thresholds */
-  function level(v, warn, crit) {
-    if (v == null) return 'muted';
-    if (v >= crit) return 'crit';
-    if (v >= warn) return 'warn';
-    return 'ok';
-  }
+/* uPlot wrapper. P: {series:[{name,color,points}], max, floor, yFmt, height, empty} */
+function Chart(P) {
+  var ref = useRef(null);
+  var plot = useRef(null);
+  var series = P.series || [];
+  var n = series.reduce(function (m, s) { return Math.max(m, (s.points || []).length); }, 0);
+  var minV = P.floor || 0, maxV = P.max;
 
-  /* ------------------------------------------------------------ sparklines */
-
-  /**
-   * Render a small multi-series line chart into #id.
-   * series: [{ name, color, points: [[t, value]], max, fmt }]
-   * X is shared across series and taken from the first series' time span.
-   */
-  function chart(id, series, opts) {
-    opts = opts || {};
-    var host = el(id);
-    if (!host) return;
-
-    var all = [];
-    series.forEach(function (s) { (s.points || []).forEach(function (p) { if (p[1] != null) all.push(p); }); });
-    if (all.length < 2) {
-      host.innerHTML = '<div class="v-empty">' + esc(opts.empty || 'Not enough samples yet — history builds up over the next few minutes.') + '</div>';
+  useEffect(function () {
+    if (!ref.current) return;
+    if (n < 2) {
+      if (plot.current) { plot.current.destroy(); plot.current = null; }
+      ref.current.innerHTML = '<div class="v-empty">' +
+        (P.empty || 'Not enough samples yet — history builds up each minute.') + '</div>';
       return;
     }
+    var xs = series[0].points.map(function (q) { return q[0]; });
+    var ys = series.map(function (s) { return s.points.map(function (q) { return q[1]; }); });
 
-    var W = 600, H = 132, padL = 4, padR = 4, padT = 10, padB = 16;
-    var t0 = Math.min.apply(null, all.map(function (p) { return p[0]; }));
-    var t1 = Math.max.apply(null, all.map(function (p) { return p[0]; }));
-    if (t1 <= t0) t1 = t0 + 1;
-
-    var maxV = opts.max;
     if (!maxV) {
       maxV = 0;
-      all.forEach(function (p) { if (p[1] > maxV) maxV = p[1]; });
+      ys.forEach(function (a) { a.forEach(function (v) { if (v != null && v > maxV) maxV = v; }); });
       maxV = maxV * 1.15;
     }
-    if (!maxV || maxV <= 0) maxV = 1;
+    if (!maxV || maxV <= minV) maxV = minV + 1;
 
-    var X = function (t) { return padL + (W - padL - padR) * ((t - t0) / (t1 - t0)); };
-    var Y = function (v) { return H - padB - (H - padT - padB) * Math.max(0, Math.min(1, v / maxV)); };
-
-    var p = [];
-    p.push('<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img">');
-
-    // horizontal grid + max label
-    [0.25, 0.5, 0.75, 1].forEach(function (f) {
-      var y = Y(maxV * f);
-      p.push('<line x1="' + padL + '" y1="' + y + '" x2="' + (W - padR) + '" y2="' + y +
-             '" stroke="currentColor" stroke-opacity=".1" stroke-dasharray="2 3"/>');
-    });
-
-    series.forEach(function (s) {
-      var pts = (s.points || []).filter(function (q) { return q[1] != null; });
-      if (pts.length < 2) return;
-      var d = pts.map(function (q, i) { return (i ? 'L' : 'M') + X(q[0]).toFixed(1) + ' ' + Y(q[1]).toFixed(1); }).join(' ');
-      // area fill
-      p.push('<path d="' + d + ' L' + X(pts[pts.length - 1][0]).toFixed(1) + ' ' + (H - padB) +
-             ' L' + X(pts[0][0]).toFixed(1) + ' ' + (H - padB) + ' Z" fill="' + s.color +
-             '" fill-opacity=".13"/>');
-      p.push('<path d="' + d + '" fill="none" stroke="' + s.color + '" stroke-width="1.8" ' +
-             'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>');
-    });
-
-    // time labels
-    var mid = t0 + (t1 - t0) / 2;
-    var clock = function (t) {
-      var d = new Date(t * 1000);
-      return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+    var opts = {
+      width: ref.current.clientWidth || 600,
+      height: P.height || 150,
+      legend: { show: series.length > 1, live: false },
+      cursor: { sync: { key: 'vit' } },
+      scales: { x: { time: false } },
+      axes: [
+        { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false },
+          values: function (u, sp) { return sp.map(ts); } },
+        { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
+          values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } }
+      ],
+      series: [{}].concat(series.map(function (s) {
+        return { label: s.name, stroke: s.color, width: 1.7, spanGaps: true, points: { show: false } };
+      })),
+      padding: [8, 10, 0, 0]
     };
-    p.push('<text x="' + padL + '" y="' + (H - 3) + '" font-size="10" fill="currentColor" fill-opacity=".45">' + clock(t0) + '</text>');
-    p.push('<text x="' + (W / 2) + '" y="' + (H - 3) + '" font-size="10" fill="currentColor" fill-opacity=".45" text-anchor="middle">' + clock(mid) + '</text>');
-    p.push('<text x="' + (W - padR) + '" y="' + (H - 3) + '" font-size="10" fill="currentColor" fill-opacity=".45" text-anchor="end">' + clock(t1) + '</text>');
-    p.push('<text x="' + (W - padR) + '" y="' + (padT + 8) + '" font-size="10" fill="currentColor" fill-opacity=".5" text-anchor="end">' +
-           esc(opts.maxLabel || (opts.max ? String(opts.max) : (maxV > 100 ? maxV.toFixed(0) : maxV.toFixed(1)))) + '</text>');
-    p.push('</svg>');
-    host.innerHTML = p.join('');
-  }
+    if (plot.current) plot.current.destroy();
+    plot.current = new uPlot(opts, [xs].concat(ys), ref.current);
 
-  /* ----------------------------------------------------------------- cards */
-
-  function card(c) {
-    var cls = c.level ? ' ' + c.level : '';
-    return '<div class="v-card">' +
-      '<div class="v-card-label">' + esc(c.label) + '</div>' +
-      '<div class="v-card-value' + cls + '">' + c.value +
-        (c.unit ? ' <small>' + esc(c.unit) + '</small>' : '') + '</div>' +
-      (c.sub ? '<div class="v-card-sub">' + c.sub + '</div>' : '') +
-      (c.bar != null ? '<div class="v-bar"><i style="width:' + Math.max(0, Math.min(100, c.bar)) +
-        '%;background:' + (c.color || 'var(--v-cpu)') + '"></i></div>' : '') +
-      '</div>';
-  }
-
-  /** GPU list, or null when absent / driver not loaded. */
-  function gpuList(s) {
-    var g = s.gpu;
-    if (!g || (g.available === false)) return null;
-    if (Array.isArray(g)) return g.length ? g : null;
-    return null;
-  }
-
-  function renderCards(s) {
-    var mem = s.mem || {}, load = s.load || {}, arr = s.array || {}, t = arr.totals || {};
-    var temps = [];
-    (arr.data || []).concat(arr.parity || []).forEach(function (d) { if (d.temp != null) temps.push(d.temp); });
-    var tMax = temps.length ? Math.max.apply(null, temps) : null;
-
-    var cpuPct = s.cpu ? s.cpu.total : null;
-    var cards = [
-      { label: 'CPU load', value: pct(cpuPct), level: level(cpuPct, 80, 95),
-        sub: (load.cores || '?') + ' cores · load ' + (load.l1 != null ? load.l1.toFixed(2) : '—'),
-        bar: cpuPct, color: 'var(--v-cpu)' },
-      { label: 'Memory', value: pct(mem.pct), level: level(mem.pct, 80, 92),
-        sub: bytes(mem.used) + ' of ' + bytes(mem.total), bar: mem.pct, color: 'var(--v-mem)' },
-      { label: 'Array', value: String(arr.totals ? arr.totals.data_disks : 0) + '<small> data</small>',
-        sub: (s.system && s.system.md_state ? s.system.md_state : '—') +
-             ' · ' + (arr.totals ? arr.totals.parity_disks : 0) + ' parity' },
-      { label: 'Storage used', value: pct(t.used_pct), level: level(t.used_pct, 85, 95),
-        sub: bytes(t.fs_used) + ' of ' + bytes(t.fs_size), bar: t.used_pct, color: 'var(--v-mem)' },
-      { label: 'Hottest disk', value: tMax == null ? '—' : tMax, unit: tMax == null ? '' : '°C',
-        level: tMax == null ? 'muted' : level(tMax, 45, 55),
-        sub: temps.length + ' disks reporting' },
-      { label: 'Containers', value: (s.docker ? s.docker.running : 0) + '<small> / ' +
-          (s.docker ? s.docker.count : 0) + '</small>',
-        sub: s.docker && s.docker.stopped ? s.docker.stopped + ' stopped' : 'all running' },
-      { label: 'Uptime', value: dur(s.system ? s.system.uptime : null),
-        sub: s.system ? esc(s.system.version) : '' },
-      { label: 'Shares', value: String(s.shares ? s.shares.total : 0),
-        sub: s.shares ? s.shares.cache + ' cached · ' + s.shares.array + ' array' : '' }
-    ];
-    var gl = gpuList(s);
-    if (gl) {
-      var g = gl[0];
-      cards.splice(5, 0, { label: 'GPU', value: pct(g.util), level: level(g.util, 90, 98),
-        sub: bytes(g.mem_used) + ' / ' + bytes(g.mem_total) + (g.temp != null ? ' · ' + g.temp + '°C' : ''),
-        bar: g.util, color: 'var(--v-load)' });
-    }
-    el('v-cards').innerHTML = cards.map(card).join('');
-  }
-
-  /* --------------------------------------------------------------- panels */
-
-  function renderArray(s) {
-    var arr = s.array || {}, rows = [];
-    var mk = function (d) {
-      var used = d.usedPct;
-      return '<tr>' +
-        '<td class="v-name">' + esc(d.name) + '</td>' +
-        '<td><span class="v-pill">' + esc(d.type || '—') + '</span></td>' +
-        '<td class="v-mono">' + esc(d.device || '—') + '</td>' +
-        '<td class="num">' + (d.temp == null ? '<span class="muted">—</span>'
-            : '<span class="' + level(d.temp, 45, 55) + '">' + d.temp + '°C</span>') + '</td>' +
-        '<td class="num">' + bytes(d.fsSize) + '</td>' +
-        '<td class="num">' + (d.fsSize ? bytes(d.fsUsed) : '<span class="muted">—</span>') + '</td>' +
-        '<td class="num" style="width:120px">' +
-          (d.fsSize ? '<div class="v-bar" style="margin:0"><i style="width:' + used +
-            '%;background:' + (used > 90 ? 'var(--v-temp)' : used > 75 ? 'var(--v-load)' : 'var(--v-rx)') + '"></i></div>' +
-            '<span class="muted" style="font-size:11px">' + used + '%</span>' : '<span class="muted">—</span>') +
-        '</td>' +
-        '<td class="num ' + (d.numErrors > 0 ? 'crit' : 'muted') + '">' + d.numErrors + '</td>' +
-        '</tr>';
+    var onR = function () {
+      if (plot.current && ref.current) {
+        plot.current.setSize({ width: ref.current.clientWidth, height: opts.height });
+      }
     };
-    var head = '<tr><th>Disk</th><th>Type</th><th>Device</th><th class="num">Temp</th>' +
-               '<th class="num">Size</th><th class="num">Used</th><th class="num">Fill</th>' +
-               '<th class="num">Errors</th></tr>';
+    window.addEventListener('resize', onR);
+    return function () {
+      window.removeEventListener('resize', onR);
+      if (plot.current) { plot.current.destroy(); plot.current = null; }
+    };
+  });
 
-    (arr.parity || []).forEach(function (d) { rows.push(mk(d)); });
-    (arr.data || []).forEach(function (d) { rows.push(mk(d)); });
-    (arr.cache || []).forEach(function (d) { rows.push(mk(d)); });
+  return h('div', { class: 'v-chart', ref: ref });
+}
 
-    var t = arr.totals || {};
-    var foot = '<div class="v-card-sub" style="margin-top:8px">' +
-      bytes(t.fs_free) + ' free of ' + bytes(t.fs_size) + ' · ' +
-      (t.raw ? 'raw capacity ' + bytes(t.raw) : '') + '</div>';
+function topKeys(pts, field, idx, n) {
+  var last = pts[pts.length - 1];
+  if (!last || !last[field]) return [];
+  var m = last[field];
+  return Object.keys(m).filter(function (k) { return m[k] && m[k][idx] != null; })
+    .sort(function (a, b) { return (m[b][idx] || 0) - (m[a][idx] || 0); }).slice(0, n);
+}
 
-    el('v-array').innerHTML = rows.length
-      ? '<div class="v-scroll"><table>' + head + rows.join('') + '</table></div>' + foot
-      : '<div class="v-empty muted">No array devices found.</div>';
-  }
+/* --------------------------------------------------------------- tables */
 
-  function renderPools(s) {
-    var arr = s.array || {};
-    var pools = (arr.cache || []);
-    if (!pools.length) { el('v-pools').innerHTML = '<div class="muted" style="font-size:13px">No pool devices.</div>'; return; }
-    var html = '<div class="v-scroll"><table><tr><th>Pool device</th><th class="num">Size</th><th class="num">Used</th><th class="num">Temp</th></tr>';
-    pools.forEach(function (d) {
-      html += '<tr><td class="v-name">' + esc(d.name) + '</td>' +
-        '<td class="num">' + bytes(d.fsSize) + '</td>' +
-        '<td class="num">' + pct(d.usedPct) + '</td>' +
-        '<td class="num">' + (d.temp == null ? '<span class="muted">—</span>' : d.temp + '°C') + '</td></tr>';
-    });
-    html += '</table></div>';
-    html += '<div class="v-card-sub" style="margin-top:8px">' + (s.shares ? s.shares.cache : 0) +
-            ' share(s) configured to use cache.</div>';
-    el('v-pools').innerHTML = html;
-  }
+function Table(P) { return h('div', { class: 'v-scroll' }, h('table', null, P.children)); }
 
-  function renderDocker(s) {
-    var d = s.docker || {}, list = d.containers || [];
-    el('v-docker-hint').textContent = d.running + ' running of ' + d.count;
-    if (!list.length) { el('v-docker').innerHTML = '<div class="muted" style="font-size:13px">No containers.</div>'; return; }
-    var html = '<div class="v-scroll"><table><tr><th>Container</th><th>State</th>' +
-               '<th class="num">CPU</th><th class="num">Mem</th><th class="num">Mem %</th><th>Uptime</th></tr>';
-    list.forEach(function (c) {
-      var st = c.state === 'running' ? 'run' : 'stop';
-      html += '<tr><td class="v-name">' + esc(c.name) + '</td>' +
-        '<td><span class="v-pill ' + st + '">' + esc(c.state) + '</span></td>' +
-        '<td class="num ' + level(c.cpu, 60, 90) + '">' + (c.cpu == null ? '—' : c.cpu.toFixed(1) + '%') + '</td>' +
-        '<td class="num">' + esc(c.mem || '—') + '</td>' +
-        '<td class="num">' + (c.mem_pct == null ? '—' : c.mem_pct.toFixed(1) + '%') + '</td>' +
-        '<td class="muted">' + esc((c.status || '').replace(/^Up\s*/, '') || '—') + '</td></tr>';
-    });
-    el('v-docker').innerHTML = html + '</table></div>';
-  }
+function ContainerTable(P) {
+  var list = ((P.d.docker || {}).containers || []).slice();
+  if (P.compact) list = list.slice(0, 9);
+  if (!list.length) return h('div', { class: 'v-empty' }, 'No containers reported.');
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Container'), h('th', null, 'State'), h('th', null, 'Image'),
+      h('th', { class: 'num' }, 'CPU'), h('th', { class: 'num' }, 'Memory'),
+      h('th', { class: 'num' }, 'Mem %'), h('th', null, 'Uptime')),
+    list.map(function (c) {
+      var run = c.state === 'running';
+      return h('tr', { key: c.name },
+        h('td', { class: 'v-name' }, c.name),
+        h('td', null, h(Pill, { kind: run ? 'run' : 'stop' }, run ? 'running' : c.state)),
+        h('td', { class: 'muted' }, c.image),
+        h('td', { class: 'num ' + lvl(c.cpu, 150, 300) }, c.cpu == null ? '—' : c.cpu.toFixed(1) + '%'),
+        h('td', { class: 'num' }, c.mem || bytes(c.mem_bytes)),
+        h('td', { class: 'num' }, c.mem_pct == null ? '—' : c.mem_pct.toFixed(2) + '%'),
+        h('td', { class: 'muted' }, (c.status || '').replace(/^Up\s*/, '') || '—'));
+    }));
+}
 
-  function renderProcs(s) {
-    var list = s.top || [];
-    if (!list.length) { el('v-procs').innerHTML = '<div class="muted" style="font-size:13px">—</div>'; return; }
-    var html = '<table><tr><th>Process</th><th class="num">CPU</th><th class="num">Mem</th><th class="num">RSS</th></tr>';
-    list.forEach(function (p) {
-      html += '<tr><td class="v-name v-mono">' + esc(p.name) + '</td>' +
-        '<td class="num">' + p.cpu.toFixed(1) + '%</td>' +
-        '<td class="num">' + p.mem.toFixed(1) + '%</td>' +
-        '<td class="num">' + bytes(p.rss) + '</td></tr>';
-    });
-    el('v-procs').innerHTML = html + '</table>';
-  }
+function TopTable(P) {
+  var list = P.d.top || [];
+  if (!list.length) return h('div', { class: 'v-empty' }, 'No process data.');
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Process'), h('th', { class: 'num' }, 'CPU'),
+      h('th', { class: 'num' }, 'Mem %'), h('th', { class: 'num' }, 'RSS')),
+    list.map(function (p, i) {
+      return h('tr', { key: i },
+        h('td', { class: 'v-name v-mono' }, p.name),
+        h('td', { class: 'num ' + lvl(p.cpu, 50, 100) }, p.cpu.toFixed(1) + '%'),
+        h('td', { class: 'num' }, p.mem.toFixed(1) + '%'),
+        h('td', { class: 'num muted' }, bytes(p.rss)));
+    }));
+}
 
-  function renderSmart(s) {
-    var list = Object.keys(s.smart || {}).map(function (k) { return s.smart[k]; });
-    if (!list.length) {
-      el('v-smart').innerHTML = '<div class="muted" style="font-size:13px">No SMART data cached yet.</div>';
-      return;
-    }
-    var html = '<div class="v-scroll"><table><tr><th>Disk</th><th>Health</th><th class="num">Temp</th>' +
-               '<th class="num">Hours</th><th class="num">Realloc</th><th class="num">Pending</th>' +
-               '<th class="num">CRC</th></tr>';
-    list.forEach(function (r) {
-      var bad = (r.reallocated || 0) + (r.pending || 0) + (r.uncorrectable || 0);
-      var hcls = r.health === 'PASSED' ? 'ok' : (r.health ? 'crit' : 'muted');
-      var htxt = (r.health || 'n/a').replace('PASSED', 'Passed').replace('FAILED!', 'FAILED');
-      html += '<tr><td class="v-name">' + esc(r.name) + '</td>' +
-        '<td><span class="' + hcls + '">' + esc(htxt) + '</span></td>' +
-        '<td class="num ' + level(r.temp, 45, 55) + '">' + (r.temp == null ? '—' : r.temp + '°C') + '</td>' +
-        '<td class="num">' + (r.hours == null ? '—' : r.hours.toLocaleString()) + '</td>' +
-        '<td class="num ' + (r.reallocated ? 'crit' : 'muted') + '">' + (r.reallocated == null ? '—' : r.reallocated) + '</td>' +
-        '<td class="num ' + (r.pending ? 'crit' : 'muted') + '">' + (r.pending == null ? '—' : r.pending) + '</td>' +
-        '<td class="num ' + (r.crc ? 'warn' : 'muted') + '">' + (r.crc == null ? '—' : r.crc) + '</td></tr>';
-    });
-    el('v-smart').innerHTML = html + '</table></div>';
-    if (list.some(function (r) { return (r.reallocated || 0) + (r.pending || 0) > 0; })) {
-      el('v-smart').insertAdjacentHTML('beforeend',
-        '<div class="crit" style="font-size:12px;margin-top:8px">Reallocated or pending sectors present — check disk health.</div>');
-    }
-  }
+function SmartTable(P) {
+  var keys = Object.keys(P.d.smart || {});
+  if (!keys.length) return h('div', { class: 'v-empty' }, 'No SMART data cached yet.');
+  var rows = keys.map(function (k) { return P.d.smart[k]; });
+  rows.sort(function (a, b) { return (b.temp || 0) - (a.temp || 0); });
+  var flagged = rows.some(function (r) { return (r.reallocated || 0) + (r.pending || 0) > 0; });
+  return h('div', null,
+    h(Table, null,
+      h('tr', null, h('th', null, 'Disk'), h('th', null, 'Health'), h('th', { class: 'num' }, 'Temp'),
+        h('th', { class: 'num' }, 'Power-on h'), h('th', { class: 'num' }, 'Realloc'),
+        h('th', { class: 'num' }, 'Pending'), h('th', { class: 'num' }, 'Uncorr'),
+        h('th', { class: 'num' }, 'CRC')),
+      rows.map(function (r) {
+        var hcls = r.health === 'PASSED' ? 'ok' : (r.health ? 'crit' : 'muted');
+        return h('tr', { key: r.dev || r.name },
+          h('td', { class: 'v-name' }, r.name),
+          h('td', null, h('span', { class: hcls }, r.health || 'n/a')),
+          h('td', { class: 'num ' + lvl(r.temp, 45, 55) }, r.temp == null ? '—' : r.temp + '°'),
+          h('td', { class: 'num muted' }, r.hours == null ? '—' : r.hours.toLocaleString()),
+          h('td', { class: 'num ' + (r.reallocated ? 'crit' : 'muted') }, r.reallocated == null ? '—' : String(r.reallocated)),
+          h('td', { class: 'num ' + (r.pending ? 'crit' : 'muted') }, r.pending == null ? '—' : String(r.pending)),
+          h('td', { class: 'num ' + (r.uncorrectable ? 'crit' : 'muted') }, r.uncorrectable == null ? '—' : String(r.uncorrectable)),
+          h('td', { class: 'num ' + (r.crc ? 'warn' : 'muted') }, r.crc == null ? '—' : String(r.crc)));
+      })),
+    flagged ? h('div', { class: 'v-warnnote' },
+      h('i', { class: 'fa fa-exclamation-triangle' }),
+      ' Reallocated or pending sectors present — check disk health.') : null);
+}
 
-  function renderGpu(s) {
-    var gl = gpuList(s);
-    if (!gl) {
-      // nvidia-smi present but driver unavailable (GPU passed through to a VM)
-      if (s.gpu && s.gpu.available === false) {
-        el('v-gpu-panel').hidden = false;
-        el('v-gpu').innerHTML = '<div class="muted" style="font-size:13px">nvidia-smi is installed but the host driver is not loaded' +
-          (s.gpu.reason === 'driver-not-loaded' ? ' — the GPU is most likely passed through to a VM.' : '.') + '</div>';
-        el('v-chart-gpu').innerHTML = '';
-        return;
-      }
-      el('v-gpu-panel').hidden = true; return;
-    }
-    var g = gl[0];
-    el('v-gpu-panel').hidden = false;
-    var rows = [
-      ['Model', esc(g.name || '—')],
-      ['Utilisation', pct(g.util)],
-      ['VRAM', bytes(g.mem_used) + ' / ' + bytes(g.mem_total)],
-      ['Temperature', g.temp == null ? '—' : g.temp + '°C'],
-      ['Power', g.power == null ? '—' : g.power.toFixed(1) + ' W' + (g.power_limit ? ' / ' + g.power_limit.toFixed(0) + ' W' : '')],
-      ['Fan', g.fan == null ? '—' : g.fan + '%']
-    ];
-    el('v-gpu').innerHTML = '<table>' + rows.map(function (r) {
-      return '<tr><td>' + r[0] + '</td><td class="num v-name">' + r[1] + '</td></tr>';
-    }).join('') + '</table>';
-    if (g.mem_total) {
-      el('v-gpu').insertAdjacentHTML('beforeend', '<div class="v-bar"><i style="width:' +
-        (100 * g.mem_used / g.mem_total).toFixed(1) + '%;background:var(--v-load)"></i></div>');
-    }
-  }
+function DiskTable(P) {
+  var a = P.d.array || {};
+  var disks = (a.parity || []).concat(a.data || [], a.cache || []);
+  if (!disks.length) return h('div', { class: 'v-empty' }, 'No array devices found.');
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Disk'), h('th', null, 'Type'), h('th', null, 'Device'),
+      h('th', { class: 'num' }, 'Temp'), h('th', { class: 'num' }, 'Size'),
+      h('th', { class: 'num' }, 'Used'), h('th', { class: 'num' }, 'Fill'),
+      h('th', { class: 'num' }, 'Errors'), h('th', null, 'State')),
+    disks.map(function (x) {
+      return h('tr', { key: x.name },
+        h('td', { class: 'v-name' }, x.name),
+        h('td', null, x.type),
+        h('td', { class: 'muted v-mono' }, x.device || '—'),
+        h('td', { class: 'num ' + lvl(x.temp, 45, 55) }, x.temp == null ? '—' : x.temp + '°'),
+        h('td', { class: 'num' }, bytes(x.size)),
+        h('td', { class: 'num' }, x.fsUsed ? bytes(x.fsUsed) : '—'),
+        h('td', { class: 'num ' + lvl(x.usedPct, 85, 95) }, x.usedPct ? x.usedPct.toFixed(1) + '%' : '—'),
+        h('td', { class: 'num ' + (x.numErrors ? 'crit' : 'muted') }, String(x.numErrors || 0)),
+        h('td', null, h(Pill, { kind: x.spundown ? 'stop' : 'run' }, x.spundown ? 'spun down' : 'active')));
+    }));
+}
 
-  function renderUps(s) {
-    var u = s.ups || {};
-    var keys = ['STATUS', 'LINEV', 'LOADPCT', 'BCHARGE', 'TIMELEFT', 'BATTV', 'MODEL'];
-    var have = keys.filter(function (k) { return u[k] != null; });
-    if (!have.length) { el('v-ups-panel').hidden = true; return; }
-    el('v-ups-panel').hidden = false;
-    var label = { STATUS: 'Status', LINEV: 'Line voltage', LOADPCT: 'Load', BCHARGE: 'Battery',
-                  TIMELEFT: 'Runtime left', BATTV: 'Battery voltage', MODEL: 'Model' };
-    el('v-ups').innerHTML = '<table>' + have.map(function (k) {
-      return '<tr><td>' + label[k] + '</td><td class="num v-name">' + esc(u[k]) + '</td></tr>';
-    }).join('') + '</table>';
-  }
+/* ----------------------------------------------------------------- tabs */
 
-  function renderDaily(s) {
-    fetch(cfg.endpoint + '?action=daily&days=30', { cache: 'no-store' })
+var TABS = [
+  { id: 'dash',   label: 'Dashboard',     icon: 'fa-tachometer' },
+  { id: 'array',  label: 'Array & Disks', icon: 'fa-hdd-o' },
+  { id: 'docker', label: 'Docker',        icon: 'fa-cubes' },
+  { id: 'net',    label: 'Network',       icon: 'fa-exchange' },
+  { id: 'sys',    label: 'System',        icon: 'fa-microchip' },
+  { id: 'shares', label: 'Shares',        icon: 'fa-folder-open-o' },
+  { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' }
+];
+
+function App() {
+  var s1 = useState(null), payload = s1[0], setPayload = s1[1];
+  var s2 = useState(360), range = s2[0], setRange = s2[1];
+  var s3 = useState('dash'), tab = s3[0], setTab = s3[1];
+  var s4 = useState('loading'), status = s4[0], setStatus = s4[1];
+  var s5 = useState(null), daily = s5[0], setDaily = s5[1];
+
+  var load = function (force) {
+    setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
+    fetch(ENDPOINT + '?action=' + (force ? 'refresh' : 'data'), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) {
-        var d = j.daily || [];
-        if (!d.length) {
-          el('v-daily').innerHTML = '<div class="muted" style="font-size:13px">Daily rollups appear after the first full hour of collection.</div>';
-          return;
-        }
-        var html = '<div class="v-scroll"><table><tr><th>Day</th><th class="num">CPU avg</th>' +
-                   '<th class="num">Mem avg</th><th class="num">Peak temp</th>' +
-                   '<th class="num">Net RX</th><th class="num">Net TX</th>' +
-                   '<th class="num">Peak GPU</th><th class="num">Fullest disk</th></tr>';
-        d.slice().reverse().forEach(function (r) {
-          var smartWarn = '';
-          var sm = r.smart || {};
-          Object.keys(sm).forEach(function (k) {
-            if ((sm[k].reallocated || 0) > 0 || (sm[k].pending || 0) > 0)
-              smartWarn += '<span class="warn" style="margin-left:4px">' + esc(k) + '</span>';
-          });
-          html += '<tr><td class="v-name">' + esc(r.day) + smartWarn + '</td>' +
-            '<td class="num">' + (r.cpu == null ? '—' : r.cpu + '%') + '</td>' +
-            '<td class="num">' + (r.mem == null ? '—' : r.mem + '%') + '</td>' +
-            '<td class="num ' + level(r.temp_max, 50, 58) + '">' + (r.temp_max == null ? '—' : r.temp_max + '°C') + '</td>' +
-            '<td class="num">' + (r.net_rx ? bytes(r.net_rx) + '/s' : '—') + '</td>' +
-            '<td class="num">' + (r.net_tx ? bytes(r.net_tx) + '/s' : '—') + '</td>' +
-            '<td class="num">' + (r.gpu_max == null ? '—' : r.gpu_max + '%') + '</td>' +
-            '<td class="num">' + (r.fill_max == null ? '—' : r.fill_max + '%') + '</td></tr>';
-        });
-        el('v-daily').innerHTML = html + '</table></div>';
-      })
-      .catch(function () { el('v-daily').innerHTML = '<div class="muted">—</div>'; });
-  }
+      .then(function (j) { if (j && j.ok) { setPayload(j); setStatus('ok'); } })
+      .catch(function () { setStatus('error'); });
+  };
 
-  /* --------------------------------------------------------------- charts */
+  useEffect(function () {
+    resolvePalette();
+    load(false);
+    var iv = setInterval(function () { load(false); }, 15000);
+    return function () { clearInterval(iv); };
+  }, []);
 
-  var PALETTE = ['var(--v-cpu)', 'var(--v-mem)', 'var(--v-load)', 'var(--v-rx)', 'var(--v-tx)', 'var(--v-temp)',
-                 '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#fb7185'];
-
-  /** Top-N entities by the latest sample's value, for the per-entity charts. */
-  function topKeys(pts, field, idx, n) {
-    var last = pts[pts.length - 1];
-    if (!last || !last[field]) return [];
-    var m = last[field];
-    return Object.keys(m).filter(function (k) { return m[k] && m[k][idx] != null; })
-      .sort(function (a, b) { return (m[b][idx] || 0) - (m[a][idx] || 0); }).slice(0, n);
-  }
-
-  function legend(id, items) {
-    var host = el(id);
-    if (!host) return;
-    host.innerHTML = items.map(function (it) {
-      return '<span class="v-legend-item"><i style="background:' + it.color + '"></i>' + esc(it.name) + '</span>';
-    }).join('');
-  }
-
-  function renderCharts(ring) {
-    var n = cfg.range;
-    var pts = ring.slice(-n);
-    var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
-
-    chart('v-chart-resource', [
-      { name: 'cpu', color: 'var(--v-cpu)', points: pick(function (p) { return p.cpu; }) },
-      { name: 'mem', color: 'var(--v-mem)', points: pick(function (p) { return p.mem; }) },
-      { name: 'load', color: 'var(--v-load)', points: pick(function (p) {
-          return p.load == null ? null : Math.min(100, p.load * 100 / (cfg.snap && cfg.snap.load && cfg.snap.load.cores ? cfg.snap.load.cores : 1)); }) }
-    ], { max: 100, maxLabel: '100%', empty: 'History builds up as the collector runs each minute.' });
-
-    // P2-03: network — one rx + one tx series per interface (top 4 by current rx+tx)
-    var ifs = topKeys(pts, 'net', 0, 4);
-    if (!ifs.length) {
-      chart('v-chart-net', [
-        { name: 'rx', color: 'var(--v-rx)', points: pick(function (p) { return p.net_rx; }) },
-        { name: 'tx', color: 'var(--v-tx)', points: pick(function (p) { return p.net_tx; }) }
-      ], { maxLabel: '' });
-      legend('v-legend-net', [{ name: 'rx', color: 'var(--v-rx)' }, { name: 'tx', color: 'var(--v-tx)' }]);
-    } else {
-      var netSeries = [], netLegend = [];
-      ifs.forEach(function (ifn, i) {
-        var c = PALETTE[i % PALETTE.length];
-        netSeries.push({ name: ifn + ' rx', color: c, points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][0] : null; }) });
-        netSeries.push({ name: ifn + ' tx', color: c, points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][1] : null; }) });
-        netLegend.push({ name: ifn, color: c });
-      });
-      chart('v-chart-net', netSeries, { maxLabel: '' });
-      legend('v-legend-net', netLegend);
-    }
-
-    chart('v-chart-temp', [
-      { name: 'temp', color: 'var(--v-temp)', points: pick(function (p) { return p.temp_max; }) }
-    ], {});
-
-    // P2-01: containers — top 6 by current CPU
-    var ctrs = topKeys(pts, 'ctr', 0, 6);
-    var ctrHost = el('v-chart-ctr');
-    if (ctrHost) {
-      if (!ctrs.length) {
-        ctrHost.innerHTML = '<div class="v-empty">Container series appear after the collector has sampled docker stats.</div>';
-        legend('v-legend-ctr', []);
-      } else {
-        chart('v-chart-ctr', ctrs.map(function (name, i) {
-          return { name: name, color: PALETTE[i % PALETTE.length],
-                   points: pick(function (p) { return p.ctr && p.ctr[name] ? p.ctr[name][0] : null; }) };
-        }), { maxLabel: 'CPU %' });
-        legend('v-legend-ctr', ctrs.map(function (name, i) { return { name: name, color: PALETTE[i % PALETTE.length] }; }));
-      }
-    }
-
-    // P2-02: SMART temperature per disk — top 6 hottest now
-    var disks = topKeys(pts, 'smart', 0, 6);
-    var smHost = el('v-chart-smart');
-    if (smHost) {
-      if (!disks.length) {
-        smHost.innerHTML = '<div class="v-empty">Per-disk temperature history appears once SMART data is cached.</div>';
-        legend('v-legend-smart', []);
-      } else {
-        chart('v-chart-smart', disks.map(function (name, i) {
-          return { name: name, color: PALETTE[i % PALETTE.length],
-                   points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][0] : null; }) };
-        }), { maxLabel: '°C' });
-        legend('v-legend-smart', disks.map(function (name, i) { return { name: name, color: PALETTE[i % PALETTE.length] }; }));
-      }
-    }
-
-    // P2-04: GPU — utilisation + temperature when a GPU is reporting
-    var gpuHost = el('v-chart-gpu');
-    if (gpuHost) {
-      var haveGpu = pts.some(function (p) { return p.gpu_hist && p.gpu_hist[0] != null; });
-      if (haveGpu) {
-        chart('v-chart-gpu', [
-          { name: 'util', color: 'var(--v-load)', points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[0] : null; }) },
-          { name: 'temp', color: 'var(--v-temp)', points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[2] : null; }) }
-        ], { max: 100, maxLabel: '100' });
-      } else {
-        gpuHost.innerHTML = '';
-      }
-    }
-
-    el('v-chart-hint').textContent = pts.length + ' samples · ' + cfg.range + ' min window';
-  }
-
-  /* ----------------------------------------------------------------- load */
-
-  function render(j) {
-    var s = j.data || {};
-    cfg.snap = s;
-    cfg.ring = j.ring || [];
-    el('v-server').innerHTML = esc((s.system && s.system.name) || 'server') +
-      (s.system && s.system.cpu ? ' · ' + esc(s.system.cpu) : '');
-    el('v-stamp').textContent = (s.time ? new Date(s.time * 1000).toLocaleTimeString() : '');
-
-    renderCards(s);
-    renderCharts(cfg.ring);
-    renderArray(s);
-    renderPools(s);
-    renderDocker(s);
-    renderProcs(s);
-    renderSmart(s);
-    renderGpu(s);
-    renderUps(s);
-    renderDaily(s);
-  }
-
-  function fetchData(force) {
-    var url = cfg.endpoint + (force ? '?action=refresh' : '?action=data');
-    return fetch(url, { cache: 'no-store' })
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=daily&days=30', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(render)
-      .catch(function (e) {
-        var st = el('v-stamp');
-        if (st) st.innerHTML = '<span class="crit">collection error</span>';
-        console.error('[vitals]', e);
-      });
+      .then(function (j) { setDaily((j && j.daily) || []); })
+      .catch(function () { setDaily([]); });
+  }, []);
+
+  var d = payload && payload.data;
+  var ring = (payload && payload.ring) || [];
+  var pts = ring.slice(-range);
+  var props = { d: d, pts: pts, range: range, daily: daily };
+
+  return h('div', null,
+    h('div', { class: 'v-head' },
+      h('div', { class: 'v-title' },
+        h('h2', null, h('i', { class: 'fa fa-heartbeat' }), ' Vitals'),
+        d ? h('span', { class: 'v-sub' },
+              [d.system.name, d.system.version, d.system.cpu].filter(Boolean).join(' · ')) : null),
+      h('div', { class: 'v-actions' },
+        h('span', { class: 'v-stamp' },
+          h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
+          status === 'error' ? 'collection error'
+            : !d ? 'loading…'
+            : 'sample ' + ts(d.time) + ' · ' + d._age + 's ago'),
+        h('select', { class: 'v-select', value: range,
+          onChange: function (e) { setRange(+e.target.value); } },
+          h('option', { value: 60 }, 'Last hour'),
+          h('option', { value: 360 }, 'Last 6 hours'),
+          h('option', { value: 1440 }, 'Last 24 hours')),
+        h('button', { class: 'v-btn', onClick: function () { load(true); } },
+          h('i', { class: 'fa fa-refresh' }), ' Refresh'))),
+
+    h('div', { class: 'v-tabs' },
+      TABS.map(function (t) {
+        return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''),
+          onClick: function () { setTab(t.id); } },
+          h('i', { class: 'fa ' + t.icon }), h('span', null, t.label));
+      })),
+
+    h('div', { class: 'v-body' },
+      !d ? h('div', { class: 'v-panel' }, h('div', { class: 'v-empty' }, 'Loading…'))
+        : tab === 'dash'   ? h(DashTab,   props)
+        : tab === 'array'  ? h(ArrayTab,  props)
+        : tab === 'docker' ? h(DockerTab, props)
+        : tab === 'net'    ? h(NetTab,    props)
+        : tab === 'sys'    ? h(SysTab,    props)
+        : tab === 'shares' ? h(SharesTab, props)
+        : tab === 'hw'     ? h(HwTab,     props) : null),
+
+    h('div', { class: 'v-foot' },
+      'unraid-vitals · sampled every minute · ',
+      h('a', { href: '/Settings/VitalsSettings' }, 'settings')));
+}
+
+/* ------------------------------------------------------------ dashboard */
+
+function DashTab(P) {
+  var d = P.d, pts = P.pts, a = d.array || {}, t = a.totals || {}, load = d.load || {};
+  var temps = [];
+  (a.data || []).concat(a.parity || [], a.cache || []).forEach(function (x) {
+    if (x.temp != null) temps.push(x.temp);
+  });
+  var tMax = temps.length ? Math.max.apply(null, temps) : null;
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var cores = load.cores || 1;
+
+  var cpuSeries = [
+    { name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) },
+    { name: 'Memory %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) },
+    { name: 'Load (norm)', color: PAL['v-load'],
+      points: pick(function (p) { return p.load == null ? null : Math.min(100, p.load * 100 / cores); }) }
+  ];
+
+  var ifTop = topKeys(pts, 'net', 0, 2);
+  var netSeries = ifTop.length
+    ? ifTop.reduce(function (acc, ifn, i) {
+        var c = pickColor(i);
+        acc.push({ name: ifn + ' down', color: c,
+          points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][0] : null; }) });
+        acc.push({ name: ifn + ' up', color: c,
+          points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][1] : null; }) });
+        return acc;
+      }, [])
+    : [{ name: 'RX', color: PAL['v-rx'], points: pick(function (p) { return p.net_rx; }) },
+       { name: 'TX', color: PAL['v-tx'], points: pick(function (p) { return p.net_tx; }) }];
+
+  var ctrTop = topKeys(pts, 'ctr', 0, 6);
+  var ctrSeries = ctrTop.map(function (name, i) {
+    return { name: name, color: pickColor(i),
+      points: pick(function (p) { return p.ctr && p.ctr[name] ? p.ctr[name][0] : null; }) };
+  });
+
+  var cards = [
+    { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
+      level: lvl(d.cpu && d.cpu.total, 80, 95),
+      sub: (load.cores || '?') + ' threads · load ' +
+           (load.l1 != null ? load.l1.toFixed(2) : '—'),
+      bar: d.cpu && d.cpu.total },
+    { label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
+      level: lvl(d.mem && d.mem.pct, 80, 92),
+      sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), bar: d.mem && d.mem.pct },
+    { label: 'Array', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(t.data_disks || 0), unit: 'data',
+      sub: d.system.md_state + ' · ' + (t.parity_disks || 0) + ' parity · ' + (t.cache_disks || 0) + ' pool' },
+    { label: 'Storage', icon: 'fa-database', color: PAL['v-mem'], value: pctStr(t.used_pct),
+      level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), bar: t.used_pct },
+    { label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
+      value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
+      level: tMax == null ? '' : lvl(tMax, 45, 55), sub: temps.length + ' disks reporting' },
+    { label: 'Containers', icon: 'fa-cubes', color: PAL['v-ok-fg'],
+      value: String((d.docker || {}).running || 0), unit: '/ ' + ((d.docker || {}).count || 0),
+      sub: ((d.docker || {}).stopped || 0) + ' stopped' },
+    { label: 'Uptime', icon: 'fa-clock-o', color: PAL['v-accent'], value: dur(d.system.uptime),
+      sub: 'kernel ' + d.system.kernel },
+    { label: 'Shares', icon: 'fa-folder-open-o', color: PAL['v-accent'],
+      value: String((d.shares || {}).total || 0),
+      sub: ((d.shares || {}).cache || 0) + ' cached · ' + ((d.shares || {}).array || 0) + ' array' }
+  ];
+
+  return h('div', null,
+    h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'CPU & Memory', span2: true, hint: pts.length + ' samples' },
+        h(Chart, { series: cpuSeries, max: 100, height: 165,
+          yFmt: function (v) { return v + '%'; } })),
+      h(Panel, { title: 'Network throughput' },
+        h(Chart, { series: netSeries, height: 165, yFmt: bytes })),
+      h(Panel, { title: 'Disk temperature' },
+        h(Chart, { series: [{ name: 'Hottest °C', color: PAL['v-temp'],
+            points: pick(function (p) { return p.temp_max; }) }],
+          floor: tMax == null ? 0 : Math.max(0, Math.floor(tMax - 10)), height: 165,
+          yFmt: function (v) { return v + '°'; } }))),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Container CPU', hint: ctrTop.length ? 'top ' + ctrTop.length : '' },
+        h(Chart, { series: ctrSeries, yFmt: function (v) { return v + '%'; },
+          empty: 'Container series appear once docker stats are sampled.' })),
+      h(Panel, { title: 'Pools', hint: ((a.cache || []).length || 0) + ' devices' },
+        h('table', null,
+          h('tr', null, h('th', null, 'Pool'), h('th', { class: 'num' }, 'Size'),
+            h('th', { class: 'num' }, 'Used'), h('th', { class: 'num' }, 'Temp')),
+          (a.cache || []).map(function (x) {
+            return h('tr', { key: x.name },
+              h('td', { class: 'v-name' }, x.name),
+              h('td', { class: 'num' }, bytes(x.size, 0)),
+              h('td', { class: 'num ' + lvl(x.usedPct, 85, 95) }, x.usedPct ? x.usedPct.toFixed(0) + '%' : '—'),
+              h('td', { class: 'num ' + lvl(x.temp, 45, 55) }, x.temp == null ? '—' : x.temp + '°'));
+          })))),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Docker containers', span2: true,
+        hint: ((d.docker || {}).running || 0) + ' of ' + ((d.docker || {}).count || 0) + ' running' },
+        h(ContainerTable, { d: d, compact: true })),
+      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))));
+}
+
+function merge(a, b) {
+  var o = {}, k;
+  for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) o[k] = a[k];
+  for (k in b) if (Object.prototype.hasOwnProperty.call(b, k)) o[k] = b[k];
+  return o;
+}
+
+/* ---------------------------------------------------------------- array */
+
+function ArrayTab(P) {
+  var d = P.d, pts = P.pts, a = d.array || {}, t = a.totals || {};
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var smTop = topKeys(pts, 'smart', 0, 8);
+  var smSeries = smTop.map(function (name, i) {
+    return { name: name, color: pickColor(i),
+      points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][0] : null; }) };
+  });
+  var disks = (a.parity || []).concat(a.data || [], a.cache || []);
+  var used = disks.filter(function (x) { return x.fsSize > 0; });
+  var avg = used.length
+    ? used.reduce(function (s, x) { return s + (x.usedPct || 0); }, 0) / used.length : null;
+
+  return h('div', null,
+    h('div', { class: 'v-cards' },
+      [
+        { label: 'Array state', icon: 'fa-hdd-o', color: PAL['v-accent'], value: d.system.md_state,
+          sub: t.data_disks + ' data · ' + t.parity_disks + ' parity' },
+        { label: 'Raw capacity', icon: 'fa-database', color: PAL['v-mem'], value: bytes(t.raw, 1),
+          sub: t.fs_size ? bytes(t.fs_size, 1) + ' usable' : '' },
+        { label: 'Used', icon: 'fa-pie-chart', color: PAL['v-mem'], value: pctStr(t.used_pct),
+          bar: t.used_pct, level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free, 1) + ' free' },
+        { label: 'Mean fill', icon: 'fa-bar-chart', color: PAL['v-load'], value: pctStr(avg),
+          level: lvl(avg, 85, 95), sub: used.length + ' filesystems' },
+        { label: 'Pool devices', icon: 'fa-server', color: PAL['v-accent'], value: String(t.cache_disks || 0),
+          sub: (a.cache || []).filter(function (x) { return x.spundown; }).length + ' spun down' }
+      ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h(Panel, { title: 'Per-disk temperature', span2: true, hint: smTop.length ? 'hottest ' + smTop.length : '' },
+      h(Chart, { series: smSeries, height: 180, yFmt: function (v) { return v + '°'; },
+        empty: 'Per-disk temps appear once SMART data is cached.' })),
+    h(Panel, { title: 'Disks', span2: true, hint: disks.length + ' devices' }, h(DiskTable, { d: d })),
+    h(Panel, { title: 'SMART detail', span2: true, hint: Object.keys(d.smart || {}).length + ' disks' },
+      h(SmartTable, { d: d })),
+    h(Panel, { title: 'Daily rollups', span2: true,
+      hint: (P.daily || []).length ? 'last ' + P.daily.length + ' days' : 'building' },
+      h(DailyTable, { daily: P.daily })));
+}
+
+function DailyTable(P) {
+  var list = (P.daily || []).slice().reverse();
+  if (!list.length) {
+    return h('div', { class: 'v-empty' }, 'Daily rollups appear after the first full hour of collection.');
   }
-
-  function init(options) {
-    cfg.endpoint = (options && options.endpoint) || 'ajax.php';
-    var sel = el('v-range');
-    if (sel) {
-      sel.value = String(cfg.range);
-      sel.addEventListener('change', function () {
-        cfg.range = parseInt(sel.value, 10) || 360;
-        renderCharts(cfg.ring);
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Day'), h('th', { class: 'num' }, 'CPU avg'),
+      h('th', { class: 'num' }, 'Mem avg'), h('th', { class: 'num' }, 'Peak temp'),
+      h('th', { class: 'num' }, 'Net RX/s'), h('th', { class: 'num' }, 'Net TX/s'),
+      h('th', { class: 'num' }, 'Peak GPU'), h('th', { class: 'num' }, 'Fullest')),
+    list.map(function (r) {
+      var warns = Object.keys(r.smart || {}).filter(function (k) {
+        var s = r.smart[k] || {};
+        return (s.reallocated || 0) > 0 || (s.pending || 0) > 0;
       });
-    }
-    var btn = el('v-refresh');
-    if (btn) btn.addEventListener('click', function () { fetchData(true); });
+      return h('tr', { key: r.day },
+        h('td', { class: 'v-name' }, r.day,
+          warns.map(function (w) { return h('span', { key: w, class: 'v-warnbadge' }, w); })),
+        h('td', { class: 'num' }, r.cpu == null ? '—' : r.cpu + '%'),
+        h('td', { class: 'num' }, r.mem == null ? '—' : r.mem + '%'),
+        h('td', { class: 'num ' + lvl(r.temp_max, 50, 58) }, r.temp_max == null ? '—' : r.temp_max + '°'),
+        h('td', { class: 'num' }, r.net_rx ? bytes(r.net_rx) + '/s' : '—'),
+        h('td', { class: 'num' }, r.net_tx ? bytes(r.net_tx) + '/s' : '—'),
+        h('td', { class: 'num' }, r.gpu_max == null ? '—' : r.gpu_max + '%'),
+        h('td', { class: 'num ' + lvl(r.fill_max, 85, 95) }, r.fill_max == null ? '—' : r.fill_max + '%'));
+    }));
+}
 
-    fetchData(false);
-    cfg.timer = setInterval(function () { fetchData(false); }, 60000);
-  }
+/* --------------------------------------------------------------- docker */
 
-  return { init: init, refresh: fetchData };
+function DockerTab(P) {
+  var d = P.d, pts = P.pts;
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var dk = d.docker || {};
+  var ctr = dk.containers || [];
+  var ctrTop = topKeys(pts, 'ctr', 0, 10);
+  var mk = function (idx) {
+    return ctrTop.map(function (name, i) {
+      return { name: name, color: pickColor(i),
+        points: pick(function (p) { return p.ctr && p.ctr[name] ? p.ctr[name][idx] : null; }) };
+    });
+  };
+  var byCpu = ctr.slice().sort(function (a, b) { return (b.cpu || 0) - (a.cpu || 0); });
+  var byMem = ctr.slice().sort(function (a, b) { return (b.mem_bytes || 0) - (a.mem_bytes || 0); });
+
+  return h('div', null,
+    h('div', { class: 'v-cards' },
+      [
+        { label: 'Defined', icon: 'fa-cubes', color: PAL['v-accent'], value: String(dk.count || 0),
+          sub: 'containers' },
+        { label: 'Running', icon: 'fa-play-circle', color: PAL['v-ok-fg'], value: String(dk.running || 0),
+          bar: dk.count ? 100 * dk.running / dk.count : 0, sub: dk.stopped + ' stopped' },
+        { label: 'Stopped', icon: 'fa-stop-circle', color: PAL['v-warn-fg'], value: String(dk.stopped || 0),
+          sub: 'down or crashed' },
+        { label: 'Top CPU', icon: 'fa-fire', color: PAL['v-load'],
+          value: byCpu.length ? byCpu[0].name : '—',
+          sub: byCpu.length ? (byCpu[0].cpu || 0).toFixed(1) + '% now' : '' },
+        { label: 'Top memory', icon: 'fa-server', color: PAL['v-mem'],
+          value: byMem.length ? byMem[0].name : '—',
+          sub: byMem.length ? bytes(byMem[0].mem_bytes) : '' }
+      ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Container CPU %', span2: true, hint: ctrTop.length ? 'top ' + ctrTop.length : '' },
+        h(Chart, { series: mk(0), height: 175, yFmt: function (v) { return v + '%'; },
+          empty: 'Container series appear once docker stats are sampled.' })),
+      h(Panel, { title: 'Container memory', span2: true, hint: 'top ' + ctrTop.length },
+        h(Chart, { series: mk(1), height: 175,
+          yFmt: function (v) { return v >= 1048576 ? (v / 1048576).toFixed(1) + 'Gi' : Math.round(v / 1024) + 'Mi'; } }))),
+    h(Panel, { title: 'All containers', span2: true, hint: ctr.length + ' defined' },
+      h(ContainerTable, { d: d })));
+}
+
+/* -------------------------------------------------------------- network */
+
+function NetTab(P) {
+  var d = P.d, pts = P.pts;
+  var net = d.net || {};
+  var ifs = Object.keys(net);
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var ifTop = topKeys(pts, 'net', 0, 8).concat(topKeys(pts, 'net', 1, 8))
+    .filter(function (v, i, arr) { return arr.indexOf(v) === i; }).slice(0, 8);
+  var series = ifTop.reduce(function (acc, ifn, i) {
+    var c = pickColor(i);
+    acc.push({ name: ifn + ' down', color: c,
+      points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][0] : null; }) });
+    acc.push({ name: ifn + ' up', color: c,
+      points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][1] : null; }) });
+    return acc;
+  }, []);
+  var sorted = ifs.slice().sort(function (a, b) {
+    return ((net[b].rx_rate || 0) + (net[b].tx_rate || 0)) - ((net[a].rx_rate || 0) + (net[a].tx_rate || 0));
+  });
+  var active = sorted.filter(function (k) { return net[k].rx_total || net[k].tx_total; });
+  var sum = function (k, f) { return active.reduce(function (s, x) { return s + (net[x][f] || 0); }, 0); };
+
+  return h('div', null,
+    h('div', { class: 'v-cards' },
+      [
+        { label: 'Interfaces', icon: 'fa-exchange', color: PAL['v-accent'], value: String(ifs.length),
+          sub: active.length + ' carrying traffic' },
+        { label: 'Total RX', icon: 'fa-download', color: PAL['v-rx'], value: bytes(sum(0, 'rx_rate')) + '/s',
+          sub: bytes(sum(0, 'rx_total')) + ' since boot' },
+        { label: 'Total TX', icon: 'fa-upload', color: PAL['v-tx'], value: bytes(sum(0, 'tx_rate')) + '/s',
+          sub: bytes(sum(0, 'tx_total')) + ' since boot' },
+        { label: 'Busiest', icon: 'fa-bolt', color: PAL['v-load'], value: sorted[0] || '—',
+          sub: sorted[0] ? bytes((net[sorted[0]].rx_rate || 0) + (net[sorted[0]].tx_rate || 0)) + '/s' : '' }
+      ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h(Panel, { title: 'Throughput per interface', span2: true, hint: ifTop.length ? 'top ' + ifTop.length : '' },
+      h(Chart, { series: series, height: 200, yFmt: bytes, empty: 'No per-interface series yet.' })),
+    h(Panel, { title: 'All interfaces', span2: true, hint: ifs.length + ' total' },
+      h(Table, null,
+        h('tr', null, h('th', null, 'Interface'), h('th', { class: 'num' }, 'RX rate'),
+          h('th', { class: 'num' }, 'TX rate'), h('th', { class: 'num' }, 'RX total'),
+          h('th', { class: 'num' }, 'TX total')),
+        sorted.map(function (k) {
+          var n = net[k];
+          return h('tr', { key: k },
+            h('td', { class: 'v-name v-mono' }, k),
+            h('td', { class: 'num ' + (n.rx_rate > 1e6 ? 'warn' : '') }, n.rx_rate ? bytes(n.rx_rate) + '/s' : '—'),
+            h('td', { class: 'num ' + (n.tx_rate > 1e6 ? 'warn' : '') }, n.tx_rate ? bytes(n.tx_rate) + '/s' : '—'),
+            h('td', { class: 'num muted' }, n.rx_total ? bytes(n.rx_total) : '—'),
+            h('td', { class: 'num muted' }, n.tx_total ? bytes(n.tx_total) : '—'));
+        }))));
+}
+
+/* --------------------------------------------------------------- system */
+
+function SysTab(P) {
+  var d = P.d, pts = P.pts;
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var mem = d.mem || {}, load = d.load || {}, sys = d.system || {};
+  var sCpu = [{ name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) }];
+  var sMem = [{ name: 'Mem %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) }];
+
+  return h('div', null,
+    h('div', { class: 'v-cards' },
+      [
+        { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
+          sub: sys.cpu, bar: d.cpu && d.cpu.total },
+        { label: 'Load 1m', icon: 'fa-tachometer', color: PAL['v-load'],
+          value: load.l1 == null ? '—' : load.l1.toFixed(2),
+          sub: load.l5 != null ? load.l5.toFixed(2) + ' · ' + load.l15.toFixed(2) + ' (5m · 15m)' : '' },
+        { label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(mem.pct), bar: mem.pct,
+          sub: bytes(mem.used) + ' · ' + bytes(mem.available) + ' avail' },
+        { label: 'Cached', icon: 'fa-files-o', color: PAL['v-accent'],
+          value: bytes((mem.buffers || 0) + (mem.cached || 0)), sub: 'kernel reclaimable' },
+        { label: 'Swap', icon: 'fa-exchange', color: mem.swap_used ? PAL['v-warn-fg'] : PAL['v-ok-fg'],
+          value: mem.swap_total ? pctStr(mem.swap_pct) : 'none',
+          sub: mem.swap_total ? bytes(mem.swap_used) + ' of ' + bytes(mem.swap_total) : 'no swap configured' },
+        { label: 'Uptime', icon: 'fa-clock-o', color: PAL['v-accent'], value: dur(sys.uptime),
+          sub: sys.hostname || '' }
+      ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'CPU %' },
+        h(Chart, { series: sCpu, max: 100, height: 170, yFmt: function (v) { return v + '%'; } })),
+      h(Panel, { title: 'Memory %' },
+        h(Chart, { series: sMem, max: 100, height: 170, yFmt: function (v) { return v + '%'; } }))),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Host', span2: true },
+        h('table', null, [
+          ['Hostname', sys.hostname], ['Unraid', sys.version], ['Kernel', sys.kernel],
+          ['CPU', sys.cpu], ['Threads', load.cores], ['Description', sys.comment],
+          ['MD state', sys.md_state], ['Uptime', dur(sys.uptime)]
+        ].map(function (r, i) {
+          return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]),
+            h('td', { class: 'num v-name' }, r[1] == null ? '—' : String(r[1])));
+        }))),
+      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))));
+}
+
+/* --------------------------------------------------------------- shares */
+
+function SharesTab(P) {
+  var d = P.d, sh = d.shares || {}, list = sh.list || [];
+  var byPool = function (v) { return list.filter(function (s) { return s.pool === v; }).length; };
+  return h('div', null,
+    h('div', { class: 'v-cards' },
+      [
+        { label: 'Shares', icon: 'fa-folder-open-o', color: PAL['v-accent'], value: String(sh.total || 0),
+          sub: (sh.cache || 0) + ' using the pool' },
+        { label: 'Pool + array', icon: 'fa-server', color: PAL['v-ok-fg'], value: String(byPool('yes')),
+          sub: 'cache then array' },
+        { label: 'Pool only', icon: 'fa-exclamation-triangle', color: PAL['v-warn-fg'], value: String(byPool('only')),
+          sub: 'no array copy' },
+        { label: 'Array only', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(byPool('no')),
+          sub: 'skips the pool' }
+      ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h(Panel, { title: 'All shares', span2: true, hint: list.length + ' configured' },
+      list.length ? h(Table, null,
+        h('tr', null, h('th', null, 'Share'), h('th', null, 'Comment'), h('th', null, 'Storage'),
+          h('th', { class: 'num' }, 'Free')),
+        list.map(function (s) {
+          return h('tr', { key: s.name },
+            h('td', { class: 'v-name' }, s.name),
+            h('td', { class: 'muted' }, s.comment || '—'),
+            h('td', null, h(Pill, { kind: s.pool === 'only' ? 'warn' : s.pool === 'yes' ? 'run' : 'stop' },
+              s.pool === 'yes' ? 'pool + array' : s.pool === 'only' ? 'pool only' : 'array only')),
+            h('td', { class: 'num' }, s.free ? bytes(s.free, 1) : '—'));
+        }))
+        : h('div', { class: 'v-empty' }, 'No shares configured.')));
+}
+
+/* ------------------------------------------------------------- hardware */
+
+function HwTab(P) {
+  var d = P.d, pts = P.pts;
+  var gpu = d.gpu || {};
+  var upsRaw = d.ups;
+  var ups = (upsRaw && !Array.isArray(upsRaw)) ? upsRaw : {};
+  var upsKeys = [['Status', 'STATUS'], ['Line voltage', 'LINEV'], ['Load', 'LOADPCT'],
+                 ['Battery charge', 'BCHARGE'], ['Runtime left', 'TIMELEFT'],
+                 ['Battery voltage', 'BATTV'], ['Model', 'MODEL']];
+  var haveUps = upsKeys.filter(function (r) { return ups[r[1]] != null; });
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var gpuHist = pts.some(function (p) { return p.gpu_hist && p.gpu_hist[0] != null; });
+  var gl = (!Array.isArray(gpu) && gpu.available !== false && gpu.util != null) ? gpu
+         : (Array.isArray(gpu) && gpu.length ? gpu[0] : null);
+
+  return h('div', null,
+    h(Panel, { title: 'GPU', span2: true },
+      gpu.available === false
+        ? h('div', { class: 'v-empty' },
+            h('i', { class: 'fa fa-info-circle' }),
+            gpu.reason === 'driver-not-loaded'
+              ? 'nvidia-smi is installed but the host driver is not loaded — the GPU is most likely passed through to a VM.'
+              : 'GPU not available' + (gpu.reason ? ' (' + gpu.reason + ')' : '') + '.',
+            gpu.smi ? h('div', { class: 'v-mono muted' }, gpu.smi) : null)
+        : gl ? h('div', null,
+            h('table', null, [
+              ['Model', gl.name], ['Utilisation', gl.util == null ? null : gl.util + '%'],
+              ['VRAM', bytes(gl.mem_used) + ' / ' + bytes(gl.mem_total)],
+              ['Temperature', gl.temp == null ? null : gl.temp + '°C'],
+              ['Power', gl.power == null ? null : gl.power.toFixed(1) + ' W'],
+              ['Fan', gl.fan == null ? null : gl.fan + '%']
+            ].filter(function (r) { return r[1] != null; }).map(function (r, i) {
+              return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]),
+                h('td', { class: 'num v-name' }, String(r[1])));
+            })),
+            gpuHist ? h(Chart, { series: [
+              { name: 'Util %', color: PAL['v-gpu'],
+                points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[0] : null; }) },
+              { name: 'Temp °C', color: PAL['v-temp'],
+                points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[2] : null; }) }
+            ], max: 100, height: 160, yFmt: String }) : null)
+          : h('div', { class: 'v-empty' }, 'No GPU reported.')),
+    h(Panel, { title: 'UPS', span2: true },
+      haveUps.length
+        ? h('table', null, haveUps.map(function (r, i) {
+            return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]),
+              h('td', { class: 'num v-name' }, String(ups[r[1]])));
+          }))
+        : h('div', { class: 'v-empty' },
+            h('i', { class: 'fa fa-plug' }),
+            'No UPS configured, or apcupsd / NUT is not reporting.')),
+    h(Panel, { title: 'SMART detail', span2: true,
+      hint: Object.keys(d.smart || {}).length + ' disks' },
+      h(SmartTable, { d: d })));
+}
+
+/* ---------------------------------------------------------------- mount */
+
+if (mountEl) render(h(App), mountEl);
 })();

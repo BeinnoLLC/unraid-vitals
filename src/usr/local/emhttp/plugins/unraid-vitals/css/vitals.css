@@ -1,110 +1,284 @@
-/* unraid-vitals — styles. Uses Unraid's own CSS variables where present so the
-   page follows the active theme (black / azure / gray / white). */
+/* unraid-vitals — styles.
+   Design language borrowed from the LLM-Telemetry dashboard: accent-tinted
+   icon badges, subtle hover lift + shadow instead of flat boxes, a fluid
+   clamp() type scale, tabular numerals, and a proper status-colour system.
+   Built on Unraid's own CSS variables (--text, --background, --primary-bg
+   colour ramps) where present, so it still follows the active theme
+   (black / azure / gray / white) instead of imposing its own palette. */
 
 .vitals {
-  --v-gap: 14px;
-  --v-radius: 10px;
+  /* Accent + status palette. Falls back gracefully if Unraid doesn't expose
+     a var — these are the same hues used across the reference dashboard. */
+  --v-accent: #6366f1;
+  --v-accent-fg: #818cf8;
+  --v-ok: #22c55e;
+  --v-ok-fg: #4ade80;
+  --v-warn: #f59e0b;
+  --v-warn-fg: #fbbf24;
+  --v-bad: #ef4444;
+  --v-bad-fg: #f87171;
+
   --v-cpu: #4f9cf9;
   --v-mem: #b07cf9;
   --v-load: #f9a94f;
   --v-rx: #35c48a;
   --v-tx: #f97066;
   --v-temp: #f97066;
-  --v-grid: rgba(127, 127, 127, .22);
-  --v-panel: rgba(127, 127, 127, .07);
-  --v-panel-2: rgba(127, 127, 127, .12);
+  --v-gpu: #22d3ee;
+
+  --v-border: rgba(127, 127, 127, .18);
+  --v-card: rgba(127, 127, 127, .045);
+  --v-card-hover: rgba(127, 127, 127, .085);
+  --v-muted: currentColor;
+
+  --v-gap: 16px;
+  --v-radius: 12px;
+  --v-radius-sm: 8px;
+
+  /* Fluid type scale — one continuous curve instead of per-breakpoint rules. */
+  --v-fs-xs: clamp(10.5px, .5vw + 9px, 11.5px);
+  --v-fs-sm: clamp(12px, .55vw + 10px, 13px);
+  --v-fs-md: clamp(13px, .6vw + 11px, 14.5px);
+  --v-fs-lg: clamp(16px, 1vw + 12px, 19px);
+  --v-fs-xl: clamp(20px, 1.6vw + 14px, 26px);
+
   color: inherit;
-  font-size: 14px;
+  font-size: var(--v-fs-md);
+  line-height: 1.5;
 }
 
-/* Panels & grid ---------------------------------------------------------- */
+.vitals * { box-sizing: border-box; }
+
+/* Header ------------------------------------------------------------------ */
 
 .vitals .v-head {
   display: flex; align-items: center; justify-content: space-between;
   gap: var(--v-gap); flex-wrap: wrap; margin-bottom: var(--v-gap);
 }
-.vitals .v-title h2 { margin: 0; font-size: 22px; }
-.vitals .v-sub { opacity: .65; font-size: 13px; }
+.vitals .v-title { display: flex; align-items: center; gap: 12px; }
+.vitals .v-title h2 {
+  margin: 0; font-size: var(--v-fs-xl); font-weight: 650; letter-spacing: -.02em;
+  display: flex; align-items: center; gap: 10px;
+}
+.vitals .v-title h2 i {
+  width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 16px;
+  background: color-mix(in srgb, var(--v-accent) 16%, transparent); color: var(--v-accent-fg);
+}
+.vitals .v-sub { opacity: .6; font-size: var(--v-fs-sm); display: block; margin-top: 2px; }
 .vitals .v-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.vitals .v-stamp { opacity: .55; font-size: 12px; }
+.vitals .v-stamp { opacity: .55; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; }
+.vitals .v-stamp .v-dot { animation: v-pulse 2s infinite; }
 
 .vitals .v-btn, .vitals .v-select {
-  background: var(--v-panel-2); border: 1px solid var(--v-grid); color: inherit;
-  border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer;
+  background: var(--v-card); border: 1px solid var(--v-border); color: inherit;
+  border-radius: var(--v-radius-sm); padding: 6px 12px; font-size: var(--v-fs-sm);
+  cursor: pointer; transition: border-color .14s ease, background .14s ease, color .14s ease;
 }
-.vitals .v-btn:hover { background: var(--v-panel); }
+.vitals .v-btn:hover, .vitals .v-select:hover { border-color: var(--v-accent); background: var(--v-card-hover); }
+.vitals .v-btn:focus-visible, .vitals .v-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; }
+
+/* Grids --------------------------------------------------------------------*/
 
 .vitals .v-cards {
   display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+}
+/* Exact 4-up so an 8-card dashboard forms two clean rows instead of leaving
+   a single orphaned card on a second row. */
+.vitals .v-cards.v-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 800px) {
+  .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 .vitals .v-grid {
   display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: stretch;
 }
+.vitals .v-grid > * { min-width: 0; }
 .vitals .v-span2 { grid-column: span 2; }
 @media (max-width: 900px) { .vitals .v-span2 { grid-column: span 1; } }
 
+/* Panels — subtle card, lifts a touch on hover so the surface reads as a
+   real object rather than a flat divider box. */
 .vitals .v-panel {
-  background: var(--v-panel); border: 1px solid var(--v-grid);
-  border-radius: var(--v-radius); padding: 12px 14px; overflow: hidden;
+  background: var(--v-card); border: 1px solid var(--v-border);
+  border-radius: var(--v-radius); padding: 16px 18px; overflow: hidden;
+  transition: border-color .16s ease, box-shadow .16s ease;
 }
+.vitals .v-panel:hover { border-color: color-mix(in srgb, var(--v-accent) 35%, var(--v-border)); }
 .vitals .v-panel h3 {
-  margin: 0 0 10px; font-size: 14px; text-transform: uppercase;
-  letter-spacing: .06em; opacity: .72; font-weight: 600;
+  margin: 0 0 12px; font-size: var(--v-fs-xs); text-transform: uppercase;
+  letter-spacing: .07em; opacity: .68; font-weight: 700;
+  display: flex; align-items: baseline; gap: 6px;
 }
-.vitals .v-hint { float: right; text-transform: none; letter-spacing: 0; opacity: .6; font-weight: 400; }
+.vitals .v-hint {
+  margin-left: auto; text-transform: none; letter-spacing: 0; opacity: .65;
+  font-weight: 500; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums;
+}
 
-/* Stat cards ------------------------------------------------------------- */
+/* Stat cards ---------------------------------------------------------------
+   Icon badge + big tabular number, modelled on the reference dashboard's
+   .homecard / KPI treatment: hover lift, accent-tinted badge, colour only
+   used where it means something (status), never for decoration alone. */
 
 .vitals .v-card {
-  background: var(--v-panel); border: 1px solid var(--v-grid);
-  border-radius: var(--v-radius); padding: 12px 14px; position: relative; overflow: hidden;
+  background: var(--v-card); border: 1px solid var(--v-border);
+  border-radius: var(--v-radius); padding: 14px 16px; position: relative; overflow: hidden;
+  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s ease;
+}
+.vitals .v-card:hover {
+  transform: translateY(-2px); background: var(--v-card-hover);
+  border-color: color-mix(in srgb, var(--v-accent) 30%, var(--v-border));
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
+}
+@media (prefers-reduced-motion: reduce) { .vitals .v-card:hover { transform: none; } }
+.vitals .v-card-icon {
+  width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center;
+  justify-content: center; font-size: 14px; margin-bottom: 10px;
+  /* Fallback for browsers without color-mix(); the inline tint overrides it
+     only when supported, so the badge is never left unstyled. */
+  background: rgba(127, 127, 127, .14);
 }
 .vitals .v-card-label {
-  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
-  opacity: .6; margin-bottom: 6px;
+  font-size: var(--v-fs-xs); text-transform: uppercase; letter-spacing: .07em;
+  opacity: .62; margin-bottom: 8px; font-weight: 650;
 }
-.vitals .v-card-value { font-size: 26px; font-weight: 600; line-height: 1.1; }
-.vitals .v-card-value small { font-size: 14px; font-weight: 400; opacity: .6; }
-.vitals .v-card-sub { font-size: 12px; opacity: .6; margin-top: 4px; }
-.vitals .v-bar { height: 4px; border-radius: 3px; background: var(--v-panel-2); margin-top: 9px; overflow: hidden; }
-.vitals .v-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--v-cpu); transition: width .4s; }
+.vitals .v-card-value {
+  font-size: clamp(20px, 2.1vw, 27px); font-weight: 650; line-height: 1.1;
+  font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+}
+.vitals .v-card-value small { font-size: var(--v-fs-md); font-weight: 500; opacity: .6; }
+.vitals .v-card-sub { font-size: var(--v-fs-xs); opacity: .62; margin-top: 5px; }
+.vitals .v-bar {
+  height: 5px; border-radius: 3px; background: color-mix(in srgb, currentColor 12%, transparent);
+  margin-top: 11px; overflow: hidden;
+}
+.vitals .v-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--v-cpu); transition: width .5s ease; }
 
-.vitals .ok    { color: #35c48a; }
-.vitals .warn  { color: #f9a94f; }
-.vitals .crit  { color: #f97066; }
-.vitals .muted { opacity: .5; }
+.vitals .ok    { color: var(--v-ok-fg); }
+.vitals .warn  { color: var(--v-warn-fg); }
+.vitals .crit  { color: var(--v-bad-fg); }
+.vitals .muted { opacity: .55; }
 
-/* Charts ----------------------------------------------------------------- */
+/* A small status dot for "this thing is live/healthy" contexts. */
+.vitals .v-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
+}
+.vitals .v-stamp .v-dot { background: var(--v-ok); color: var(--v-ok); }
+@keyframes v-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
-.vitals .v-chart { width: 100%; height: 132px; display: block; }
+/* Charts ------------------------------------------------------------------ */
+
+.vitals .v-chart { width: 100%; height: 140px; display: block; }
 .vitals .v-chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
-.vitals .v-chart .v-empty { opacity: .5; font-size: 13px; padding-top: 46px; text-align: center; }
-.vitals .v-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; opacity: .75; margin-top: 6px; }
-.vitals .v-legend-item { display: inline-flex; align-items: center; gap: 5px; }
-.vitals .v-legend-item i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
-.vitals .v-empty { font-size: 13px; opacity: .6; padding: 18px 0; text-align: center; }
-.vitals .v-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
-
-/* Tables ----------------------------------------------------------------- */
-
-.vitals table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.vitals th {
-  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
-  opacity: .55; padding: 4px 6px; border-bottom: 1px solid var(--v-grid); font-weight: 600;
+.vitals .v-chart .v-empty { opacity: .55; font-size: var(--v-fs-sm); padding-top: 50px; text-align: center; }
+.vitals .v-legend {
+  display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--v-fs-xs);
+  opacity: .8; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--v-border);
 }
-.vitals td { padding: 5px 6px; border-bottom: 1px solid var(--v-grid); vertical-align: middle; }
+.vitals .v-legend-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
+.vitals .v-legend-item i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.vitals .v-empty {
+  font-size: var(--v-fs-sm); opacity: .6; padding: 22px 0; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+
+/* Tables -------------------------------------------------------------------
+   Hairline rows with a hover tint instead of heavy borders everywhere;
+   numeric columns are right-aligned and tabular so figures actually line up. */
+
+.vitals table { width: 100%; border-collapse: collapse; font-size: var(--v-fs-sm); }
+.vitals th {
+  text-align: left; font-size: var(--v-fs-xs); text-transform: uppercase; letter-spacing: .06em;
+  opacity: .58; padding: 6px 8px; border-bottom: 1px solid var(--v-border); font-weight: 700;
+}
+.vitals td { padding: 7px 8px; border-bottom: 1px solid var(--v-border); vertical-align: middle; }
+.vitals tbody tr { transition: background .12s ease; }
+.vitals tbody tr:hover { background: color-mix(in srgb, var(--v-accent) 6%, transparent); }
 .vitals tr:last-child td { border-bottom: none; }
 .vitals td.num, .vitals th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.vitals .v-name { font-weight: 500; }
-.vitals .v-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
-.vitals .v-pill {
-  display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px;
-  background: var(--v-panel-2); border: 1px solid var(--v-grid);
-}
-.vitals .v-pill.run  { background: rgba(53,196,138,.16); border-color: rgba(53,196,138,.4); color: #35c48a; }
-.vitals .v-pill.stop { opacity: .65; }
-.vitals .v-scroll { max-height: 330px; overflow-y: auto; }
+.vitals .v-name { font-weight: 600; }
+.vitals .v-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--v-fs-xs); }
 
-.vitals .v-foot { opacity: .4; font-size: 11px; text-align: right; margin-top: 4px; }
+/* Pills / badges ------------------------------------------------------------*/
+
+.vitals .v-pill {
+  display: inline-flex; align-items: center; gap: 4px; font-size: var(--v-fs-xs); font-weight: 600;
+  padding: 2px 9px; border-radius: 999px; background: var(--v-card); border: 1px solid var(--v-border);
+}
+.vitals .v-pill.run  {
+  background: color-mix(in srgb, var(--v-ok) 15%, transparent);
+  border-color: color-mix(in srgb, var(--v-ok) 45%, transparent); color: var(--v-ok-fg);
+}
+.vitals .v-pill.stop { opacity: .65; }
+.vitals .v-pill.warn {
+  background: color-mix(in srgb, var(--v-warn) 15%, transparent);
+  border-color: color-mix(in srgb, var(--v-warn) 45%, transparent); color: var(--v-warn-fg);
+}
+.vitals .v-scroll { max-height: 340px; overflow-y: auto; }
+.vitals .v-scroll::-webkit-scrollbar { width: 7px; }
+.vitals .v-scroll::-webkit-scrollbar-thumb { background: var(--v-border); border-radius: 4px; }
+.vitals .v-scroll { scrollbar-width: thin; scrollbar-color: var(--v-border) transparent; }
+
+.vitals .warn-badge, .vitals .v-empty .warn-badge {
+  font-size: var(--v-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+  padding: 1px 6px; border-radius: 4px;
+  background: color-mix(in srgb, var(--v-bad) 15%, transparent); color: var(--v-bad-fg);
+}
+
+.vitals .v-foot {
+  opacity: .45; font-size: var(--v-fs-xs); text-align: right; margin-top: 6px;
+}
+
+/* Tab strip ---------------------------------------------------------------
+   A segmented control: the active tab reads as a raised surface rather than
+   just a coloured word, which is what makes a tabbed app feel like an app. */
+
+.vitals .v-tabs {
+  display: flex; gap: 4px; margin-bottom: var(--v-gap); flex-wrap: wrap;
+  border-bottom: 1px solid var(--v-border); padding-bottom: 2px;
+}
+.vitals .v-tab {
+  background: transparent; border: 1px solid transparent; border-bottom: none;
+  color: inherit; opacity: .62; cursor: pointer; font: inherit;
+  font-size: var(--v-fs-sm); font-weight: 600; padding: 8px 14px;
+  border-radius: var(--v-radius-sm) var(--v-radius-sm) 0 0;
+  display: inline-flex; align-items: center; gap: 7px;
+  transition: opacity .14s ease, background .14s ease, color .14s ease;
+  margin-bottom: -1px;
+}
+.vitals .v-tab:hover { opacity: .9; background: var(--v-card); }
+.vitals .v-tab.on {
+  opacity: 1; background: var(--v-card); color: var(--v-accent-fg);
+  border-color: var(--v-border); border-bottom: 1px solid var(--v-panel-bg, transparent);
+  box-shadow: inset 0 -2px 0 var(--v-accent);
+}
+.vitals .v-tab:focus-visible { outline: 2px solid var(--v-accent); outline-offset: -2px; }
+.vitals .v-tab i { font-size: 13px; }
+.vitals .v-body { min-height: 200px; }
+
+/* Inline notice strip (e.g. SMART warnings under a table). */
+.vitals .v-warnnote {
+  display: flex; align-items: center; gap: 8px; margin-top: 10px;
+  font-size: var(--v-fs-sm); font-weight: 600; padding: 8px 12px;
+  border-radius: var(--v-radius-sm);
+  background: color-mix(in srgb, var(--v-warn) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--v-warn) 38%, transparent);
+  color: var(--v-warn-fg);
+}
+.vitals .v-warnbadge {
+  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  padding: 1px 5px; border-radius: 4px; vertical-align: middle;
+  background: color-mix(in srgb, var(--v-bad) 18%, transparent); color: var(--v-bad-fg);
+}
+
+@media (max-width: 640px) {
+  .vitals { font-size: 13px; }
+  .vitals .v-panel, .vitals .v-card { padding: 12px 13px; }
+  .vitals .v-tab { padding: 7px 10px; }
+  .vitals .v-tab span { display: none; }
+  .vitals .v-tab i { font-size: 15px; }
+}
+
