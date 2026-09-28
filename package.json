@@ -1,0 +1,16 @@
+{
+  "name": "unraid-vitals",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A better Unraid dashboard — deeper analytics, live history, disk and container insight.",
+  "license": "MIT",
+  "author": "hazemhagrass",
+  "type": "module",
+  "scripts": {
+    "build": "bash build/build.sh",
+    "lint:php": "find src -name '*.php' -print0 | xargs -0 -n1 php -l",
+    "lint:js": "find src -name '*.js' -print0 | xargs -0 -n1 node --check",
+    "lint:shell": "find src build -name '*.sh' -print0 | xargs -0 -n1 bash -n",
+    "check": "npm run lint:php && npm run lint:js && npm run lint:shell"
+  }
+}

@@ -1,0 +1,115 @@
+Menu="Tasks:1"
+Title="Vitals"
+Icon="fa-heartbeat"
+Code="f21e"
+---
+<?php
+/* unraid-vitals — main dashboard page */
+$docroot = $docroot ?? '/usr/local/emhttp';
+$plugdir = '/usr/local/emhttp/plugins/unraid-vitals';
+?>
+<link type="text/css" rel="stylesheet" href="<?=$plugdir?>/css/vitals.css">
+<script src="<?=$plugdir?>/js/vitals.js"></script>
+
+<div id="vitals-root" class="vitals">
+  <div class="v-head">
+    <div class="v-title">
+      <h2><i class="fa fa-heartbeat"></i> Vitals</h2>
+      <span class="v-sub" id="v-server">loading&hellip;</span>
+    </div>
+    <div class="v-actions">
+      <span class="v-stamp" id="v-stamp"></span>
+      <select id="v-range" class="v-select" title="Chart range">
+        <option value="60">Last hour</option>
+        <option value="360" selected>Last 6 hours</option>
+        <option value="1440">Last 24 hours</option>
+      </select>
+      <button class="v-btn" id="v-refresh" title="Sample now"><i class="fa fa-refresh"></i> Refresh</button>
+    </div>
+  </div>
+
+  <div class="v-cards" id="v-cards"></div>
+
+  <div class="v-grid">
+    <section class="v-panel v-span2">
+      <h3>CPU &amp; Memory <span class="v-hint" id="v-chart-hint"></span></h3>
+      <div id="v-chart-resource" class="v-chart"></div>
+      <div class="v-legend">
+        <span><i class="v-dot" style="background:var(--v-cpu)"></i>CPU %</span>
+        <span><i class="v-dot" style="background:var(--v-mem)"></i>Memory %</span>
+        <span><i class="v-dot" style="background:var(--v-load)"></i>Load (scaled)</span>
+      </div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Network throughput</h3>
+      <div id="v-chart-net" class="v-chart"></div>
+      <div class="v-legend">
+        <span><i class="v-dot" style="background:var(--v-rx)"></i>RX</span>
+        <span><i class="v-dot" style="background:var(--v-tx)"></i>TX</span>
+      </div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Temperatures</h3>
+      <div id="v-chart-temp" class="v-chart"></div>
+      <div class="v-legend">
+        <span><i class="v-dot" style="background:var(--v-temp)"></i>Hottest disk &deg;C</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="v-grid">
+    <section class="v-panel v-span2">
+      <h3>Array</h3>
+      <div id="v-array"></div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Storage pools</h3>
+      <div id="v-pools"></div>
+    </section>
+  </div>
+
+  <div class="v-grid">
+    <section class="v-panel v-span2">
+      <h3>Docker containers <span class="v-hint" id="v-docker-hint"></span></h3>
+      <div id="v-docker"></div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Top processes</h3>
+      <div id="v-procs"></div>
+    </section>
+  </div>
+
+  <div class="v-grid">
+    <section class="v-panel" id="v-gpu-panel" hidden>
+      <h3>GPU</h3>
+      <div id="v-gpu"></div>
+    </section>
+
+    <section class="v-panel" id="v-ups-panel" hidden>
+      <h3>UPS</h3>
+      <div id="v-ups"></div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Disk health (SMART)</h3>
+      <div id="v-smart"></div>
+    </section>
+
+    <section class="v-panel">
+      <h3>History</h3>
+      <div id="v-daily"></div>
+    </section>
+  </div>
+
+  <div class="v-foot">
+    <span id="v-foot-note">unraid-vitals</span>
+  </div>
+</div>
+
+<script>
+  Vitals.init({ endpoint: '<?=$plugdir?>/include/ajax.php' });
+</script>

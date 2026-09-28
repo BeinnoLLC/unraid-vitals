@@ -1,0 +1,55 @@
+<?xml version="1.0" standalone="yes"?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name      "unraid-vitals">
+<!ENTITY author    "hazemhagrass">
+<!ENTITY version   "@VERSION@">
+<!ENTITY md5       "@MD5@">
+<!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
+<!ENTITY github    "@GITHUB@">
+<!ENTITY pkgname   "@PKGNAME@">
+<!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/plugins/&name;.plg">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;"
+        icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
+
+  <CHANGES>
+###@VERSION@
+- Vitals dashboard: 8 live stat cards, sparkline history for CPU / memory / network / temperatures
+- Full array table with per-disk fill, temperature and error counters
+- Docker container breakdown with per-container CPU and memory
+- SMART health table (reallocated / pending / CRC sectors, power-on hours)
+- GPU and UPS panels, auto-detected when the hardware is present
+- Local metric collection every minute, 24h RAM ring buffer plus daily flash rollups
+- Configurable sample interval and retention on the settings page
+  </CHANGES>
+
+  <!-- Remove any older packaged version before installing the new one. -->
+  <FILE Run="/bin/bash">
+    <INLINE>
+rm -f $(ls /boot/config/plugins/&name;/&name;*.txz 2>/dev/null | grep -v '&version;')
+    </INLINE>
+  </FILE>
+
+  <!-- Payload. -->
+  <FILE Name="/boot/config/plugins/&name;/&pkgname;.txz" Run="upgradepkg --install-new">
+    <URL>https://github.com/&github;/releases/latest/download/&pkgname;.txz</URL>
+    <MD5>&md5;</MD5>
+  </FILE>
+
+  <!-- Post-install: config, cron, first sample. -->
+  <FILE Run="/bin/bash">
+    <INLINE>
+&plugdir;/scripts/install.sh
+    </INLINE>
+  </FILE>
+
+  <!-- Removal. -->
+  <FILE Run="/bin/bash" Method="remove">
+    <INLINE>
+&plugdir;/scripts/remove.sh
+removepkg &pkgname;
+rm -rf &plugdir;
+    </INLINE>
+  </FILE>
+
+</PLUGIN>

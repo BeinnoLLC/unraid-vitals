@@ -1,0 +1,107 @@
+/* unraid-vitals — styles. Uses Unraid's own CSS variables where present so the
+   page follows the active theme (black / azure / gray / white). */
+
+.vitals {
+  --v-gap: 14px;
+  --v-radius: 10px;
+  --v-cpu: #4f9cf9;
+  --v-mem: #b07cf9;
+  --v-load: #f9a94f;
+  --v-rx: #35c48a;
+  --v-tx: #f97066;
+  --v-temp: #f97066;
+  --v-grid: rgba(127, 127, 127, .22);
+  --v-panel: rgba(127, 127, 127, .07);
+  --v-panel-2: rgba(127, 127, 127, .12);
+  color: inherit;
+  font-size: 14px;
+}
+
+/* Panels & grid ---------------------------------------------------------- */
+
+.vitals .v-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--v-gap); flex-wrap: wrap; margin-bottom: var(--v-gap);
+}
+.vitals .v-title h2 { margin: 0; font-size: 22px; }
+.vitals .v-sub { opacity: .65; font-size: 13px; }
+.vitals .v-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vitals .v-stamp { opacity: .55; font-size: 12px; }
+
+.vitals .v-btn, .vitals .v-select {
+  background: var(--v-panel-2); border: 1px solid var(--v-grid); color: inherit;
+  border-radius: 6px; padding: 5px 10px; font-size: 13px; cursor: pointer;
+}
+.vitals .v-btn:hover { background: var(--v-panel); }
+
+.vitals .v-cards {
+  display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+.vitals .v-grid {
+  display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+}
+.vitals .v-span2 { grid-column: span 2; }
+@media (max-width: 900px) { .vitals .v-span2 { grid-column: span 1; } }
+
+.vitals .v-panel {
+  background: var(--v-panel); border: 1px solid var(--v-grid);
+  border-radius: var(--v-radius); padding: 12px 14px; overflow: hidden;
+}
+.vitals .v-panel h3 {
+  margin: 0 0 10px; font-size: 14px; text-transform: uppercase;
+  letter-spacing: .06em; opacity: .72; font-weight: 600;
+}
+.vitals .v-hint { float: right; text-transform: none; letter-spacing: 0; opacity: .6; font-weight: 400; }
+
+/* Stat cards ------------------------------------------------------------- */
+
+.vitals .v-card {
+  background: var(--v-panel); border: 1px solid var(--v-grid);
+  border-radius: var(--v-radius); padding: 12px 14px; position: relative; overflow: hidden;
+}
+.vitals .v-card-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  opacity: .6; margin-bottom: 6px;
+}
+.vitals .v-card-value { font-size: 26px; font-weight: 600; line-height: 1.1; }
+.vitals .v-card-value small { font-size: 14px; font-weight: 400; opacity: .6; }
+.vitals .v-card-sub { font-size: 12px; opacity: .6; margin-top: 4px; }
+.vitals .v-bar { height: 4px; border-radius: 3px; background: var(--v-panel-2); margin-top: 9px; overflow: hidden; }
+.vitals .v-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--v-cpu); transition: width .4s; }
+
+.vitals .ok    { color: #35c48a; }
+.vitals .warn  { color: #f9a94f; }
+.vitals .crit  { color: #f97066; }
+.vitals .muted { opacity: .5; }
+
+/* Charts ----------------------------------------------------------------- */
+
+.vitals .v-chart { width: 100%; height: 132px; display: block; }
+.vitals .v-chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.vitals .v-chart .v-empty { opacity: .5; font-size: 13px; padding-top: 46px; text-align: center; }
+.vitals .v-legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; opacity: .75; margin-top: 6px; }
+.vitals .v-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+
+/* Tables ----------------------------------------------------------------- */
+
+.vitals table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vitals th {
+  text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+  opacity: .55; padding: 4px 6px; border-bottom: 1px solid var(--v-grid); font-weight: 600;
+}
+.vitals td { padding: 5px 6px; border-bottom: 1px solid var(--v-grid); vertical-align: middle; }
+.vitals tr:last-child td { border-bottom: none; }
+.vitals td.num, .vitals th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.vitals .v-name { font-weight: 500; }
+.vitals .v-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+.vitals .v-pill {
+  display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 9px;
+  background: var(--v-panel-2); border: 1px solid var(--v-grid);
+}
+.vitals .v-pill.run  { background: rgba(53,196,138,.16); border-color: rgba(53,196,138,.4); color: #35c48a; }
+.vitals .v-pill.stop { opacity: .65; }
+.vitals .v-scroll { max-height: 330px; overflow-y: auto; }
+
+.vitals .v-foot { opacity: .4; font-size: 11px; text-align: right; margin-top: 4px; }
