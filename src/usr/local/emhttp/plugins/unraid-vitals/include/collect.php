@@ -48,6 +48,18 @@ function v_bytes(float $n, int $p = 1): string {
   return round($n, $p) . ' ' . $u[$i];
 }
 
+/** "512.3MiB" / "1.5GiB" → bytes. Used for docker stats memory figures. */
+function v_parse_size(?string $s): ?int {
+  if ($s === null) return null;
+  $s = trim($s);
+  if (!preg_match('/^([0-9.]+)\s*([KMGTPE]?i?B)?$/i', $s, $m)) return null;
+  $n = (float)$m[1];
+  $unit = strtoupper(rtrim($m[2] ?? 'B', 'B'));
+  $mult = ['K' => 1024, 'KI' => 1024, 'M' => 1048576, 'MI' => 1048576,
+           'G' => 1073741824, 'GI' => 1073741824, 'T' => 1099511627776, 'TI' => 1099511627776][$unit] ?? 1;
+  return (int)round($n * $mult);
+}
+
 /* ---------------------------------------------------------------------- CPU */
 
 function v_cpu_stat(): array {
@@ -190,6 +202,23 @@ function v_array_disks(): array {
 }
 
 /* SMART. Unraid caches smartctl output in /var/local/emhttp/smart/<dev>. */
+/**
+ * Extract the RAW_VALUE from a `smartctl -A` attribute line.
+ *
+ * The columns are: ID NAME FLAG VALUE WORST THRESH TYPE UPDATED WHEN_FAILED RAW_VALUE
+ * VALUE/WORST are the *normalized* numbers (200, 100 ...) — the failure counters
+ * live in the trailing RAW_VALUE column, which may itself contain spaces
+ * ("33 (Min/Max 20/45)"). Passing only the text after the attribute name lets
+ * this skip the seven fixed columns and read the raw value, so a healthy disk
+ * with VALUE=200/RAW=0 is never reported as having 200 pending sectors.
+ */
+function v_ata_raw(string $rest): ?int {
+  $parts = preg_split('/\s+/', trim($rest));
+  if (!is_array($parts) || count($parts) < 8) return null;
+  $rawval = implode(' ', array_slice($parts, 7));
+  return preg_match('/(\d+)/', $rawval, $m) ? (int)$m[1] : null;
+}
+
 function v_smart(): array {
   $dir = '/var/local/emhttp/smart';
   $disks = v_ini('/var/local/emhttp/disks.ini');
@@ -210,14 +239,14 @@ function v_smart(): array {
     if (preg_match('/SMART overall-health self-assessment test result:\s*(\S+)/i', $raw, $m)) {
       $r['health'] = strtoupper(trim($m[1], '.'));
     }
-    if (preg_match('/^194\s+Temperature_Celsius\s+\S+\s+(\d+)/mi', $raw, $m)) $r['temp'] = (int)$m[1];
-    elseif (preg_match('/Temperature:\s+(\d+)\s+Celsius/i', $raw, $m))          $r['temp'] = (int)$m[1];
-    if (preg_match('/^\s*9\s+Power_On_Hours\s+\S+\s+(\d+)/mi', $raw, $m))      $r['hours'] = (int)$m[1];
-    if (preg_match('/^5\s+Reallocated_Sector_Ct\s+\S+\s+(\d+)/mi', $raw, $m))  $r['reallocated'] = (int)$m[1];
-    if (preg_match('/^197\s+Current_Pending_Sector\s+\S+\s+(\d+)/mi', $raw, $m)) $r['pending'] = (int)$m[1];
-    if (preg_match('/^198\s+Offline_Uncorrectable\s+\S+\s+(\d+)/mi', $raw, $m))  $r['uncorrectable'] = (int)$m[1];
-    if (preg_match('/^199\s+UDMA_CRC_Error_Count\s+\S+\s+(\d+)/mi', $raw, $m))   $r['crc'] = (int)$m[1];
-    if (preg_match('/^10\s+Spin_Retry_Count\s+\S+\s+(\d+)/mi', $raw, $m))        $r['spin_retry'] = (int)$m[1];
+    if (preg_match('/^\s*194\s+Temperature_Celsius\s+(.*)$/mi', $raw, $m))       $r['temp'] = v_ata_raw($m[1]);
+    elseif (preg_match('/Temperature:\s+(\d+)\s+Celsius/i', $raw, $m))            $r['temp'] = (int)$m[1];
+    if (preg_match('/^\s*9\s+Power_On_Hours\s+(.*)$/mi', $raw, $m))               $r['hours'] = v_ata_raw($m[1]);
+    if (preg_match('/^\s*5\s+Reallocated_Sector_Ct\s+(.*)$/mi', $raw, $m))        $r['reallocated'] = v_ata_raw($m[1]);
+    if (preg_match('/^\s*197\s+Current_Pending_Sector\s+(.*)$/mi', $raw, $m))     $r['pending'] = v_ata_raw($m[1]);
+    if (preg_match('/^\s*198\s+Offline_Uncorrectable\s+(.*)$/mi', $raw, $m))      $r['uncorrectable'] = v_ata_raw($m[1]);
+    if (preg_match('/^\s*199\s+UDMA_CRC_Error_Count\s+(.*)$/mi', $raw, $m))       $r['crc'] = v_ata_raw($m[1]);
+    if (preg_match('/^\s*10\s+Spin_Retry_Count\s+(.*)$/mi', $raw, $m))            $r['spin_retry'] = v_ata_raw($m[1]);
     $out[$dev] = $r;
   }
   ksort($out);
@@ -244,6 +273,7 @@ function v_docker(): array {
       if (count($c) < 4 || !isset($rows[$c[0]])) continue;
       $rows[$c[0]]['cpu'] = (float)rtrim($c[1], '%');
       $rows[$c[0]]['mem'] = $c[2];
+      $rows[$c[0]]['mem_bytes'] = v_parse_size(strtok($c[2], '/'));
       $rows[$c[0]]['mem_pct'] = (float)rtrim($c[3], '%');
     }
   }
@@ -257,10 +287,18 @@ function v_docker(): array {
 /* ----------------------------------------------------------------------- GPU */
 
 function v_gpu(): array {
-  if (!is_executable('/usr/bin/nvidia-smi') && !is_executable('/usr/local/bin/nvidia-smi')) return [];
+  $smi = null;
+  foreach (['/usr/bin/nvidia-smi', '/usr/local/bin/nvidia-smi'] as $p) {
+    if (is_executable($p)) { $smi = $p; break; }
+  }
+  if ($smi === null) return [];
   $q = 'utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,name,fan.speed';
-  $raw = v_run("nvidia-smi --query-gpu={$q} --format=csv,noheader,nounits", 10);
-  if ($raw === '') return [];
+  $raw = v_run(escapeshellarg($smi) . " --query-gpu={$q} --format=csv,noheader,nounits", 10);
+  // nvidia-smi present but the driver is not loaded (typical when the GPU is
+  // passed through to a VM). Report it explicitly rather than as "no GPU".
+  if ($raw === '' || stripos($raw, 'failed') !== false || stripos($raw, "couldn't communicate") !== false) {
+    return ['available' => false, 'reason' => 'driver-not-loaded', 'smi' => $smi];
+  }
   $out = [];
   foreach (explode("\n", $raw) as $line) {
     $c = array_map('trim', explode(',', $line));
@@ -273,6 +311,7 @@ function v_gpu(): array {
       'name' => $c[6], 'fan' => $num($c[7]),
     ];
   }
+  if (!$out) return ['available' => false, 'reason' => 'no-devices', 'smi' => $smi];
   return $out;
 }
 

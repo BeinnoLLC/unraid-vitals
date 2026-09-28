@@ -136,6 +136,14 @@ window.Vitals = (function () {
       '</div>';
   }
 
+  /** GPU list, or null when absent / driver not loaded. */
+  function gpuList(s) {
+    var g = s.gpu;
+    if (!g || (g.available === false)) return null;
+    if (Array.isArray(g)) return g.length ? g : null;
+    return null;
+  }
+
   function renderCards(s) {
     var mem = s.mem || {}, load = s.load || {}, arr = s.array || {}, t = arr.totals || {};
     var temps = [];
@@ -165,8 +173,9 @@ window.Vitals = (function () {
       { label: 'Shares', value: String(s.shares ? s.shares.total : 0),
         sub: s.shares ? s.shares.cache + ' cached · ' + s.shares.array + ' array' : '' }
     ];
-    if (s.gpu && s.gpu.length) {
-      var g = s.gpu[0];
+    var gl = gpuList(s);
+    if (gl) {
+      var g = gl[0];
       cards.splice(5, 0, { label: 'GPU', value: pct(g.util), level: level(g.util, 90, 98),
         sub: bytes(g.mem_used) + ' / ' + bytes(g.mem_total) + (g.temp != null ? ' · ' + g.temp + '°C' : ''),
         bar: g.util, color: 'var(--v-load)' });
@@ -291,8 +300,19 @@ window.Vitals = (function () {
   }
 
   function renderGpu(s) {
-    var g = (s.gpu || [])[0];
-    if (!g) { el('v-gpu-panel').hidden = true; return; }
+    var gl = gpuList(s);
+    if (!gl) {
+      // nvidia-smi present but driver unavailable (GPU passed through to a VM)
+      if (s.gpu && s.gpu.available === false) {
+        el('v-gpu-panel').hidden = false;
+        el('v-gpu').innerHTML = '<div class="muted" style="font-size:13px">nvidia-smi is installed but the host driver is not loaded' +
+          (s.gpu.reason === 'driver-not-loaded' ? ' — the GPU is most likely passed through to a VM.' : '.') + '</div>';
+        el('v-chart-gpu').innerHTML = '';
+        return;
+      }
+      el('v-gpu-panel').hidden = true; return;
+    }
+    var g = gl[0];
     el('v-gpu-panel').hidden = false;
     var rows = [
       ['Model', esc(g.name || '—')],
@@ -334,12 +354,24 @@ window.Vitals = (function () {
           return;
         }
         var html = '<div class="v-scroll"><table><tr><th>Day</th><th class="num">CPU avg</th>' +
-                   '<th class="num">Mem avg</th><th class="num">Peak temp</th></tr>';
+                   '<th class="num">Mem avg</th><th class="num">Peak temp</th>' +
+                   '<th class="num">Net RX</th><th class="num">Net TX</th>' +
+                   '<th class="num">Peak GPU</th><th class="num">Fullest disk</th></tr>';
         d.slice().reverse().forEach(function (r) {
-          html += '<tr><td class="v-name">' + esc(r.day) + '</td>' +
+          var smartWarn = '';
+          var sm = r.smart || {};
+          Object.keys(sm).forEach(function (k) {
+            if ((sm[k].reallocated || 0) > 0 || (sm[k].pending || 0) > 0)
+              smartWarn += '<span class="warn" style="margin-left:4px">' + esc(k) + '</span>';
+          });
+          html += '<tr><td class="v-name">' + esc(r.day) + smartWarn + '</td>' +
             '<td class="num">' + (r.cpu == null ? '—' : r.cpu + '%') + '</td>' +
             '<td class="num">' + (r.mem == null ? '—' : r.mem + '%') + '</td>' +
-            '<td class="num ' + level(r.temp_max, 50, 58) + '">' + (r.temp_max == null ? '—' : r.temp_max + '°C') + '</td></tr>';
+            '<td class="num ' + level(r.temp_max, 50, 58) + '">' + (r.temp_max == null ? '—' : r.temp_max + '°C') + '</td>' +
+            '<td class="num">' + (r.net_rx ? bytes(r.net_rx) + '/s' : '—') + '</td>' +
+            '<td class="num">' + (r.net_tx ? bytes(r.net_tx) + '/s' : '—') + '</td>' +
+            '<td class="num">' + (r.gpu_max == null ? '—' : r.gpu_max + '%') + '</td>' +
+            '<td class="num">' + (r.fill_max == null ? '—' : r.fill_max + '%') + '</td></tr>';
         });
         el('v-daily').innerHTML = html + '</table></div>';
       })
@@ -347,6 +379,26 @@ window.Vitals = (function () {
   }
 
   /* --------------------------------------------------------------- charts */
+
+  var PALETTE = ['var(--v-cpu)', 'var(--v-mem)', 'var(--v-load)', 'var(--v-rx)', 'var(--v-tx)', 'var(--v-temp)',
+                 '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#fb7185'];
+
+  /** Top-N entities by the latest sample's value, for the per-entity charts. */
+  function topKeys(pts, field, idx, n) {
+    var last = pts[pts.length - 1];
+    if (!last || !last[field]) return [];
+    var m = last[field];
+    return Object.keys(m).filter(function (k) { return m[k] && m[k][idx] != null; })
+      .sort(function (a, b) { return (m[b][idx] || 0) - (m[a][idx] || 0); }).slice(0, n);
+  }
+
+  function legend(id, items) {
+    var host = el(id);
+    if (!host) return;
+    host.innerHTML = items.map(function (it) {
+      return '<span class="v-legend-item"><i style="background:' + it.color + '"></i>' + esc(it.name) + '</span>';
+    }).join('');
+  }
 
   function renderCharts(ring) {
     var n = cfg.range;
@@ -360,14 +412,75 @@ window.Vitals = (function () {
           return p.load == null ? null : Math.min(100, p.load * 100 / (cfg.snap && cfg.snap.load && cfg.snap.load.cores ? cfg.snap.load.cores : 1)); }) }
     ], { max: 100, maxLabel: '100%', empty: 'History builds up as the collector runs each minute.' });
 
-    chart('v-chart-net', [
-      { name: 'rx', color: 'var(--v-rx)', points: pick(function (p) { return p.net_rx; }) },
-      { name: 'tx', color: 'var(--v-tx)', points: pick(function (p) { return p.net_tx; }) }
-    ], { maxLabel: '' });
+    // P2-03: network — one rx + one tx series per interface (top 4 by current rx+tx)
+    var ifs = topKeys(pts, 'net', 0, 4);
+    if (!ifs.length) {
+      chart('v-chart-net', [
+        { name: 'rx', color: 'var(--v-rx)', points: pick(function (p) { return p.net_rx; }) },
+        { name: 'tx', color: 'var(--v-tx)', points: pick(function (p) { return p.net_tx; }) }
+      ], { maxLabel: '' });
+      legend('v-legend-net', [{ name: 'rx', color: 'var(--v-rx)' }, { name: 'tx', color: 'var(--v-tx)' }]);
+    } else {
+      var netSeries = [], netLegend = [];
+      ifs.forEach(function (ifn, i) {
+        var c = PALETTE[i % PALETTE.length];
+        netSeries.push({ name: ifn + ' rx', color: c, points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][0] : null; }) });
+        netSeries.push({ name: ifn + ' tx', color: c, points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][1] : null; }) });
+        netLegend.push({ name: ifn, color: c });
+      });
+      chart('v-chart-net', netSeries, { maxLabel: '' });
+      legend('v-legend-net', netLegend);
+    }
 
     chart('v-chart-temp', [
       { name: 'temp', color: 'var(--v-temp)', points: pick(function (p) { return p.temp_max; }) }
     ], {});
+
+    // P2-01: containers — top 6 by current CPU
+    var ctrs = topKeys(pts, 'ctr', 0, 6);
+    var ctrHost = el('v-chart-ctr');
+    if (ctrHost) {
+      if (!ctrs.length) {
+        ctrHost.innerHTML = '<div class="v-empty">Container series appear after the collector has sampled docker stats.</div>';
+        legend('v-legend-ctr', []);
+      } else {
+        chart('v-chart-ctr', ctrs.map(function (name, i) {
+          return { name: name, color: PALETTE[i % PALETTE.length],
+                   points: pick(function (p) { return p.ctr && p.ctr[name] ? p.ctr[name][0] : null; }) };
+        }), { maxLabel: 'CPU %' });
+        legend('v-legend-ctr', ctrs.map(function (name, i) { return { name: name, color: PALETTE[i % PALETTE.length] }; }));
+      }
+    }
+
+    // P2-02: SMART temperature per disk — top 6 hottest now
+    var disks = topKeys(pts, 'smart', 0, 6);
+    var smHost = el('v-chart-smart');
+    if (smHost) {
+      if (!disks.length) {
+        smHost.innerHTML = '<div class="v-empty">Per-disk temperature history appears once SMART data is cached.</div>';
+        legend('v-legend-smart', []);
+      } else {
+        chart('v-chart-smart', disks.map(function (name, i) {
+          return { name: name, color: PALETTE[i % PALETTE.length],
+                   points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][0] : null; }) };
+        }), { maxLabel: '°C' });
+        legend('v-legend-smart', disks.map(function (name, i) { return { name: name, color: PALETTE[i % PALETTE.length] }; }));
+      }
+    }
+
+    // P2-04: GPU — utilisation + temperature when a GPU is reporting
+    var gpuHost = el('v-chart-gpu');
+    if (gpuHost) {
+      var haveGpu = pts.some(function (p) { return p.gpu_hist && p.gpu_hist[0] != null; });
+      if (haveGpu) {
+        chart('v-chart-gpu', [
+          { name: 'util', color: 'var(--v-load)', points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[0] : null; }) },
+          { name: 'temp', color: 'var(--v-temp)', points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[2] : null; }) }
+        ], { max: 100, maxLabel: '100' });
+      } else {
+        gpuHost.innerHTML = '';
+      }
+    }
 
     el('v-chart-hint').textContent = pts.length + ' samples · ' + cfg.range + ' min window';
   }

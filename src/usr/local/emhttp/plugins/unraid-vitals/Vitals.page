@@ -44,7 +44,7 @@ $plugdir = '/usr/local/emhttp/plugins/unraid-vitals';
     <section class="v-panel">
       <h3>Network throughput</h3>
       <div id="v-chart-net" class="v-chart"></div>
-      <div class="v-legend">
+      <div class="v-legend" id="v-legend-net">
         <span><i class="v-dot" style="background:var(--v-rx)"></i>RX</span>
         <span><i class="v-dot" style="background:var(--v-tx)"></i>TX</span>
       </div>
@@ -56,6 +56,20 @@ $plugdir = '/usr/local/emhttp/plugins/unraid-vitals';
       <div class="v-legend">
         <span><i class="v-dot" style="background:var(--v-temp)"></i>Hottest disk &deg;C</span>
       </div>
+    </section>
+  </div>
+
+  <div class="v-grid">
+    <section class="v-panel">
+      <h3>Container CPU</h3>
+      <div id="v-chart-ctr" class="v-chart"></div>
+      <div class="v-legend" id="v-legend-ctr"></div>
+    </section>
+
+    <section class="v-panel">
+      <h3>Disk temperature history</h3>
+      <div id="v-chart-smart" class="v-chart"></div>
+      <div class="v-legend" id="v-legend-smart"></div>
     </section>
   </div>
 
@@ -87,6 +101,7 @@ $plugdir = '/usr/local/emhttp/plugins/unraid-vitals';
     <section class="v-panel" id="v-gpu-panel" hidden>
       <h3>GPU</h3>
       <div id="v-gpu"></div>
+      <div id="v-chart-gpu" class="v-chart" style="margin-top:8px"></div>
     </section>
 
     <section class="v-panel" id="v-ups-panel" hidden>

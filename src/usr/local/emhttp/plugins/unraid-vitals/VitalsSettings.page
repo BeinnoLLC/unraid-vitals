@@ -67,6 +67,10 @@ $lastRun  = is_file('/var/tmp/unraid-vitals/latest.json')
       <form markdown="1" method="POST" action="/update.htm" target="progressFrame">
         <input type="hidden" name="csrf_token" value="<?=$var['csrf_token']?>">
         <input type="hidden" name="#file" value="/boot/config/plugins/unraid-vitals/vitals.cfg">
+        <!-- Re-apply cron + start page immediately after the file is written,
+             otherwise an interval change would only take effect on next boot. -->
+        <input type="hidden" name="#command" value="/usr/local/emhttp/plugins/unraid-vitals/scripts/install.sh">
+        <input type="hidden" name="#arg[1]" value="--reapply">
 
         <table>
           <tr>
@@ -93,6 +97,27 @@ $lastRun  = is_file('/var/tmp/unraid-vitals/latest.json')
             </select></td>
           </tr>
         </table>
+
+        <h4 style="margin:14px 0 6px">Alerts <span class="v-card-sub">(delivered through Unraid's own notification centre)</span></h4>
+        <table>
+          <tr>
+            <td>Disk temperature warning</td>
+            <td><input type="number" name="ALERT_TEMP" min="30" max="80" value="<?=htmlspecialchars((string)($cfg['ALERT_TEMP'] ?? 55))?>" style="width:5em"> °C</td>
+          </tr>
+          <tr>
+            <td>Array fill warning</td>
+            <td><input type="number" name="ALERT_FILL" min="50" max="100" value="<?=htmlspecialchars((string)($cfg['ALERT_FILL'] ?? 90))?>" style="width:5em"> %</td>
+          </tr>
+          <tr>
+            <td>Load-average limit</td>
+            <td><input type="number" name="ALERT_LOAD" min="0" max="256" step="0.5" value="<?=htmlspecialchars((string)($cfg['ALERT_LOAD'] ?? 0))?>" style="width:5em"> <span class="v-card-sub">(0 = off)</span></td>
+          </tr>
+          <tr>
+            <td>Container down after</td>
+            <td><input type="number" name="ALERT_RESTARTS" min="0" max="60" value="<?=htmlspecialchars((string)($cfg['ALERT_RESTARTS'] ?? 3))?>" style="width:5em"> samples <span class="v-card-sub">(0 = off)</span></td>
+          </tr>
+        </table>
+        <div class="v-card-sub">SMART reallocated / pending sectors always alert. Each alert repeats at most once per hour.</div>
 
         <input type="submit" name="#apply" value="Apply">
         <input type="button" value="Sample now" onclick="VitalsSettings.sample()">
