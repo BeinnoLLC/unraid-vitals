@@ -49,6 +49,7 @@ function v_checks_defaults(): array {
     'pool_health' => 'warning',
     'net_health' => 'warning',
     'flash_health' => 'warning',
+    'docker_hygiene' => 'warning',
   ];
 }
 

@@ -886,6 +886,107 @@ function v_docker(): array {
 }
 
 /**
+ * Docker hygiene (P14-13): restart loops, host-port conflicts between
+ * containers, appdata mapped through /mnt/user for SQLite-using
+ * containers, and containers with no memory limit while the host is
+ * under memory pressure.
+ *
+ * Inspect output shape verified against Selene's real containers before
+ * writing: `.RestartCount`, `.State.ExitCode`, `.HostConfig.Memory`
+ * (0 = unlimited), `.NetworkSettings.Ports` for host port bindings, and
+ * `.Mounts` for source:destination pairs.
+ *
+ * The SQLite half only flags a container if BOTH conditions hold -- it
+ * has a path under /mnt/user AND a SQLite file is actually visible in
+ * its mounts. Flagging every /mnt/user mount would be noise (plenty of
+ * containers legitimately read a shared media path); the combination is
+ * what actually causes the "database is locked" class of problem on
+ * Unraid, because /mnt/user is a FUSE shim over the array.
+ */
+function v_docker_hygiene(): array {
+  $names = v_run("docker ps -a --format '{{.Names}}'", 8);
+  if ($names === '') return ['containers' => [], 'port_conflicts' => [], 'mem_pct' => null];
+
+  // One inspect call for everything (cheaper than N calls), asking only
+  // for the fields this check needs.
+  $fmt = '{{.Name}}|{{.RestartCount}}|{{.State.ExitCode}}|{{.State.Status}}|{{.HostConfig.Memory}}'
+       . '|{{range $p, $c := .NetworkSettings.Ports}}{{if $c}}{{$p}}={{(index $c 0).HostPort}};{{end}}{{end}}'
+       . '|{{range .Mounts}}{{.Source}}:{{.Destination}};{{end}}';
+  $raw = v_run("docker inspect --format '" . $fmt . "' " . implode(' ', array_map('escapeshellarg', explode("\n", trim($names)))), 25);
+
+  $out = ['containers' => [], 'port_conflicts' => [], 'mem_pct' => null];
+  $portMap = [];
+
+  foreach (explode("\n", $raw) as $line) {
+    if (trim($line) === '') continue;
+    $parts = explode('|', $line, 7);
+    if (count($parts) < 7) continue;
+    [$name, $restarts, $exit, $state, $memLimit, $ports, $mounts] = $parts;
+    $name = ltrim(trim($name), '/');
+
+    $portList = [];
+    foreach (array_filter(explode(';', $ports)) as $p) {
+      [$cport, $hport] = array_pad(explode('=', $p, 2), 2, null);
+      if ($hport !== null && $hport !== '') {
+        $portList[] = ['container' => $cport, 'host' => $hport];
+        $portMap[$hport][] = $name;
+      }
+    }
+
+    $mountList = [];
+    $hasUserPath = false;
+    foreach (array_filter(explode(';', $mounts)) as $m) {
+      $pos = strrpos($m, ':');
+      if ($pos === false) continue;
+      $src = substr($m, 0, $pos);
+      $dst = substr($m, $pos + 1);
+      $mountList[] = ['source' => $src, 'destination' => $dst];
+      if (str_starts_with($src, '/mnt/user')) $hasUserPath = true;
+    }
+
+    $out['containers'][$name] = [
+      'name' => $name, 'restart_count' => (int)$restarts, 'exit_code' => (int)$exit,
+      'state' => trim($state), 'mem_limit_bytes' => (int)$memLimit,
+      'mem_limit_set' => (int)$memLimit > 0, 'ports' => $portList, 'mounts' => $mountList,
+      'has_mnt_user_path' => $hasUserPath,
+      // Filled in below: is a real SQLite file visible inside this
+      // container's mounts (either the bare db or one of its sidecars)?
+      'sqlite_paths' => [],
+    ];
+  }
+
+  // ---- SQLite detection: look for *.db/*.sqlite (+ -wal/-shm sidecars)
+  // directly inside any /mnt/user mount, one directory level deep. Not a
+  // full tree walk -- deliberately bounded, and a SQLite database at the
+  // root of an appdata-ish /mnt/user mount is the actual failure shape.
+  foreach ($out['containers'] as $name => &$c) {
+    if (!$c['has_mnt_user_path']) continue;
+    foreach ($c['mounts'] as $m) {
+      if (!str_starts_with($m['source'], '/mnt/user') || !is_dir($m['source'])) continue;
+      foreach (glob(rtrim($m['source'], '/') . '/*') ?: [] as $f) {
+        if (preg_match('/\.(db|sqlite|sqlite3)(-wal|-shm)?$/i', basename($f))) {
+          $c['sqlite_paths'][] = $f;
+        }
+      }
+    }
+  }
+  unset($c);
+
+  // ---- host port conflicts: one host port claimed by >1 container.
+  foreach ($portMap as $hport => $owners) {
+    if (count($owners) > 1) {
+      $out['port_conflicts'][] = ['host_port' => $hport, 'containers' => array_values(array_unique($owners))];
+    }
+  }
+
+  // ---- memory pressure context for the no-memory-limit finding.
+  $mem = v_mem();
+  $out['mem_pct'] = $mem['pct'] ?? null;
+
+  return $out;
+}
+
+/**
  * docker.img usage — "Docker image is full" is one of the most common Unraid
  * problems, usually caused by a container writing data inside the image
  * instead of a mapped path. `df` on Docker's own root dir gives an accurate
@@ -1472,6 +1573,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'vms'     => v_vms(),
     'docker'  => v_docker(),
     'docker_image' => v_docker_image(),
+    'docker_hygiene' => v_docker_hygiene(),
     'docker_layers' => v_docker_layers_cached(),
     'docker_logs' => v_docker_logs_cached(),
     'gpu'     => v_gpu(),
