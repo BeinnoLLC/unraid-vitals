@@ -316,6 +316,43 @@ function v_check_alerts(array $snap): array {
 }
 
 /**
+ * Notify on new critical/error findings from the background AI agents
+ * (agent/lib/db.mjs writes into the same SQLite DB). Same notify script and
+ * suppression state file as v_check_alerts, keyed by finding id so a
+ * finding only notifies once even if it persists across several PHP ticks
+ * before the next agent run replaces it.
+ */
+function v_check_ai_findings(): void {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return;
+  try {
+    $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY);
+  } catch (Throwable $e) { return; }
+
+  $state = v_read_json(v_alert_path());
+  $now = time();
+  $notify = '/usr/local/emhttp/webGui/scripts/notify';
+  $res = $db->query("SELECT id, agent, severity, title, detail, subject FROM findings WHERE severity IN ('error','critical') ORDER BY id DESC LIMIT 50");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) {
+    $key = 'ai_finding_' . $row['id'];
+    $last = (int)($state[$key] ?? 0);
+    if ($now - $last < 3600) continue; // 1h suppression, same as the metric alerts
+    $state[$key] = $now;
+    if (is_executable($notify)) {
+      @shell_exec(sprintf(
+        '%s -e %s -s %s -d %s -i %s -l %s 2>/dev/null',
+        escapeshellarg($notify), escapeshellarg('unraid-vitals AI · ' . ucfirst($row['agent'])),
+        escapeshellarg($row['title']), escapeshellarg((string)($row['detail'] ?? '')),
+        escapeshellarg($row['severity'] === 'critical' ? 'alert' : 'warning'),
+        escapeshellarg('/Vitals')
+      ));
+    }
+  }
+  $db->close();
+  v_write_json(v_alert_path(), $state);
+}
+
+/**
  * Run one collection cycle and persist everything.
  * Returns the snapshot.
  */
@@ -336,6 +373,7 @@ function v_tick(bool $full = true): array {
     v_ring_append(v_point($slim));
     v_rollup($slim);
     $slim['alerts'] = v_check_alerts($slim);
+    v_check_ai_findings();
   }
   return $slim;
 }

@@ -38,7 +38,9 @@ INTERVAL=$(grep -oP '^INTERVAL="?\K[0-9]+' "$FLASH/vitals.cfg" 2>/dev/null || ec
 
 cat > "$CRON" <<CRONEOF
 # unraid-vitals collector — installed by $PLUGIN.plg
-* * * * * root /usr/bin/php $PLUGDIR/scripts/vitals-collect.php --quiet >> $STATE/collector.log 2>&1
+# Unraid's cron.d format has NO user field (unlike Debian's) — check
+# /etc/cron.d/root: five time fields, then the command directly.
+* * * * * /usr/bin/php $PLUGDIR/scripts/vitals-collect.php --quiet >> $STATE/collector.log 2>&1
 CRONEOF
 
 # honour a non-default interval by editing the minute field
@@ -69,7 +71,7 @@ PRUNE
 # daily prune cron
 cat > /etc/cron.d/${PLUGIN}-prune <<PRUNECRON
 # unraid-vitals retention
-17 4 * * * root /usr/bin/php $FLASH/prune.php >/dev/null 2>&1
+17 4 * * * /usr/bin/php $FLASH/prune.php >/dev/null 2>&1
 PRUNECRON
 cp -f /etc/cron.d/${PLUGIN}-prune "$FLASH/prune.cron" 2>/dev/null || true
 chmod 644 /etc/cron.d/${PLUGIN}-prune
