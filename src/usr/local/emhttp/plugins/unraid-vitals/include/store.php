@@ -534,7 +534,7 @@ function v_browse_share(string $share, string $rel): array {
 
   $target = $rel === '' ? $rootReal : $rootReal . '/' . ltrim($rel, '/');
   $targetReal = realpath($target);
-  if (!$targetReal || strpos($targetReal, $rootReal) !== 0) {
+  if (!$targetReal || ($targetReal !== $rootReal && strpos($targetReal, $rootReal . '/') !== 0)) {
     return ['error' => 'invalid path', 'entries' => []];
   }
   if (!is_dir($targetReal)) return ['error' => 'not a directory', 'entries' => []];
