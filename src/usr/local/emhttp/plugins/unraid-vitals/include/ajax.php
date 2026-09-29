@@ -81,7 +81,8 @@ try {
 
   if ($action === 'save_settings') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
-    $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS'];
+    $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS',
+                'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP'];
     foreach (array_keys(v_checks_defaults()) as $checkId) {
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_SEVERITY';

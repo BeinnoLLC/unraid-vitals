@@ -7,9 +7,15 @@
     with reallocated/pending sector counts, and auto-detected GPU/UPS panels —
     Vitals runs a team of specialist AI agents in the background (disk health,
     thermal, storage pools, network, general system health) that read your real
-    metrics and logs, reason about them with a local LLM, and write plain-English
-    findings and recommendations straight to the dashboard. Nothing leaves your
-    network: analysis runs against your own local Ollama-compatible LLM endpoints.
+    metrics and logs, reason about them with an LLM, and write plain-English
+    findings and recommendations straight to the dashboard. By default that
+    analysis runs against the developer's own remote Ollama-compatible endpoints
+    (your metrics and logs leave your network to reach them) — set
+    LLM_STUDIO_PRIMARY and/or LLM_STUDIO_BACKUP in the plugin's Settings page
+    (or directly in vitals.cfg on flash) to point the agents at your own local
+    Ollama-compatible endpoint instead, and nothing leaves your network. The
+    metrics dashboard, history, and controls never depend on the AI layer
+    either way.
 
     Vitals also gives you control, not just observation: restart or stop Docker
     containers, start/stop/restart VMs, and generate AI-written share descriptions
@@ -18,8 +24,9 @@
 
     Every finding the agents produce feeds a growing local knowledge base you can
     search, and a background "research" mode lets you ask an open-ended question
-    about your server and get a considered answer later, using your own data and
-    your own hardware — no cloud, no subscription, no telemetry leaving your server.
+    about your server and get a considered answer later, using your own data
+    against whichever LLM endpoint you've configured (see above) — no cloud
+    account or subscription required.
 
     Everything is collected locally every minute by a shell-and-PHP collector that
     reads Unraid's own state files. History lives in a 24-hour RAM ring buffer plus

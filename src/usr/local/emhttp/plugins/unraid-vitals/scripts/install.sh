@@ -27,6 +27,8 @@ ALERT_FILL="90"
 ALERT_LOAD="0"
 ALERT_RESTARTS="3"
 DATA_DIR=""
+LLM_STUDIO_PRIMARY=""
+LLM_STUDIO_BACKUP=""
 DEFAULTS
 
 # --- collector cron ----------------------------------------------------------
@@ -95,11 +97,19 @@ chmod 644 /etc/cron.d/${PLUGIN}-prune
 # a single run can legitimately take several minutes on CPU-only inference
 # hardware (see agent/lib/smythos-client.mjs), so a slow hour must not stack
 # a second run on top of it.
+#
+# LLM_STUDIO_PRIMARY/LLM_STUDIO_BACKUP in vitals.cfg (empty by default —
+# smythos-client.mjs's own hardcoded remote defaults apply until set) let a
+# user point the agents at their own Ollama-compatible endpoint instead of
+# the developer's remote one, per ca_profile.xml's disclosure of what "runs
+# by default" actually means.
 NODE_BIN="$(command -v node 2>/dev/null || true)"
 if [ -n "$NODE_BIN" ] && [ -d "$PLUGDIR/agent/node_modules" ]; then
+  LLM_PRIMARY_CFG=$(grep -oP '^LLM_STUDIO_PRIMARY="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
+  LLM_BACKUP_CFG=$(grep -oP '^LLM_STUDIO_BACKUP="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
   cat > /etc/cron.d/${PLUGIN}-agents <<AGENTCRON
 # unraid-vitals background AI agents — installed by $PLUGIN.plg
-7 * * * * /usr/bin/flock -n $STATE/agents.lock $NODE_BIN $PLUGDIR/agent/analyze.mjs >> $STATE/agents.log 2>&1
+7 * * * * LLM_STUDIO_PRIMARY="$LLM_PRIMARY_CFG" LLM_STUDIO_BACKUP="$LLM_BACKUP_CFG" /usr/bin/flock -n $STATE/agents.lock $NODE_BIN $PLUGDIR/agent/analyze.mjs >> $STATE/agents.log 2>&1
 AGENTCRON
   chmod 644 /etc/cron.d/${PLUGIN}-agents
   cp -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true

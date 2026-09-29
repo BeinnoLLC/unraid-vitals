@@ -1605,7 +1605,8 @@ function SettingsTab() {
           INTERVAL: j.cfg.INTERVAL || '1', KEEP_DAYS: j.cfg.KEEP_DAYS || '90',
           SET_STARTPAGE: j.cfg.SET_STARTPAGE || 'no',
           ALERT_TEMP: j.cfg.ALERT_TEMP || '55', ALERT_FILL: j.cfg.ALERT_FILL || '90',
-          ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3'
+          ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3',
+          LLM_STUDIO_PRIMARY: j.cfg.LLM_STUDIO_PRIMARY || '', LLM_STUDIO_BACKUP: j.cfg.LLM_STUDIO_BACKUP || ''
         });
         setMeta(j);
       });
@@ -1664,6 +1665,19 @@ function SettingsTab() {
         h('tr', null, h('td', { class: 'muted' }, 'Container-down samples'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 60,
             value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)'))),
+      h('div', { class: 'muted', style: 'margin-top:16px;margin-bottom:6px;font-weight:600' }, 'AI agent endpoint'),
+      h('div', { class: 'muted', style: 'margin-bottom:8px;font-size:0.9em' },
+        'Empty = the built-in remote default (your metrics and logs leave your network to reach it). ' +
+        'Set your own Ollama-compatible endpoint here to keep everything local.'),
+      h('table', null,
+        h('tr', null, h('td', { class: 'muted' }, 'Primary endpoint'),
+          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
+            placeholder: 'http://127.0.0.1:11434 (default: remote)',
+            value: cfg.LLM_STUDIO_PRIMARY, onInput: set('LLM_STUDIO_PRIMARY') }))),
+        h('tr', null, h('td', { class: 'muted' }, 'Backup endpoint'),
+          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
+            placeholder: '(default: remote)',
+            value: cfg.LLM_STUDIO_BACKUP, onInput: set('LLM_STUDIO_BACKUP') })))),
       h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
           h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
