@@ -254,6 +254,121 @@ function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
   return $findings;
 }
 
+/* -------------------------------------------------------------------- pool health (btrfs/zfs) */
+
+/**
+ * Filesystem pool health (P14-10). Reads /proc/mounts to find btrfs and
+ * zfs mount points, then queries each pool's native tools directly --
+ * `btrfs device stats` / `btrfs scrub status` for btrfs, `zpool status`
+ * / `zpool list` / ARC size from /proc/spl/kstat/zfs/arcstats for ZFS.
+ * Both command sets and the ARC stats file's real field names were
+ * confirmed against Selene's actual pools (a ZFS raidz2 "cache" pool and
+ * a btrfs single-device docker/libvirt loop pool) before writing this.
+ */
+function v_pool_health(): array {
+  $out = ['btrfs' => [], 'zfs' => []];
+  $mounts = @file('/proc/mounts', FILE_IGNORE_NEW_LINES) ?: [];
+
+  // ---- btrfs: one entry per distinct mount point, deduplicated by the
+  // underlying device (multiple bind-mount-like subvolumes of the same
+  // loop device, as seen on Selene for /var/lib/docker + its /btrfs
+  // subvol, would otherwise report the same pool twice).
+  $btrfsSeen = [];
+  foreach ($mounts as $line) {
+    $f = preg_split('/\s+/', $line);
+    if (count($f) < 3 || $f[2] !== 'btrfs') continue;
+    $mountPoint = stripcslashes($f[1]);
+    $dev = trim(shell_exec('findmnt -no SOURCE ' . escapeshellarg($mountPoint) . ' 2>/dev/null') ?? '');
+    if ($dev === '') continue;
+    // findmnt reports subvolume mounts as "/dev/loop2[/btrfs]" -- strip the
+    // bracket suffix so the loop device's different bind-mounted subvols
+    // dedup to the same underlying pool instead of appearing twice.
+    $devKey = preg_replace('/\[.*\]$/', '', $dev);
+    if (isset($btrfsSeen[$devKey])) continue;
+    $btrfsSeen[$devKey] = true;
+
+    $entry = ['mount' => $mountPoint, 'device' => $dev, 'devices' => [], 'scrub_status' => null, 'scrub_date' => null];
+
+    $statsRaw = @shell_exec('btrfs device stats ' . escapeshellarg($mountPoint) . ' 2>/dev/null') ?: '';
+    // Lines look like: [/dev/loop2].write_io_errs    0
+    $perDevice = [];
+    if (preg_match_all('/^\[([^\]]+)\]\.(\w+)\s+(\d+)/m', $statsRaw, $ms, PREG_SET_ORDER)) {
+      foreach ($ms as $m) { $perDevice[$m[1]][$m[2]] = (int)$m[3]; }
+    }
+    foreach ($perDevice as $devPath => $stats) {
+      $entry['devices'][] = ['device' => $devPath, 'stats' => $stats, 'total_errors' => array_sum($stats)];
+    }
+
+    $scrubRaw = @shell_exec('btrfs scrub status ' . escapeshellarg($mountPoint) . ' 2>/dev/null') ?: '';
+    if (stripos($scrubRaw, 'no stats available') !== false) {
+      $entry['scrub_status'] = 'never_run';
+    } elseif (preg_match('/Scrub (started|resumed).*(?:\n.*)*?status:\s*(\w+)/i', $scrubRaw, $m)) {
+      $entry['scrub_status'] = strtolower($m[2]);
+    } elseif (stripos($scrubRaw, 'finished') !== false || stripos($scrubRaw, 'no errors') !== false) {
+      $entry['scrub_status'] = 'finished';
+    }
+    // The scrub *date* comes from `btrfs scrub status` only while recent
+    // history is retained; `zpool status`-style "last scrub" summaries
+    // aren't a thing for btrfs -- so this is left null when unavailable
+    // rather than guessing a date from unrelated log data.
+
+    $out['btrfs'][] = $entry;
+  }
+
+  // ---- ZFS: one entry per pool name (a pool can have many datasets/
+  // mountpoints but only one `zpool status`).
+  if (@shell_exec('command -v zpool 2>/dev/null')) {
+    $poolsRaw = trim(@shell_exec('zpool list -H -o name 2>/dev/null') ?? '');
+    $pools = $poolsRaw !== '' ? explode("\n", $poolsRaw) : [];
+    $arc = v_zfs_arc_stats();
+    foreach ($pools as $pool) {
+      $pool = trim($pool);
+      if ($pool === '') continue;
+      $statusRaw = @shell_exec('zpool status ' . escapeshellarg($pool) . ' 2>/dev/null') ?: '';
+      $state = null;
+      if (preg_match('/state:\s*(\w+)/i', $statusRaw, $m)) $state = strtoupper($m[1]);
+      $scrubDate = null; $scrubErrors = null;
+      if (preg_match('/scan:\s*(?:scrub repaired \S+ in \S+ with (\d+) errors on (.+)|.*)/i', $statusRaw, $m)) {
+        if (isset($m[1])) { $scrubErrors = (int)$m[1]; $scrubDate = trim($m[2] ?? ''); }
+      }
+      // Per-vdev-line READ/WRITE/CKSUM error counters -- any device with
+      // a nonzero value here is a real per-device finding.
+      $devErrors = [];
+      if (preg_match_all('/^\s+(\S+)\s+(?:ONLINE|DEGRADED|FAULTED|OFFLINE|UNAVAIL|REMOVED)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/m', $statusRaw, $dms, PREG_SET_ORDER)) {
+        foreach ($dms as $dm) {
+          $read = (int)$dm[2]; $write = (int)$dm[3]; $cksum = (int)$dm[4];
+          if ($dm[1] === $pool) continue; // the pool's own summary line, not a device
+          if ($read + $write + $cksum > 0) $devErrors[] = ['device' => $dm[1], 'read' => $read, 'write' => $write, 'cksum' => $cksum];
+        }
+      }
+      $out['zfs'][] = [
+        'pool' => $pool, 'state' => $state, 'scrub_date' => $scrubDate ?: null,
+        'scrub_errors' => $scrubErrors, 'device_errors' => $devErrors, 'arc' => $arc,
+      ];
+    }
+  }
+
+  return $out;
+}
+
+/** ZFS ARC size vs the box's total RAM, from /proc/spl/kstat/zfs/arcstats. */
+function v_zfs_arc_stats(): ?array {
+  $raw = @file_get_contents('/proc/spl/kstat/zfs/arcstats');
+  if ($raw === false) return null;
+  $vals = [];
+  foreach (['size', 'c', 'c_max'] as $key) {
+    if (preg_match('/^' . $key . '\s+\d+\s+(\d+)/m', $raw, $m)) $vals[$key] = (int)$m[1];
+  }
+  if (!isset($vals['size'])) return null;
+  $memTotal = 0;
+  $memRaw = @file_get_contents('/proc/meminfo') ?: '';
+  if (preg_match('/MemTotal:\s*(\d+)\s*kB/i', $memRaw, $m)) $memTotal = (int)$m[1] * 1024;
+  return [
+    'size_bytes' => $vals['size'], 'target_bytes' => $vals['c'] ?? null, 'max_bytes' => $vals['c_max'] ?? null,
+    'pct_of_ram' => $memTotal > 0 ? round(100 * $vals['size'] / $memTotal, 1) : null,
+  ];
+}
+
 /* -------------------------------------------------------------------- disks */
 
 /** Reads/writes (in sectors, 512 bytes each) for one device from /proc/diskstats. */
@@ -1204,6 +1319,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'gpu'     => v_gpu(),
     'ups'     => v_ups(),
     'shares'  => v_shares(),
+    'pool_health' => v_pool_health(),
     'share_placement' => v_share_placement_cached(),
     'net'     => [],
     'top'     => v_top_procs(8),
