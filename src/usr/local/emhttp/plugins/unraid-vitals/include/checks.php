@@ -38,6 +38,7 @@ require_once __DIR__ . '/store.php';
 function v_checks_defaults(): array {
   return [
     'rootfs_full' => 'alert',
+    'docker_image_full' => 'warning',
   ];
 }
 

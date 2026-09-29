@@ -160,6 +160,7 @@ function v_point(array $snap): array {
     'fs_used'  => $snap['array']['totals']['fs_used'] ?? null,
     'fill_max' => v_fill_max($snap),
     'docker'   => $snap['docker']['running'] ?? null,
+    'docker_img_pct' => $snap['docker_image']['used_pct'] ?? null,
     'net'      => $net,
     'ctr'      => $containers,
     'smart'    => $smart,
@@ -280,6 +281,7 @@ function v_rollup(array $ring, array $snap): void {
     'net_tx'    => round(v_hour_bytes($points, 'net_tx'), 0),
     'fs_used'   => $lastPoint['fs_used'] ?? ($snap['array']['totals']['fs_used'] ?? null),
     'fill_max'  => v_agg(array_column($points, 'fill_max'))['max'],
+    'docker_img_pct' => $lastPoint['docker_img_pct'] ?? ($snap['docker_image']['used_pct'] ?? null),
     // SMART counters are monotonic — keep the hour's high-water mark so growth is
     // visible even when a single sample reads clean.
     'smart'     => $snap['smart'] ?? null,
@@ -303,7 +305,8 @@ function v_daily(int $days = 90): array {
       if (!isset($buckets[$day])) {
         $buckets[$day] = ['day' => $day, 'n' => 0, 'cpu' => 0, 'mem' => 0, 'cpu_max' => null,
                           'mem_max' => null, 'temp' => null, 'rx' => 0, 'tx' => 0, 'fill' => null,
-                          'gpu' => null, 'smart' => [], 'single_sample_hours' => 0];
+                          'gpu' => null, 'smart' => [], 'single_sample_hours' => 0,
+                          'docker_img_pct' => null, 'docker_img_pct_h' => -1];
       }
       $b = &$buckets[$day];
       $b['n']++;
@@ -323,6 +326,13 @@ function v_daily(int $days = 90): array {
       if ($hourMemMax !== null) $b['mem_max'] = max($b['mem_max'] ?? 0, $hourMemMax);
       if (($r['temp_max'] ?? null) !== null) $b['temp'] = max($b['temp'] ?? 0, $r['temp_max']);
       if (($r['fill_max'] ?? null) !== null) $b['fill'] = max($b['fill'] ?? 0, $r['fill_max']);
+      // Keep the latest hour's reading within the day (not max) — this is a
+      // slow-moving gauge, not a spike metric, and growth-rate math wants the
+      // end-of-day value, not the day's peak.
+      if (($r['docker_img_pct'] ?? null) !== null && $r['h'] > $b['docker_img_pct_h']) {
+        $b['docker_img_pct'] = $r['docker_img_pct'];
+        $b['docker_img_pct_h'] = $r['h'];
+      }
       // Legacy rows stored a single 'gpu' reading; current rows store 'gpu_max'.
       $hourGpuMax = $r['gpu_max'] ?? $r['gpu'] ?? null;
       if ($hourGpuMax !== null) $b['gpu'] = max($b['gpu'] ?? 0, $hourGpuMax);
@@ -351,6 +361,7 @@ function v_daily(int $days = 90): array {
       'temp_max' => $b['temp'], 'fill_max' => $b['fill'], 'gpu_max' => $b['gpu'],
       'net_rx' => round($b['rx'], 0), 'net_tx' => round($b['tx'], 0),
       'smart' => $b['smart'],
+      'docker_img_pct' => $b['docker_img_pct'],
       // A day is only fully "single-sample" if every hour in it predates the
       // real-aggregate rollup — a mixed day (upgraded mid-day) is not flagged,
       // since most of its hours already carry a real average.

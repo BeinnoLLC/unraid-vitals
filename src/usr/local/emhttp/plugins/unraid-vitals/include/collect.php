@@ -473,6 +473,68 @@ function v_docker(): array {
           'stopped' => count($rows) - $running, 'containers' => array_values($rows)];
 }
 
+/**
+ * docker.img usage — "Docker image is full" is one of the most common Unraid
+ * problems, usually caused by a container writing data inside the image
+ * instead of a mapped path. `df` on Docker's own root dir gives an accurate
+ * total/used/free regardless of storage driver (btrfs loop image, overlay2
+ * directory, etc.) without parsing `docker info`'s driver-specific output.
+ */
+function v_docker_root(): string {
+  $root = v_run('docker info --format \'{{.DockerRootDir}}\'', 8);
+  return $root !== '' ? $root : '/var/lib/docker';
+}
+
+function v_docker_image(): array {
+  $root = v_docker_root();
+  if (!is_dir($root)) return [];
+  $out = v_run('df -B1 --output=size,used,avail ' . escapeshellarg($root) . ' | tail -1', 8);
+  $c = preg_split('/\s+/', trim($out));
+  if (count($c) < 3 || !is_numeric($c[0])) return [];
+  $total = (float)$c[0]; $used = (float)$c[1]; $free = (float)$c[2];
+  return [
+    'root' => $root, 'total' => $total, 'used' => $used, 'free' => $free,
+    'used_pct' => $total > 0 ? round($used / $total * 100, 1) : null,
+  ];
+}
+
+/**
+ * Per-container writable layer size via `docker ps -s` — deliberately NOT
+ * called every minute: -s makes the daemon walk every container's diff
+ * layer on disk, which is slow (seconds per container on a busy host).
+ * Callers should sample this at most hourly (see v_docker_layers_cached()).
+ */
+function v_docker_layers(): array {
+  $raw = v_run("docker ps -a -s --format '{{.Names}}\\t{{.Size}}'", 30);
+  $out = [];
+  if ($raw === '') return $out;
+  foreach (explode("\n", $raw) as $line) {
+    $c = explode("\t", $line);
+    if (count($c) < 2) continue;
+    // "{{.Size}}" looks like "1.23MB (virtual 512MB)" or "0B (virtual 128MB)"
+    // — the first number is the container's own writable layer, not counting
+    // the shared read-only image layers below it.
+    if (!preg_match('/^([\d.]+\s*[KMGT]?i?B)/', $c[1], $m)) continue;
+    $out[$c[0]] = v_parse_size($m[1]);
+  }
+  return $out;
+}
+
+/**
+ * v_docker_layers() sampled at most once an hour, cached in the state dir.
+ * Returns the cached sample even if it is stale — a check can compare its
+ * own timestamp against the cache's 'ts' to decide whether to trust it.
+ */
+function v_docker_layers_cached(): array {
+  $path = v_state_dir() . '/docker_layers.json';
+  $cache = v_read_json($path);
+  if (($cache['ts'] ?? 0) > time() - 3600) return $cache;
+  $layers = v_docker_layers();
+  $cache = ['ts' => time(), 'layers' => $layers];
+  v_write_json($path, $cache);
+  return $cache;
+}
+
 /* ----------------------------------------------------------------------- GPU */
 
 function v_gpu(): array {
@@ -626,6 +688,8 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'smart'   => v_smart(),
     'vms'     => v_vms(),
     'docker'  => v_docker(),
+    'docker_image' => v_docker_image(),
+    'docker_layers' => v_docker_layers_cached(),
     'gpu'     => v_gpu(),
     'ups'     => v_ups(),
     'shares'  => v_shares(),
