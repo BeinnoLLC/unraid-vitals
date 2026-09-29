@@ -187,10 +187,59 @@ function v_ring_append(array $point): void {
 function v_ring(): array { return v_read_json(v_ring_path()); }
 
 /**
- * Append one hourly aggregate line to flash. Called by the collector; it only
- * actually writes when the hour rolls over, so flash sees ~24 writes/day.
+ * Aggregate a set of numbers, ignoring nulls: avg (1dp), min, max, p95.
+ * Returns all-null when nothing usable was passed (an empty hour, a metric
+ * that never reported).
  */
-function v_rollup(array $snap): void {
+function v_agg(array $vals): array {
+  $vals = array_values(array_filter($vals, fn($v) => $v !== null));
+  if (!$vals) return ['avg' => null, 'min' => null, 'max' => null, 'p95' => null];
+  sort($vals);
+  $n = count($vals);
+  $p95idx = max(0, min($n - 1, (int)ceil(0.95 * $n) - 1));
+  return [
+    'avg' => round(array_sum($vals) / $n, 1),
+    'min' => $vals[0],
+    'max' => $vals[$n - 1],
+    'p95' => $vals[$p95idx],
+  ];
+}
+
+/**
+ * Total bytes transferred over a set of ring points, not a sum of the
+ * per-point rates (which double-counts — rates already integrate the gap
+ * since the previous sample; summing them again multiplies by sample count).
+ * Trapezoid over consecutive points' rates × the actual gap between them, so
+ * an uneven collection interval (a missed minute, a paused collector) does
+ * not skew the total. A single-point hour falls back to rate × 3600 — the
+ * best available guess when there is nothing to integrate against.
+ */
+function v_hour_bytes(array $points, string $key): float {
+  $n = count($points);
+  if ($n === 0) return 0.0;
+  if ($n === 1) return (float)($points[0][$key] ?? 0) * 3600;
+  $total = 0.0;
+  for ($i = 1; $i < $n; $i++) {
+    $dt = max(0, min(3600, (int)$points[$i]['t'] - (int)$points[$i - 1]['t']));
+    $avgRate = (((float)($points[$i][$key] ?? 0)) + ((float)($points[$i - 1][$key] ?? 0))) / 2;
+    $total += $avgRate * $dt;
+  }
+  return $total;
+}
+
+/**
+ * Append one hourly aggregate line to flash. Called by the collector right
+ * after the new point lands in the ring, so it only actually writes when the
+ * hour rolls over — flash sees ~24 writes/day.
+ *
+ * Plan 106 P13-02 — this used to store the single snapshot taken at the
+ * moment the hour rolled over, not the hour that just closed: a quiet
+ * `:00` hid a busy `:30`. Now it aggregates every ring point that falls in
+ * the closed hour (avg/min/max/p95 for cpu/mem/load/temp/gpu, integrated
+ * bytes for network) and labels the row with that closed hour, not the one
+ * that just started.
+ */
+function v_rollup(array $ring, array $snap): void {
   $hour = (int)floor(((int)$snap['time']) / 3600);
   $markerFile = v_state_dir() . '/last_rollup_hour';
   $last = (int)@file_get_contents($markerFile);
@@ -200,22 +249,42 @@ function v_rollup(array $snap): void {
   if (!is_dir($dir)) @mkdir($dir, 0755, true);
   if (!is_dir($dir)) return;
 
-  $p = v_point($snap);
+  $closedHour = $hour - 1;
+  $points = array_values(array_filter(
+    $ring,
+    fn($p) => isset($p['t']) && (int)floor(((int)$p['t']) / 3600) === $closedHour,
+  ));
+  // Nothing landed in the just-closed hour (collector just started, or a gap) —
+  // fall back to the current snapshot alone rather than write nothing.
+  if (!$points) {
+    $points = [v_point($snap)];
+    $closedHour = $hour;
+  }
+
+  $cpu = v_agg(array_column($points, 'cpu'));
+  $mem = v_agg(array_column($points, 'mem'));
+  $load = v_agg(array_column($points, 'load'));
+  $temp = v_agg(array_column($points, 'temp_max'));
+  $gpu = v_agg(array_column($points, 'gpu'));
+  $lastPoint = $points[count($points) - 1];
+
   $line = [
-    'h'        => $hour,
-    'cpu_avg'  => $snap['cpu']['total'] ?? null,
-    'mem_avg'  => $snap['mem']['pct'] ?? null,
-    'temp_max' => $p['temp_max'],
-    'net_rx'   => $p['net_rx'],
-    'net_tx'   => $p['net_tx'],
-    'gpu'      => $p['gpu'],
-    'fs_used'  => $snap['array']['totals']['fs_used'] ?? null,
-    'fill_max' => $p['fill_max'],
-    // SMART counters are monotonic — keep the day's high-water mark so growth is
+    'h'         => $closedHour,
+    'n'         => count($points),
+    'cpu_avg'   => $cpu['avg'], 'cpu_min' => $cpu['min'], 'cpu_max' => $cpu['max'], 'cpu_p95' => $cpu['p95'],
+    'mem_avg'   => $mem['avg'], 'mem_min' => $mem['min'], 'mem_max' => $mem['max'], 'mem_p95' => $mem['p95'],
+    'load_avg'  => $load['avg'], 'load_max' => $load['max'],
+    'temp_avg'  => $temp['avg'], 'temp_max' => $temp['max'],
+    'gpu_avg'   => $gpu['avg'], 'gpu_max' => $gpu['max'],
+    'net_rx'    => round(v_hour_bytes($points, 'net_rx'), 0),
+    'net_tx'    => round(v_hour_bytes($points, 'net_tx'), 0),
+    'fs_used'   => $lastPoint['fs_used'] ?? ($snap['array']['totals']['fs_used'] ?? null),
+    'fill_max'  => v_agg(array_column($points, 'fill_max'))['max'],
+    // SMART counters are monotonic — keep the hour's high-water mark so growth is
     // visible even when a single sample reads clean.
-    'smart'    => $snap['smart'] ?? null,
+    'smart'     => $snap['smart'] ?? null,
   ];
-  @file_put_contents($dir . '/' . date('Y-m', $hour * 3600) . '.jsonl',
+  @file_put_contents($dir . '/' . date('Y-m', $closedHour * 3600) . '.jsonl',
                      json_encode($line, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
   @file_put_contents($markerFile, (string)$hour);
 }
@@ -232,16 +301,31 @@ function v_daily(int $days = 90): array {
       if (!is_array($r) || !isset($r['h'])) continue;
       $day = date('Y-m-d', $r['h'] * 3600);
       if (!isset($buckets[$day])) {
-        $buckets[$day] = ['day' => $day, 'n' => 0, 'cpu' => 0, 'mem' => 0, 'temp' => null,
-                          'rx' => 0, 'tx' => 0, 'fill' => null, 'gpu' => null, 'smart' => []];
+        $buckets[$day] = ['day' => $day, 'n' => 0, 'cpu' => 0, 'mem' => 0, 'cpu_max' => null,
+                          'mem_max' => null, 'temp' => null, 'rx' => 0, 'tx' => 0, 'fill' => null,
+                          'gpu' => null, 'smart' => [], 'single_sample_hours' => 0];
       }
       $b = &$buckets[$day];
       $b['n']++;
+      // Plan 106 P13-02 — rows written before the real-aggregate rollup had no
+      // 'n' (hour-sample-count) field at all; flag them in the daily view so a
+      // chart can distinguish "one snapshot stood in for the whole hour" from
+      // a real hourly average, without discarding the old data.
+      if (!array_key_exists('n', $r)) $b['single_sample_hours']++;
       if (($r['cpu_avg'] ?? null) !== null) $b['cpu'] += $r['cpu_avg'];
       if (($r['mem_avg'] ?? null) !== null) $b['mem'] += $r['mem_avg'];
+      // 'cpu_max'/'mem_max' only exist on rows written by the real-aggregate
+      // rollup; fall back to the hour's avg for legacy single-sample rows so
+      // the daily max is never lower than the daily avg.
+      $hourCpuMax = $r['cpu_max'] ?? $r['cpu_avg'] ?? null;
+      $hourMemMax = $r['mem_max'] ?? $r['mem_avg'] ?? null;
+      if ($hourCpuMax !== null) $b['cpu_max'] = max($b['cpu_max'] ?? 0, $hourCpuMax);
+      if ($hourMemMax !== null) $b['mem_max'] = max($b['mem_max'] ?? 0, $hourMemMax);
       if (($r['temp_max'] ?? null) !== null) $b['temp'] = max($b['temp'] ?? 0, $r['temp_max']);
       if (($r['fill_max'] ?? null) !== null) $b['fill'] = max($b['fill'] ?? 0, $r['fill_max']);
-      if (($r['gpu'] ?? null) !== null) $b['gpu'] = max($b['gpu'] ?? 0, $r['gpu']);
+      // Legacy rows stored a single 'gpu' reading; current rows store 'gpu_max'.
+      $hourGpuMax = $r['gpu_max'] ?? $r['gpu'] ?? null;
+      if ($hourGpuMax !== null) $b['gpu'] = max($b['gpu'] ?? 0, $hourGpuMax);
       $b['rx'] += (float)($r['net_rx'] ?? 0);
       $b['tx'] += (float)($r['net_tx'] ?? 0);
       foreach ((array)($r['smart'] ?? []) as $name => $s) {
@@ -261,10 +345,16 @@ function v_daily(int $days = 90): array {
     $out[] = [
       'day' => $b['day'], 'samples' => $b['n'],
       'cpu' => $b['n'] ? round($b['cpu'] / $b['n'], 1) : null,
+      'cpu_max' => $b['cpu_max'],
       'mem' => $b['n'] ? round($b['mem'] / $b['n'], 1) : null,
+      'mem_max' => $b['mem_max'],
       'temp_max' => $b['temp'], 'fill_max' => $b['fill'], 'gpu_max' => $b['gpu'],
       'net_rx' => round($b['rx'], 0), 'net_tx' => round($b['tx'], 0),
       'smart' => $b['smart'],
+      // A day is only fully "single-sample" if every hour in it predates the
+      // real-aggregate rollup — a mixed day (upgraded mid-day) is not flagged,
+      // since most of its hours already carry a real average.
+      'single_sample' => $b['n'] > 0 && $b['single_sample_hours'] === $b['n'],
     ];
   }
   return $out;
@@ -826,7 +916,7 @@ function v_tick(bool $full = true): array {
   v_write_json(v_latest_path(), $slim);
   if ($full) {
     v_ring_append(v_point($slim));
-    v_rollup($slim);
+    v_rollup(v_ring(), $slim);
     $slim['alerts'] = v_check_alerts($slim);
     v_check_ai_findings();
     v_events_from_findings();
