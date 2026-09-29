@@ -145,6 +145,47 @@ function StatTile(P) {
     P.spark ? h(Spark, { points: P.spark, color: tone }) : null);
 }
 
+/* Animated PWM fan icon: CSS-spun blade whose rotation duration scales with
+   RPM (faster fan = faster spin, capped so it stays readable rather than a
+   blur), plus a duty-% progress ring around it. Pure CSS animation (no JS
+   rAF loop) so many fan tiles on screen cost nothing. `stalled` freezes the
+   blade and swaps to a warning tone — a fan that should be spinning but
+   reads 0 RPM is a real fault, not "off". */
+function FanIcon(P) {
+  var rpm = P.rpm || 0;
+  var duty = P.duty; // 0-100 or null
+  var stalled = P.stalled;
+  // 0 RPM intentionally idle (duty 0, e.g. a case fan header with a 0%
+  // curve floor) vs "spinning but slow" both just don't animate.
+  var spinning = rpm > 0 && !stalled;
+  // RPM -> spin period: linear-ish mapping clamped to [0.35s, 3s] so a
+  // 200 RPM case fan and a 3000 RPM CPU fan both read as "spinning" at a
+  // glance without the fast one turning into a strobe.
+  var period = spinning ? Math.max(0.35, Math.min(3, 1400 / rpm)) : 0;
+  var pct = duty != null ? Math.max(0, Math.min(100, duty)) : (rpm > 0 ? null : 0);
+  var ringDeg = pct != null ? Math.round(pct * 3.6) : null;
+  var tone = stalled ? '#f87171' : (spinning ? '#4f9cf9' : '#9ca3af');
+  return h('div', { class: 'v-fanicon' + (stalled ? ' stalled' : '') },
+    h('div', {
+      class: 'v-fanicon-ring',
+      style: ringDeg != null
+        ? '--ring:' + tone + ';background:conic-gradient(' + tone + ' ' + ringDeg + 'deg, var(--v-border) 0deg)'
+        : '--ring:' + tone + ';background:var(--v-border)'
+    },
+      h('div', { class: 'v-fanicon-hub' },
+        h('svg', {
+          viewBox: '0 0 24 24', class: 'v-fanicon-blades',
+          style: spinning ? 'animation-duration:' + period + 's' : 'animation-play-state:paused',
+        },
+          h('g', { fill: tone },
+            h('path', { d: 'M12 12c0-3.5 1.2-6.5 3.2-8C17 2.7 18.8 3.6 19 5.5c.3 2.6-1.8 5-4.6 6.2-.6.3-1.3.4-2.4.3z' }),
+            h('path', { d: 'M12 12c3.5 0 6.5 1.2 8 3.2 1.3 1.8.4 3.6-1.5 3.8-2.6.3-5-1.8-6.2-4.6-.3-.6-.4-1.3-.3-2.4z' }),
+            h('path', { d: 'M12 12c0 3.5-1.2 6.5-3.2 8C7 21.3 5.2 20.4 5 18.5c-.3-2.6 1.8-5 4.6-6.2.6-.3 1.3-.4 2.4-.3z' }),
+            h('path', { d: 'M12 12c-3.5 0-6.5-1.2-8-3.2C2.7 7 3.6 5.2 5.5 5c2.6-.3 5 1.8 6.2 4.6.3.6.4 1.3.3 2.4z' }),
+            h('circle', { cx: 12, cy: 12, r: 2.4 }))))),
+    stalled ? h('div', { class: 'v-fanicon-badge' }, '!') : null);
+}
+
 /* Tiny sparkline (no axes, no legend) for use inside cards/tiles. */
 function Spark(P) {
   var ref = useRef(null);
@@ -1547,16 +1588,37 @@ function HwTab(P) {
       !(sensors.fans || []).length ? h('div', { class: 'v-empty' }, 'No hwmon fan sensors found (server fans on a controller this kernel does not expose, or none present).')
       : h('div', { class: 'v-fan-grid' },
           sensors.fans.map(function (f) {
-            var pwm = (sensors.pwms || []).filter(function (p) { return p.chip === f.chip; });
-            var duty = pwm.length ? pwm[0].duty_pct : null;
-            var mode = pwm.length ? pwm[0].mode : null;
-            return h('div', { key: f.id, class: 'v-sensor v-fan' + (f.rpm > 0 ? '' : ' idle') },
-              h('div', { class: 'v-sensor-val' }, f.rpm > 0 ? f.rpm : '0'),
-              h('div', { class: 'v-sensor-label' }, 'RPM · ' + f.label),
-              h('div', { class: 'v-sensor-th' },
-                (duty != null ? duty + '% duty' : '') + (mode ? (duty != null ? ' · ' : '') + mode : '') || '\u00A0'),
-              f.rpm > 0 ? h('div', { class: 'v-fan-bar' },
-                h('i', { style: 'width:' + Math.min(100, Math.round(f.rpm / 40)) + '%' })) : null);
+            // Match the fan's own PWM channel by number (fan3 -> pwm3) —
+            // most Super-I/O chips number fan/pwm channels in step. Falling
+            // back to "first PWM on the chip" (the old behavior) showed the
+            // SAME duty % on every fan on a multi-channel chip.
+            var fanNum = (f.id.match(/\/fan(\d+)$/) || [])[1];
+            var pwmSame = fanNum ? (sensors.pwms || []).find(function (p) {
+              return p.id === f.chip + '/pwm' + fanNum;
+            }) : null;
+            var pwmAny = (sensors.pwms || []).filter(function (p) { return p.chip === f.chip; });
+            var pwm = pwmSame || (pwmAny.length === 1 ? pwmAny[0] : null);
+            var duty = pwm ? pwm.duty_pct : null;
+            var mode = pwm ? pwm.mode : null;
+            // Stalled = reads 0 now AND spun at some point in the visible
+            // history ring. An always-0 fan is an unused/unwired header
+            // (common — motherboards expose far more fan channels than
+            // most cases have headers for), not a fault; PWM duty alone is
+            // NOT a safe signal here since manual/full-speed mode drives
+            // every channel on the chip regardless of whether anything is
+            // plugged into it (seen live: 3 of 7 nct6797 channels sit at 0
+            // RPM with 86% duty simply because no fan is wired there).
+            var hist = fanSeriesFor(f.id);
+            var everSpun = hist.some(function (p) { return p[1] > 0; });
+            var stalled = f.rpm === 0 && everSpun;
+            return h('div', { key: f.id, class: 'v-sensor v-fan' + (stalled ? ' stall' : (f.rpm > 0 ? '' : ' idle')) },
+              h(FanIcon, { rpm: f.rpm, duty: duty, stalled: stalled }),
+              h('div', { class: 'v-fan-text' },
+                h('div', { class: 'v-sensor-val' }, f.rpm > 0 ? f.rpm : '0'),
+                h('div', { class: 'v-sensor-label' }, 'RPM · ' + f.label),
+                h('div', { class: 'v-sensor-th' },
+                  stalled ? h('b', { class: 'crit' }, 'stalled — check cable')
+                    : (duty != null ? duty + '% duty' : '') + (mode ? (duty != null ? ' · ' : '') + mode : '') || '\u00A0')));
           })),
       fanSeries ? h('div', null,
         h(Chart, {

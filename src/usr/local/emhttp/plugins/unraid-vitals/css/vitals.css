@@ -305,13 +305,36 @@
 
 /* fan tiles */
 .vitals .v-fan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.vitals .v-fan { display: flex; align-items: center; gap: 10px; }
 .vitals .v-fan .v-sensor-val { font-size: 20px; }
 .vitals .v-fan.idle { opacity: .45; }
+.vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad, #ef4444); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
+.vitals .v-fan-text { min-width: 0; flex: 1; }
 .vitals .v-fan-bar { height: 5px; border-radius: 3px; background: rgba(127,127,127,.15); margin-top: 6px; overflow: hidden; }
 .vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu, #4f9cf9); border-radius: 3px; }
 .vitals .v-sensor-th b { font-weight: 700; }
 .vitals .v-sensor-th b.warn { color: #f59e0b; }
 .vitals .v-sensor-th b.crit { color: var(--v-bad, #ef4444); }
+
+/* Animated fan icon: conic-gradient ring shows PWM duty %, inner SVG blade
+   spins at a speed derived from RPM (see FanIcon in vitals.js). Kept to
+   pure CSS transforms/opacity so dozens of tiles cost nothing to render. */
+.vitals .v-fanicon { position: relative; flex: none; width: 40px; height: 40px; }
+.vitals .v-fanicon-ring { width: 40px; height: 40px; border-radius: 50%; padding: 3px;
+  transition: background .6s ease; }
+.vitals .v-fanicon-hub { width: 100%; height: 100%; border-radius: 50%; background: var(--v-card);
+  display: flex; align-items: center; justify-content: center; }
+.vitals .v-fanicon-blades { width: 26px; height: 26px; transform-origin: 50% 50%;
+  animation: v-fanicon-spin linear infinite; }
+.vitals .v-fanicon.stalled .v-fanicon-blades { animation: none; }
+.vitals .v-fanicon-badge { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px;
+  border-radius: 50%; background: var(--v-bad, #ef4444); color: #fff; font-size: 10px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 0 0 2px var(--v-card); }
+@keyframes v-fanicon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.35); } 50% { box-shadow: 0 0 0 5px rgba(239,68,68,0); } }
+@media (prefers-reduced-motion: reduce) {
+  .vitals .v-fanicon-blades { animation: none; }
+}
 
 /* Grids --------------------------------------------------------------------*/
 
