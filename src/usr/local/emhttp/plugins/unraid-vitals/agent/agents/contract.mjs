@@ -1,12 +1,44 @@
 /**
- * Shared JSON-response contract every specialist agent uses.
- * The model is asked to return: { findings: [ {severity,title,detail,recommendation,subject} ] }
+ * Shared response contract every specialist agent uses.
+ *
+ * ONE schema definition (FINDINGS_SCHEMA) is the source of truth for three
+ * things that used to drift apart:
+ *   1. the prose contract sent in the prompt,
+ *   2. Ollama's `format` field (structured output — the model can only emit
+ *      JSON of this shape, so a `{` inside a detail string can no longer
+ *      break parsing),
+ *   3. safeParseFindings(), the validator on the way back in.
  */
+export const SEVERITIES = ['ok', 'info', 'warning', 'error', 'critical'];
+import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt, lastCallStats } from '../lib/smythos-client.mjs';
+
+export const FINDINGS_SCHEMA = {
+  type: 'object',
+  properties: {
+    findings: {
+      type: 'array',
+      maxItems: 8,
+      items: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: SEVERITIES },
+          title: { type: 'string', maxLength: 120 },
+          detail: { type: 'string', maxLength: 1000 },
+          recommendation: { type: ['string', 'null'], maxLength: 500 },
+          subject: { type: ['string', 'null'], maxLength: 100 }
+        },
+        required: ['severity', 'title', 'detail', 'recommendation', 'subject']
+      }
+    }
+  },
+  required: ['findings']
+};
+
 export const RESPONSE_CONTRACT = `Respond with ONLY a JSON object, no prose outside it:
-{"findings":[{"severity":"ok|info|warning|error|critical","title":"short headline (<=80 chars)","detail":"1-3 sentences, specific, reference real numbers from the data","recommendation":"a concrete next action, or null if severity is ok","subject":"the specific disk/container/VM/interface name this is about, or null for whole-system"}]}
+{"findings":[{"severity":"ok|info|warning|error|critical","title":"short headline (<=80 chars)","detail":"1-3 sentences, specific, reference real numbers from the data","recommendation":"a concrete next action, or null if severity is ok","subject":"the specific disk/container/VM/interface/share name this is about, copied EXACTLY from the data, or null for whole-system"}]}
 Rules:
 - Always include exactly ONE "ok" finding summarising the healthy baseline if nothing is wrong in that area.
-- Never invent numbers that are not in the data you were given.
+- Never invent numbers that are not in the data you were given. Never mention a disk, container, VM, interface or share that is not in the data.
 - Keep the array to at most 8 findings — pick the most important.
 - "critical" = data loss / imminent failure risk. "error" = broken now. "warning" = trending toward a problem. "info" = worth knowing, not urgent.`;
 
@@ -15,10 +47,164 @@ export function safeParseFindings(json) {
   return arr
     .filter(f => f && typeof f.title === 'string' && typeof f.severity === 'string')
     .map(f => ({
-      severity: ['ok', 'info', 'warning', 'error', 'critical'].includes(f.severity) ? f.severity : 'info',
+      severity: SEVERITIES.includes(f.severity) ? f.severity : 'info',
       title: String(f.title).slice(0, 200),
       detail: f.detail ? String(f.detail).slice(0, 1000) : null,
       recommendation: f.recommendation ? String(f.recommendation).slice(0, 500) : null,
       subject: f.subject ? String(f.subject).slice(0, 100) : null
     }));
+}
+
+/* ------------------------------------------------------------------ grounding */
+
+/** Pull every number out of a string. "82.4%" -> 82.4, "1,234" -> 1234,
+ *  "2.7C" -> 2.7. */
+export function numbersIn(text) {
+  if (typeof text !== 'string') return [];
+  const out = [];
+  const re = /(?<![\w.])-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![\w.])-?\d+(?:\.\d+)?/g;
+  let m;
+  while ((m = re.exec(text)) !== null) out.push(Number(m[0].replace(/,/g, '')));
+  return out;
+}
+
+// Counting words and the thresholds the prompts themselves quote ("above
+// 50C", ">90%", "over 24 hours") — using these is not inventing a metric.
+const SMALL_TALK_NUMBERS = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 24, 25, 30, 40, 48, 50, 60, 70, 72, 75, 80, 85, 90, 95, 100]);
+
+/**
+ * Grounding validator (P20-06): drop findings the model could not have
+ * derived from its input.
+ *
+ *  - `subject` must be one of `knownSubjects` (case-insensitive, trimmed).
+ *    null / whole-system is always allowed. A fabricated `disk9` on an
+ *    8-disk box never reaches the UI.
+ *  - Every number quoted in `detail` must appear in the input text, with
+ *    tolerance for rounding (±0.5 above 10, ±0.05 below), for the
+ *    percentage complement the model may compute (100 − x), and for a
+ *    2% unit-rescale slack on large byte counts.
+ *
+ * Returns { kept, dropped: [{finding, reason}] } so the run can log and
+ * count what it refused.
+ */
+export function groundFindings(findings, knownSubjects = [], inputText = '') {
+  const subjects = new Set((knownSubjects || []).filter(Boolean).map(s => String(s).trim().toLowerCase()));
+  const inputNums = numbersIn(inputText);
+  const complements = inputNums.map(n => 100 - n);
+  const close = (a, b) => Math.abs(a - b) <= (Math.abs(b) > 10 ? 0.5 : 0.05);
+  const supported = n => SMALL_TALK_NUMBERS.has(n)
+    || inputNums.some(x => close(n, x))
+    || complements.some(x => close(n, x))
+    || (Math.abs(n) >= 1000 && inputNums.some(x => x !== 0 && Math.abs(n / x - 1) < 0.02));
+
+  const kept = [], dropped = [];
+  for (const f of findings) {
+    if (f.subject && subjects.size && !subjects.has(String(f.subject).trim().toLowerCase())) {
+      dropped.push({ finding: f, reason: `unknown subject "${f.subject}"` });
+      continue;
+    }
+    const bad = numbersIn(f.detail).filter(n => !supported(n));
+    if (bad.length) {
+      dropped.push({ finding: f, reason: `numbers not in input: ${bad.slice(0, 5).join(', ')}` });
+      continue;
+    }
+    kept.push(f);
+  }
+  return { kept, dropped };
+}
+
+/* ------------------------------------------------------------------ runner */
+
+/** Stats of the last runSpecialist() call, for the orchestrator's run row. */
+export const lastRunStats = { prompt_tokens_est: 0, trimmed: [], dropped: 0, drop_reasons: [] };
+
+/**
+ * One call path for every specialist:
+ *   sections  -> budgetPrompt()   (trim low-priority data, never the contract)
+ *   Ollama    -> format: schema   (structured output)
+ *   response  -> extractJson + safeParseFindings + groundFindings
+ *
+ * `sections` is [{ name, text, priority }] — higher priority survives
+ * longer. The RESPONSE_CONTRACT is appended to the system prompt, so it is
+ * never subject to trimming.
+ */
+export async function runSpecialist({ agentName, behavior, systemRole, sections, knownSubjects = [], maxTokens = 900 }) {
+  const system = `${systemRole} ${RESPONSE_CONTRACT}`;
+  const { text: user, trimmed, tokens } = budgetPrompt(sections, system, maxTokens);
+  if (trimmed.length) console.warn(`[${agentName}] prompt over budget — trimmed: ${trimmed.join(', ')}`);
+
+  const agent = await makeAnalysisAgent(agentName, behavior, { maxTokens, format: FINDINGS_SCHEMA });
+  const raw = await callAnalyze(agent, system, user);
+  const parsed = safeParseFindings(extractJson(raw));
+  const { kept, dropped } = groundFindings(parsed, knownSubjects, user);
+  for (const d of dropped) console.warn(`[${agentName}] dropped ungrounded finding "${d.finding.title}": ${d.reason}`);
+
+  Object.assign(lastRunStats, {
+    prompt_tokens_est: tokens, trimmed, dropped: dropped.length,
+    drop_reasons: dropped.map(d => d.reason),
+    prompt_eval_count: lastCallStats.prompt_eval_count, eval_count: lastCallStats.eval_count,
+    num_ctx: lastCallStats.num_ctx, near_limit: lastCallStats.near_limit
+  });
+  return kept;
+}
+
+/**
+ * Same prompt, N different local models, one merged finding set — the
+ * "analyze with 2-3 different local models" the user asked for. Each model
+ * runs the full runSpecialist path independently (own grounding pass, own
+ * drop log) against the SAME budgeted prompt, so results are directly
+ * comparable. Findings are then merged by (subject, severity): a subject
+ * flagged by 2+ models is corroborated (kept as-is, detail prefixed with
+ * the agreeing model count); a subject only one model raised is kept but
+ * marked tentative in its detail, since a single-model finding on
+ * consumer-grade local inference is more likely to be a hallucination or
+ * misread than a majority one. A model that errors (offline, OOM, timeout)
+ * is skipped — one bad endpoint must not block the whole scan; if ALL
+ * models fail, the caller's try/catch surfaces that as a run failure.
+ */
+export async function runSpecialistMultiModel({ agentName, behavior, systemRole, sections, knownSubjects = [], maxTokens = 900, models }) {
+  const system = `${systemRole} ${RESPONSE_CONTRACT}`;
+  const { text: user, trimmed, tokens } = budgetPrompt(sections, system, maxTokens);
+  if (trimmed.length) console.warn(`[${agentName}] prompt over budget — trimmed: ${trimmed.join(', ')}`);
+
+  const perModel = [];
+  for (const model of models) {
+    try {
+      const agent = await makeAnalysisAgent(`${agentName}-${model}`, behavior, { maxTokens, model, format: FINDINGS_SCHEMA });
+      const raw = await callAnalyze(agent, system, user);
+      const parsed = safeParseFindings(extractJson(raw));
+      const { kept, dropped } = groundFindings(parsed, knownSubjects, user);
+      for (const d of dropped) console.warn(`[${agentName}/${model}] dropped ungrounded finding "${d.finding.title}": ${d.reason}`);
+      perModel.push({ model, findings: kept });
+    } catch (e) {
+      console.warn(`[${agentName}/${model}] model call failed, skipping: ${e?.message || e}`);
+    }
+  }
+  if (!perModel.length) throw new Error(`all ${models.length} models failed for ${agentName}`);
+
+  // Merge: key = subject (or '(whole-system)') + severity bucket. Multiple
+  // models raising the exact same (subject, severity) corroborate each
+  // other; different severities for the same subject both survive (e.g.
+  // one model calls it 'warning', another 'error' — that disagreement is
+  // itself useful signal, shown as separate findings).
+  const bySubjectSeverity = new Map();
+  for (const { model, findings } of perModel) {
+    for (const f of findings) {
+      const key = `${(f.subject || '').toLowerCase()}::${f.severity}`;
+      if (!bySubjectSeverity.has(key)) bySubjectSeverity.set(key, { finding: f, models: [model] });
+      else bySubjectSeverity.get(key).models.push(model);
+    }
+  }
+  const merged = [...bySubjectSeverity.values()].map(({ finding, models: agreeingModels }) => {
+    const confidence = agreeingModels.length >= 2
+      ? `[corroborated by ${agreeingModels.length}/${perModel.length} models] `
+      : `[single-model, ${agreeingModels[0]} only — treat as tentative] `;
+    return { ...finding, detail: confidence + (finding.detail || '') };
+  });
+
+  Object.assign(lastRunStats, {
+    prompt_tokens_est: tokens, trimmed, dropped: 0, drop_reasons: [],
+    models_used: perModel.map(p => p.model), models_requested: models.length
+  });
+  return merged;
 }

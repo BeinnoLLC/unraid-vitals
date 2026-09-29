@@ -22,15 +22,41 @@
  *
  * Usage: node research.mjs <jobId>
  */
-import { getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
+import { getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb, listEvents } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
-import { latestSnapshot } from './lib/sources.mjs';
+import { latestSnapshot, vmList } from './lib/sources.mjs';
 
 const BEHAVIOR = `You are the Unraid Vitals research assistant. You answer questions about
-this specific Unraid server using ONLY the context provided (knowledge-base excerpts
-and a live system snapshot) — never invent metrics, disk names, or container names that
-aren't in the context. If the context doesn't contain enough to answer, say so plainly
-and suggest what data would help. Be concise and factual, not hype-y.`;
+this specific Unraid server using ONLY the context provided (knowledge-base excerpts,
+recent event history, and a live system snapshot) — never invent metrics, disk names, or
+container/VM names that aren't in the context. If the context doesn't contain enough to
+answer, say so plainly and suggest what data would help. Be concise and factual, not hype-y.`;
+
+/** A question naming a live VM gets that VM's own event history attached —
+ *  "listen to events from all the VMs and answer questions about a specific
+ *  VM" scopes the retrieval, not just the prompt wording. Matched against
+ *  vmList() rather than a regex over the question, so it only fires for
+ *  VMs that actually exist (no false match on an unrelated word that
+ *  happens to look like a name). */
+function detectVmScope(prompt, vms) {
+  const lower = prompt.toLowerCase();
+  return vms.find(vm => lower.includes(vm.name.toLowerCase())) || null;
+}
+
+/** "in the past 2 days" / "last 48 hours" / bare "recently" style phrasing
+ *  all resolve to a lookback window in hours, used to scope BOTH the
+ *  kb_events pull and (via the caller) can be surfaced to the model
+ *  explicitly so it does not silently assume "now" when the user asked
+ *  about a range. Defaults to 48h — matches the user's stated common case
+ *  ("I may ask you about things in the past 2 days") when no explicit
+ *  window is stated in the question. */
+function detectWindowHours(prompt) {
+  const daysMatch = prompt.match(/(?:past|last)\s+(\d+)\s*day/i);
+  if (daysMatch) return Number(daysMatch[1]) * 24;
+  const hoursMatch = prompt.match(/(?:past|last)\s+(\d+)\s*(?:hour|hr)/i);
+  if (hoursMatch) return Number(hoursMatch[1]);
+  return 48;
+}
 
 async function main() {
   const jobId = Number(process.argv[2]);
@@ -43,6 +69,13 @@ async function main() {
   try {
     const kbHits = searchKb(job.prompt, 12);
     const snap = latestSnapshot();
+    const vms = vmList();
+    const scopedVm = detectVmScope(job.prompt, vms);
+    const windowHours = detectWindowHours(job.prompt);
+    // Recent events (alert-engine + vmwatch) in the detected window,
+    // narrowed to one VM's entity when the question names it — this is
+    // the retrieval half of "answer questions about a specific VM".
+    const recentEvents = listEvents({ sinceHours: windowHours, entity: scopedVm ? scopedVm.name : undefined, limit: 40 });
 
     const contextParts = [];
     if (kbHits.length) {
@@ -52,6 +85,20 @@ async function main() {
       }
     } else {
       contextParts.push('(No matching knowledge-base documents yet.)');
+    }
+    if (recentEvents.length) {
+      contextParts.push(`\nEvent history (last ${windowHours}h${scopedVm ? `, VM "${scopedVm.name}" only` : ''}):`);
+      for (const ev of recentEvents) {
+        contextParts.push(`- [${new Date(ev.started_at * 1000).toISOString()}] ${ev.kind}/${ev.entity || '(system)'} ` +
+          `${ev.severity} ${ev.status}: ${ev.summary}${ev.resolved_at ? ` (resolved ${new Date(ev.resolved_at * 1000).toISOString()})` : ''}`);
+      }
+    } else if (scopedVm) {
+      contextParts.push(`\n(No recorded events for VM "${scopedVm.name}" in the last ${windowHours}h — it has been in a settled state the whole window, or vmwatch has not run yet.)`);
+    }
+    if (scopedVm) {
+      contextParts.push(`\nCurrent VM state: "${scopedVm.name}" is ${scopedVm.state}.`);
+    } else if (vms.length) {
+      contextParts.push(`\nAll VMs currently: ${vms.map(v => `${v.name}=${v.state}`).join(', ')}`);
     }
     if (snap) {
       contextParts.push('\nLive snapshot (abbreviated):');

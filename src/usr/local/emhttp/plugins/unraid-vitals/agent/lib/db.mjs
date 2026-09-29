@@ -250,6 +250,25 @@ export function finishRun(runId, status, error) {
   ).run(Math.floor(Date.now() / 1000), status, error || null, runId);
 }
 
+/**
+ * Self-gating interval check for orchestrator-style crons (analyze.mjs,
+ * diagnostics/update/vm agents). The cron itself can run as often as every
+ * few minutes — this decides whether it's actually *time* to do the (slow,
+ * LLM-driven) work, using the most recent completed run of `agentGroup`
+ * rather than depending on cron's own schedule syntax. That means a user
+ * changing the interval in Settings takes effect on the very next cron
+ * tick, with no cron file to regenerate for the interval itself (only the
+ * tick cadence, which install.sh keeps fixed and fine-grained).
+ */
+export function isDueForRun(agentGroup, intervalMinutes) {
+  const row = getDb().prepare(
+    `SELECT MAX(finished_at) AS last FROM runs WHERE agent = ? AND status != 'running'`
+  ).get(agentGroup);
+  if (!row || !row.last) return true;
+  const dueAt = row.last + intervalMinutes * 60;
+  return Math.floor(Date.now() / 1000) >= dueAt;
+}
+
 /** Replace an agent's prior findings with a fresh batch (one run = one snapshot). */
 export function replaceFindings(agent, runId, findings) {
   const d = getDb();
@@ -492,12 +511,14 @@ export function getEvent(id) {
   return getDb().prepare(`SELECT * FROM kb_events WHERE id = ?`).get(id) || null;
 }
 
-export function listEvents({ status, kind, limit = 100 } = {}) {
+export function listEvents({ status, kind, entity, sinceHours, limit = 100 } = {}) {
   const d = getDb();
   const clauses = [];
   const args = [];
   if (status) { clauses.push('status = ?'); args.push(status); }
   if (kind) { clauses.push('kind = ?'); args.push(kind); }
+  if (entity) { clauses.push('entity = ?'); args.push(entity); }
+  if (sinceHours) { clauses.push('started_at >= ?'); args.push(Math.floor(Date.now() / 1000) - sinceHours * 3600); }
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   args.push(limit);
   return d.prepare(

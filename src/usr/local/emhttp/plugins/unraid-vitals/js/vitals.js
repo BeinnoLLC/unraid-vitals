@@ -1803,7 +1803,11 @@ function SettingsTab() {
           SET_STARTPAGE: j.cfg.SET_STARTPAGE || 'no',
           ALERT_TEMP: j.cfg.ALERT_TEMP || '55', ALERT_FILL: j.cfg.ALERT_FILL || '90',
           ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3',
-          LLM_STUDIO_PRIMARY: j.cfg.LLM_STUDIO_PRIMARY || '', LLM_STUDIO_BACKUP: j.cfg.LLM_STUDIO_BACKUP || ''
+          LLM_STUDIO_PRIMARY: j.cfg.LLM_STUDIO_PRIMARY || '', LLM_STUDIO_BACKUP: j.cfg.LLM_STUDIO_BACKUP || '',
+          VITALS_DIAG_INTERVAL_MINUTES: j.cfg.VITALS_DIAG_INTERVAL_MINUTES || '360',
+          VITALS_DIAG_WINDOW_HOURS: j.cfg.VITALS_DIAG_WINDOW_HOURS || '6',
+          VITALS_DIAG_MODELS: j.cfg.VITALS_DIAG_MODELS || '',
+          VITALS_UPDATE_INTERVAL_MINUTES: j.cfg.VITALS_UPDATE_INTERVAL_MINUTES || '360'
         });
         setMeta(j);
       });
@@ -1880,6 +1884,35 @@ function SettingsTab() {
           h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
         saveState === 'saved' ? h('span', { class: 'ok' }, h('i', { class: 'fa fa-check' }), ' Saved & reapplied') : null,
         saveState === 'error' ? h('span', { class: 'crit' }, 'Save failed') : null)),
+    h(Panel, { title: 'Deep scan (diagnostics + update checks)' },
+      h('div', { class: 'muted', style: 'margin-bottom:8px;font-size:0.9em' },
+        'The diagnostics agent looks back across a rolling window and correlates across ' +
+        'domains (thermal/disk/network/containers) rather than judging the latest sample alone. ' +
+        'Runs on its own interval, independent of the hourly per-domain agents.'),
+      h('table', null,
+        h('tr', null, h('td', { class: 'muted' }, 'Scan interval'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_DIAG_INTERVAL_MINUTES,
+            onChange: set('VITALS_DIAG_INTERVAL_MINUTES') },
+            [
+              [60, 'Every hour'], [180, 'Every 3 hours'], [360, 'Every 6 hours (default)'],
+              [720, 'Every 12 hours'], [1440, 'Once a day']
+            ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); })))),
+        h('tr', null, h('td', { class: 'muted' }, 'Look-back window'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 1, max: 72,
+            value: cfg.VITALS_DIAG_WINDOW_HOURS, onInput: set('VITALS_DIAG_WINDOW_HOURS') }), ' hours')),
+        h('tr', null, h('td', { class: 'muted' }, 'Models (multi-model corroboration)'),
+          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
+            placeholder: 'qwen3:14b,llama3.1:8b,gemma2:9b (default)',
+            value: cfg.VITALS_DIAG_MODELS, onInput: set('VITALS_DIAG_MODELS') }))),
+        h('tr', null, h('td', { class: 'muted' }, 'Container-update check interval'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_UPDATE_INTERVAL_MINUTES,
+            onChange: set('VITALS_UPDATE_INTERVAL_MINUTES') },
+            [
+              [60, 'Every hour'], [360, 'Every 6 hours (default)'], [720, 'Every 12 hours'], [1440, 'Once a day']
+            ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); }))))),
+      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
+        h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
+          h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')))),
     h(Panel, { title: 'Collector log', span2: true },
       h('pre', { class: 'v-mono v-scroll', style: 'max-height:220px;margin:0;white-space:pre-wrap' },
         meta.log_tail || '(no output yet)')));

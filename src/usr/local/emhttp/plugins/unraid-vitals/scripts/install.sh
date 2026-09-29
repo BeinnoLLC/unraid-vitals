@@ -107,12 +107,34 @@ NODE_BIN="$(command -v node 2>/dev/null || true)"
 if [ -n "$NODE_BIN" ] && [ -d "$PLUGDIR/agent/node_modules" ]; then
   LLM_PRIMARY_CFG=$(grep -oP '^LLM_STUDIO_PRIMARY="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
   LLM_BACKUP_CFG=$(grep -oP '^LLM_STUDIO_BACKUP="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
+  # Deep-scan tunables (P24: configurable scan interval, default 6h/360m —
+  # analyze.mjs's own isDueForRun() gate enforces this using the last
+  # completed run time, independent of the hourly cron cadence below, so
+  # changing these in Settings takes effect on the very next hourly tick
+  # with no cron file rewrite needed for the interval itself).
+  DIAG_INTERVAL_CFG=$(grep -oP '^VITALS_DIAG_INTERVAL_MINUTES="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "360")
+  DIAG_WINDOW_CFG=$(grep -oP '^VITALS_DIAG_WINDOW_HOURS="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "6")
+  DIAG_MODELS_CFG=$(grep -oP '^VITALS_DIAG_MODELS="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
+  UPDATE_INTERVAL_CFG=$(grep -oP '^VITALS_UPDATE_INTERVAL_MINUTES="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "360")
   cat > /etc/cron.d/${PLUGIN}-agents <<AGENTCRON
 # unraid-vitals background AI agents — installed by $PLUGIN.plg
-7 * * * * LLM_STUDIO_PRIMARY="$LLM_PRIMARY_CFG" LLM_STUDIO_BACKUP="$LLM_BACKUP_CFG" /usr/bin/flock -n $STATE/agents.lock $NODE_BIN $PLUGDIR/agent/analyze.mjs >> $STATE/agents.log 2>&1
+7 * * * * LLM_STUDIO_PRIMARY="$LLM_PRIMARY_CFG" LLM_STUDIO_BACKUP="$LLM_BACKUP_CFG" VITALS_DIAG_INTERVAL_MINUTES="$DIAG_INTERVAL_CFG" VITALS_DIAG_WINDOW_HOURS="$DIAG_WINDOW_CFG" VITALS_DIAG_MODELS="$DIAG_MODELS_CFG" VITALS_UPDATE_INTERVAL_MINUTES="$UPDATE_INTERVAL_CFG" /usr/bin/flock -n $STATE/agents.lock $NODE_BIN $PLUGDIR/agent/analyze.mjs >> $STATE/agents.log 2>&1
 AGENTCRON
   chmod 644 /etc/cron.d/${PLUGIN}-agents
   cp -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true
+
+  # --- VM event listener cron --------------------------------------------------
+  # Diffs libvirt VM state every 2 minutes and records a kb_event only on an
+  # actual transition (see agent/vmwatch.mjs) — no LLM call, cheap enough to
+  # run far more often than the LLM-driven agents so state changes are
+  # caught close to when they happen, which matters for "what happened to
+  # VM X" questions to actually have timestamps worth answering with.
+  cat > /etc/cron.d/${PLUGIN}-vmwatch <<VMWATCHCRON
+# unraid-vitals VM event listener — installed by $PLUGIN.plg
+*/2 * * * * /usr/bin/flock -n $STATE/vmwatch.lock $NODE_BIN $PLUGDIR/agent/vmwatch.mjs >> $STATE/vmwatch.log 2>&1
+VMWATCHCRON
+  chmod 644 /etc/cron.d/${PLUGIN}-vmwatch
+  cp -f /etc/cron.d/${PLUGIN}-vmwatch "$FLASH/vmwatch.cron" 2>/dev/null || true
 
   # --- study-mode ticker cron -------------------------------------------------
   # Advances every standing "study the system for N hours" job: takes a
@@ -127,7 +149,8 @@ STUDYCRON
   chmod 644 /etc/cron.d/${PLUGIN}-study
   cp -f /etc/cron.d/${PLUGIN}-study "$FLASH/study.cron" 2>/dev/null || true
 else
-  rm -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" /etc/cron.d/${PLUGIN}-study "$FLASH/study.cron" 2>/dev/null || true
+  rm -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" /etc/cron.d/${PLUGIN}-study "$FLASH/study.cron" \
+        /etc/cron.d/${PLUGIN}-vmwatch "$FLASH/vmwatch.cron" 2>/dev/null || true
   echo "unraid-vitals: node/agent deps not found — background AI agents disabled (run 'cd $PLUGDIR/agent && npm install' to enable)"
 fi
 
