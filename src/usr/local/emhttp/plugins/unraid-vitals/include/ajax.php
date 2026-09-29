@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/checks.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -66,6 +67,7 @@ try {
     $dbFile = v_db_path();
     echo json_encode(['ok' => true,
       'cfg' => $cfg,
+      'checks' => v_checks_config(),
       'db_path' => $dbFile,
       'db_bytes' => $dbFile !== '' && is_file($dbFile) ? (int)@filesize($dbFile) : null,
       'csrf_token' => @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '',
@@ -79,13 +81,19 @@ try {
 
   if ($action === 'save_settings') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
-    $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS'];
+    $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS',
+                'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP'];
+    foreach (array_keys(v_checks_defaults()) as $checkId) {
+      $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';
+      $allowed[] = 'CHECK_' . strtoupper($checkId) . '_SEVERITY';
+    }
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     foreach ($allowed as $k) if (isset($_POST[$k])) $cfg[$k] = $_POST[$k];
     $lines = [];
     foreach ($cfg as $k => $v) $lines[] = $k . '="' . str_replace('"', '', (string)$v) . '"';
     @mkdir(dirname(V_CFG_FILE), 0755, true);
     file_put_contents(V_CFG_FILE, implode("\n", $lines) . "\n");
+    v_flash_writes_track(); // settings save writes to flash too (P14-12)
     // Re-apply cron + start-page immediately, same as the old form's #command.
     if (is_executable(V_INSTALL_SH)) exec(escapeshellarg(V_INSTALL_SH) . ' --reapply 2>&1');
     echo json_encode(['ok' => true]);
@@ -94,6 +102,11 @@ try {
 
   if ($action === 'findings') {
     echo json_encode(['ok' => true, 'findings' => v_ai_findings(), 'runs' => v_ai_runs()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'checks') {
+    echo json_encode(['ok' => true] + v_checks_latest(), JSON_UNESCAPED_SLASHES);
     exit;
   }
 
@@ -178,6 +191,20 @@ try {
     echo json_encode(['ok' => true] + $data + ['sources' => array_map(
       fn($k, $s) => ['id' => $k, 'label' => $s['label']], array_keys($sources), $sources)],
       JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'events_list') {
+    $status = $_GET['status'] ?? null;
+    $status = in_array($status, ['open', 'resolved', 'superseded'], true) ? $status : null;
+    $limit = min(200, max(1, (int)($_GET['limit'] ?? 100)));
+    echo json_encode(['ok' => true, 'events' => v_events_list($status, $limit)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'events_get') {
+    $id = (int)($_GET['id'] ?? 0);
+    echo json_encode(['ok' => true, 'event' => $id ? v_event_get($id) : null], JSON_UNESCAPED_SLASHES);
     exit;
   }
 

@@ -165,6 +165,22 @@
 .vitals .v-log-line.crit { color: var(--v-bad, #ef4444); background: rgba(239,68,68,.06); }
 .vitals .v-log-ts { color: var(--v-muted); opacity: .65; margin-right: 8px; }
 .vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: 11px; color: var(--v-muted); }
+
+/* findings drawer reuses the log-drawer shell but needs normal (non-mono)
+   typography and padded cards instead of raw log lines */
+.vitals .v-drawer-body:has(.v-ai-item) { font-family: inherit; padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }
+
+/* header bell button + severity badge */
+.vitals .v-bell { position: relative; }
+.vitals .v-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 17px; height: 17px; padding: 0 4px; margin-left: 6px;
+  border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 1;
+  background: rgba(127,127,127,.25); color: var(--v-fg);
+}
+.vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad, #ef4444); color: #fff; }
+.vitals .v-badge-warning { background: #f59e0b; color: #1a1a1a; }
+.vitals .v-badge-info { background: #4f9cf9; color: #fff; }
 .vitals .v-ai-agent.warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
 
 /* ---- reference-dashboard primitives ------------------------------------- */

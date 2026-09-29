@@ -482,28 +482,40 @@ function SmartTable(P) {
   if (!keys.length) return h('div', { class: 'v-empty' }, 'No SMART data cached yet.');
   var rows = keys.map(function (k) { return P.d.smart[k]; });
   rows.sort(function (a, b) { return (b.temp || 0) - (a.temp || 0); });
-  var flagged = rows.some(function (r) { return (r.reallocated || 0) + (r.pending || 0) > 0; });
+  var growing = function (r) {
+    var g = r.growth_30d || {};
+    return (g.reallocated || 0) > 0 || (g.pending || 0) > 0 || (g.crc || 0) > 0;
+  };
+  var flagged = rows.some(growing);
+  var wearOf = function (r) { return r.nvme_pct_used != null ? r.nvme_pct_used : r.ssd_wear_pct; };
   return h('div', null,
     h(Table, null,
       h('tr', null, h('th', null, 'Disk'), h('th', null, 'Health'), h('th', { class: 'num' }, 'Temp'),
         h('th', { class: 'num' }, 'Power-on h'), h('th', { class: 'num' }, 'Realloc'),
         h('th', { class: 'num' }, 'Pending'), h('th', { class: 'num' }, 'Uncorr'),
-        h('th', { class: 'num' }, 'CRC')),
+        h('th', { class: 'num' }, 'CRC'), h('th', { class: 'num' }, 'Growth (30d)'),
+        h('th', { class: 'num' }, 'Wear')),
       rows.map(function (r) {
         var hcls = r.health === 'PASSED' ? 'ok' : (r.health ? 'crit' : 'muted');
+        var g = r.growth_30d || {};
+        var isGrowing = growing(r);
+        var growthLabel = g.days == null ? 'watching' : (isGrowing ? ('+' + [g.reallocated, g.pending, g.crc].filter(function (v) { return v; }).reduce(function (a, b) { return a + b; }, 0) + ' in ' + g.days + 'd') : 'stable');
+        var wear = wearOf(r);
         return h('tr', { key: r.dev || r.name },
           h('td', { class: 'v-name' }, r.name),
           h('td', null, h('span', { class: hcls }, r.health || 'n/a')),
           h('td', { class: 'num ' + lvl(r.temp, 45, 55) }, r.temp == null ? '—' : r.temp + '°'),
           h('td', { class: 'num muted' }, r.hours == null ? '—' : r.hours.toLocaleString()),
-          h('td', { class: 'num ' + (r.reallocated ? 'crit' : 'muted') }, r.reallocated == null ? '—' : String(r.reallocated)),
-          h('td', { class: 'num ' + (r.pending ? 'crit' : 'muted') }, r.pending == null ? '—' : String(r.pending)),
+          h('td', { class: 'num ' + (r.reallocated ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.reallocated == null ? '—' : String(r.reallocated)),
+          h('td', { class: 'num ' + (r.pending ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.pending == null ? '—' : String(r.pending)),
           h('td', { class: 'num ' + (r.uncorrectable ? 'crit' : 'muted') }, r.uncorrectable == null ? '—' : String(r.uncorrectable)),
-          h('td', { class: 'num ' + (r.crc ? 'warn' : 'muted') }, r.crc == null ? '—' : String(r.crc)));
+          h('td', { class: 'num ' + (r.crc ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.crc == null ? '—' : String(r.crc)),
+          h('td', { class: 'num ' + (isGrowing ? 'crit' : 'muted') }, growthLabel),
+          h('td', { class: 'num ' + lvl(wear, 80, 90) }, wear == null ? '—' : wear + '%'));
       })),
     flagged ? h('div', { class: 'v-warnnote' },
       h('i', { class: 'fa fa-exclamation-triangle' }),
-      ' Reallocated or pending sectors present — check disk health.') : null);
+      ' Reallocated, pending, or CRC counters actively growing — check disk/cabling.') : null);
 }
 
 function DiskTable(P) {
@@ -552,6 +564,7 @@ function App() {
   var s5 = useState(null), daily = s5[0], setDaily = s5[1];
   var s6 = useState([]), findings = s6[0], setFindings = s6[1];
   var s7 = useState(false), drawerOpen = s7[0], setDrawerOpen = s7[1];
+  var s8 = useState(false), findingsOpen = s8[0], setFindingsOpen = s8[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
@@ -609,6 +622,7 @@ function App() {
           h('option', { value: 1440 }, 'Last 24 hours')),
         h('button', { class: 'v-btn', onClick: function () { load(true); } },
           h('i', { class: 'fa fa-refresh' }), ' Refresh'),
+        h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
         h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
           onClick: function () { setDrawerOpen(!drawerOpen); } },
           h('i', { class: 'fa fa-file-text-o' }), ' Logs'))),
@@ -635,7 +649,8 @@ function App() {
 
     h('div', { class: 'v-foot' },
       'unraid-vitals · samples retained on flash'),
-    h(LogDrawer, { open: drawerOpen, onClose: function () { setDrawerOpen(false); } }));
+    h(LogDrawer, { open: drawerOpen, onClose: function () { setDrawerOpen(false); } }),
+    h(FindingsDrawer, { findings: findings, open: findingsOpen, onClose: function () { setFindingsOpen(false); } }));
 }
 
 /* ------------------------------------------------------------ log drawer */
@@ -791,7 +806,6 @@ function DashTab(P) {
   };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings }),
     h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) {
       return h(StatCard, merge(c, { key: i }));
     })),
@@ -847,25 +861,55 @@ var SEV_ICON = { critical: 'fa-bolt', error: 'fa-times-circle', warning: 'fa-exc
  *  domain (e.g. only 'thermal' findings on the Hardware tab); omitted on
  *  the dashboard to show everything. Nothing rendered when there's
  *  nothing to report yet — agents haven't run, or genuinely all-clear. */
-function AiFindingsPanel(P) {
+function AiBell(P) {
   var all = P.findings || [];
-  var list = P.agents ? all.filter(function (f) { return P.agents.indexOf(f.agent) !== -1; }) : all;
-  if (!list.length) return null;
-  var interesting = list.filter(function (f) { return f.severity !== 'ok'; });
-  var shown = (interesting.length ? interesting : list.slice(0, 1)).slice()
-    .sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); })
-    .slice(0, 6);
-  return h('div', { class: 'v-ai-panel' },
-    h('div', { class: 'v-ai-head' }, h('i', { class: 'fa fa-magic' }), ' AI health findings',
-      h('span', { class: 'muted' }, ' · updated hourly by local agents')),
-    shown.map(function (f) {
-      return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
-        h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
-        h('div', { class: 'v-ai-body' },
-          h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
-          f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
-          f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
-    }));
+  var interesting = all.filter(function (f) { return f.severity !== 'ok'; });
+  var worst = interesting.reduce(function (w, f) {
+    return (SEV_ORDER[f.severity] ?? 5) < (SEV_ORDER[w] ?? 5) ? f.severity : w;
+  }, 'info');
+  return h('button', { class: 'v-btn v-bell' + (P.open ? ' primary' : '') + (interesting.length ? ' has-badge' : ''),
+      title: 'AI health findings', onClick: P.onClick },
+    h('i', { class: 'fa fa-magic' }), ' Findings',
+    interesting.length ? h('span', { class: 'v-badge v-badge-' + worst }, interesting.length) : null);
+}
+
+/** Right-side drawer: every AI finding across every agent, newest/worst
+ *  first — same drawer pattern as the log viewer instead of a full-width
+ *  block sitting on top of every tab. */
+function FindingsDrawer(P) {
+  var all = P.findings || [];
+  var s1 = useState('all'); var agentFilter = s1[0], setAgentFilter = s1[1];
+  var agents = Array.from(new Set(all.map(function (f) { return f.agent; }).filter(Boolean))).sort();
+  var interesting = all.filter(function (f) { return f.severity !== 'ok'; });
+  var pool = interesting.length ? interesting : all;
+  var shown = pool.filter(function (f) { return agentFilter === 'all' || f.agent === agentFilter; })
+    .slice().sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); });
+
+  return P.open ? h('div', null,
+    h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
+    h('div', { class: 'v-drawer' },
+      h('div', { class: 'v-drawer-head' },
+        h('i', { class: 'fa fa-magic' }),
+        h('span', { class: 'v-drawer-title' }, 'AI health findings'),
+        h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
+        h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
+      h('div', { class: 'v-drawer-tools' },
+        h('select', { class: 'v-select', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
+          h('option', { value: 'all' }, 'All agents'),
+          agents.map(function (a) { return h('option', { key: a, value: a }, a); })),
+        h('span', { class: 'muted', style: 'align-self:center;font-size:11.5px' }, 'updated hourly by local agents')),
+      h('div', { class: 'v-drawer-body' },
+        !shown.length ? h('div', { class: 'v-empty' }, 'No findings yet — the agents run hourly.')
+        : shown.map(function (f) {
+            return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
+              h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
+              h('div', { class: 'v-ai-body' },
+                h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
+                f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
+                f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
+          })),
+      h('div', { class: 'v-drawer-foot' },
+        shown.length + ' of ' + all.length + ' total findings'))) : null;
 }
 
 /* ---------------------------------------------------------------- array */
@@ -904,7 +948,6 @@ function ArrayTab(P) {
   });
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['disks', 'pools'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Array state', icon: 'fa-hdd-o', color: PAL['v-accent'], value: d.system.md_state,
@@ -940,7 +983,14 @@ function ArrayTab(P) {
       h(SmartTable, { d: d })),
     h(Panel, { title: 'Daily rollups', span2: true,
       hint: (P.daily || []).length ? 'last ' + P.daily.length + ' days' : 'building' },
-      h(DailyTable, { daily: P.daily })));
+      h(DailyTable, { daily: P.daily })),
+    d.system.unclean_shutdown ? h(Panel, { title: 'Unclean shutdown detected', span2: true },
+      h('div', { class: 'v-empty' },
+        'The array was not unmounted cleanly last time it stopped. Unraid runs a parity check on the'
+        + ' next array start to verify consistency — treat parity as unverified until one has completed.')) : null,
+    h(Panel, { title: 'Parity check history', span2: true,
+      hint: (d.parity_history || []).length ? 'last ' + d.parity_history.length + ' checks' : '' },
+      h(ParityTable, { history: d.parity_history })));
 }
 
 function DailyTable(P) {
@@ -968,6 +1018,29 @@ function DailyTable(P) {
         h('td', { class: 'num' }, r.net_tx ? bytes(r.net_tx) + '/s' : '—'),
         h('td', { class: 'num' }, r.gpu_max == null ? '—' : r.gpu_max + '%'),
         h('td', { class: 'num ' + lvl(r.fill_max, 85, 95) }, r.fill_max == null ? '—' : r.fill_max + '%'));
+    }));
+}
+
+function ParityTable(P) {
+  var hist = (P.history || []).slice().reverse();
+  if (!hist.length) {
+    return h('div', { class: 'v-empty' }, 'Parity check history appears after Unraid records its first check.');
+  }
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Date'), h('th', null, 'Type'), h('th', { class: 'num' }, 'Duration'),
+      h('th', { class: 'num' }, 'Speed'), h('th', { class: 'num' }, 'Errors'), h('th', null, 'Result')),
+    hist.map(function (r, i) {
+      var hrs = r.elapsed_sec ? (r.elapsed_sec / 3600).toFixed(1) + 'h' : '—';
+      var result = r.cancelled ? { label: 'Cancelled', cls: 'v-badge-warning' }
+        : (r.errors || 0) > 0 ? { label: r.errors + ' error(s)', cls: 'v-badge-error' }
+        : { label: 'Clean', cls: '' };
+      return h('tr', { key: i },
+        h('td', { class: 'v-name' }, r.date ? new Date(r.date * 1000).toISOString().slice(0, 10) : '—'),
+        h('td', null, r.type || '—'),
+        h('td', { class: 'num' }, hrs),
+        h('td', { class: 'num' }, r.speed_mbps == null ? '—' : r.speed_mbps + ' MB/s'),
+        h('td', { class: 'num' }, r.errors == null ? '—' : String(r.errors)),
+        h('td', null, h('span', { class: 'v-badge ' + result.cls }, result.label)));
     }));
 }
 
@@ -1039,7 +1112,6 @@ function NetTab(P) {
   var sum = function (k, f) { return active.reduce(function (s, x) { return s + (net[x][f] || 0); }, 0); };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['network'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Interfaces', icon: 'fa-exchange', color: PAL['v-accent'], value: String(ifs.length),
@@ -1325,7 +1397,6 @@ function HwTab(P) {
   };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['thermal', 'general'] }),
     h(Panel, { title: 'Temperatures', span2: true,
       hint: (sensors.temps || []).length + ' sensors — headroom is distance to the chip threshold' },
       !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
@@ -1576,7 +1647,8 @@ function SettingsTab() {
           INTERVAL: j.cfg.INTERVAL || '1', KEEP_DAYS: j.cfg.KEEP_DAYS || '90',
           SET_STARTPAGE: j.cfg.SET_STARTPAGE || 'no',
           ALERT_TEMP: j.cfg.ALERT_TEMP || '55', ALERT_FILL: j.cfg.ALERT_FILL || '90',
-          ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3'
+          ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3',
+          LLM_STUDIO_PRIMARY: j.cfg.LLM_STUDIO_PRIMARY || '', LLM_STUDIO_BACKUP: j.cfg.LLM_STUDIO_BACKUP || ''
         });
         setMeta(j);
       });
@@ -1635,6 +1707,19 @@ function SettingsTab() {
         h('tr', null, h('td', { class: 'muted' }, 'Container-down samples'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 60,
             value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)'))),
+      h('div', { class: 'muted', style: 'margin-top:16px;margin-bottom:6px;font-weight:600' }, 'AI agent endpoint'),
+      h('div', { class: 'muted', style: 'margin-bottom:8px;font-size:0.9em' },
+        'Empty = the built-in remote default (your metrics and logs leave your network to reach it). ' +
+        'Set your own Ollama-compatible endpoint here to keep everything local.'),
+      h('table', null,
+        h('tr', null, h('td', { class: 'muted' }, 'Primary endpoint'),
+          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
+            placeholder: 'http://127.0.0.1:11434 (default: remote)',
+            value: cfg.LLM_STUDIO_PRIMARY, onInput: set('LLM_STUDIO_PRIMARY') }))),
+        h('tr', null, h('td', { class: 'muted' }, 'Backup endpoint'),
+          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
+            placeholder: '(default: remote)',
+            value: cfg.LLM_STUDIO_BACKUP, onInput: set('LLM_STUDIO_BACKUP') })))),
       h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
           h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),

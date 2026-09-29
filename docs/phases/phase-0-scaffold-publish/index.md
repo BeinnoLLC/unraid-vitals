@@ -2,7 +2,7 @@
 
 [All phases](../index.md) · [Milestone on GitHub](https://github.com/BeinnoLLC/unraid-vitals/milestone/1)
 
-**Progress:** `[██████████████████████████████] 100%` — **7 / 7** tickets done (0 open)
+**Progress:** `[██████████████████████████████░] 100%` — **7 / 7** tickets done (0 open)
 
 > Ticket detail (type, priority, discussion) lives on GitHub. This file is a summary: progress and links only.
 
@@ -15,3 +15,4 @@
 | `P0-05` | [ca_profile.xml: real URLs, drop TODO placeholders](https://github.com/BeinnoLLC/unraid-vitals/issues/5) | done |
 | `P0-06` | [build.sh produces .txz + .plg with real checksums](https://github.com/BeinnoLLC/unraid-vitals/issues/6) | done |
 | `P0-07` | [Icon + screenshot assets](https://github.com/BeinnoLLC/unraid-vitals/issues/7) | done |
+

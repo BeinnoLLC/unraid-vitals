@@ -8,10 +8,10 @@ PLUGIN=unraid-vitals
 STATE=/var/tmp/$PLUGIN
 FLASH=/boot/config/plugins/$PLUGIN
 
-rm -f /etc/cron.d/$PLUGIN /etc/cron.d/${PLUGIN}-prune /etc/cron.d/${PLUGIN}-agents
+rm -f /etc/cron.d/$PLUGIN /etc/cron.d/${PLUGIN}-prune /etc/cron.d/${PLUGIN}-agents /etc/cron.d/${PLUGIN}-checks
 rm -rf /usr/local/emhttp/plugins/$PLUGIN
 rm -rf "$STATE"
-rm -f "$FLASH/prune.php" "$FLASH/collector.cron" "$FLASH/prune.cron" "$FLASH/agents.cron"
+rm -f "$FLASH/prune.php" "$FLASH/collector.cron" "$FLASH/prune.cron" "$FLASH/agents.cron" "$FLASH/checks.cron"
 
 # If Vitals was the start page, fall back to Unraid's Main.
 if [ -f /boot/config/plugins/dynamix/dynamix.cfg ] && grep -q '^START_PAGE="Vitals"' /boot/config/plugins/dynamix/dynamix.cfg; then

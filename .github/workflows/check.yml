@@ -1,0 +1,28 @@
+name: check
+
+# unraid-vitals — plan 106 P13-07.
+# Nothing ran on push before this: a syntax error (PHP, JS/mjs, or shell)
+# could sit on main until the next manual `npm run check`. This runs the
+# same check on every push and pull request that a developer would run
+# locally, so CI and local dev never disagree about what "clean" means.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install PHP CLI
+        run: sudo apt-get update && sudo apt-get install -y php-cli
+
+      - run: npm run check
