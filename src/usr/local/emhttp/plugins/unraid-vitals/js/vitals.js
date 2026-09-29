@@ -41,6 +41,15 @@ function ts(t) {
   var d = new Date(t * 1000);
   return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
 }
+/** Seconds between a unix timestamp and now, for "sampled Ns ago". */
+function age(t) { return t ? Math.max(0, Math.round(Date.now() / 1000 - t)) : 0; }
+/** Human "sampled Ns/Nm/Nh ago" instead of a raw (and eventually huge) second count. */
+function ageLabel(t) {
+  var s = age(t);
+  if (s < 90) return s + 's ago';
+  if (s < 5400) return Math.round(s / 60) + 'm ago';
+  return Math.round(s / 3600) + 'h ago';
+}
 
 /* Minimal markdown -> preact vnodes for AI-written KB reports (headings,
    bold/italic, unordered/ordered lists, paragraphs). Deliberately not a
@@ -695,10 +704,10 @@ function App() {
           h('div', null,
             h('h2', null, 'Vitals'),
             h('span', { class: 'v-sub' },
-              h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
+              h('span', { class: 'v-dot' + (status === 'error' || (d && age(d.time) > 180) ? ' crit' : '') }),
               status === 'error' ? 'collection error'
                 : !d ? 'loading…'
-                : [d.system.name, d.system.version].filter(Boolean).join(' · ') + ' · sampled ' + d._age + 's ago'))),
+                : [d.system.name, d.system.version].filter(Boolean).join(' · ') + ' · sampled ' + ageLabel(d.time)))),
         h('div', { class: 'v-toolbar' },
           h('div', { class: 'v-seg', role: 'group', 'aria-label': 'Time range' },
             [[60, '1h'], [360, '6h'], [1440, '24h']].map(function (o) {
