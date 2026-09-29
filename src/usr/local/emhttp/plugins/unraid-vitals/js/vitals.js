@@ -18,6 +18,7 @@ var useEffect = preactHooks.useEffect;
 var useRef = preactHooks.useRef;
 var ENDPOINT = (mountEl && mountEl.getAttribute('data-endpoint')) ||
                '/plugins/unraid-vitals/include/ajax.php';
+var KB_ASSET_BASE = ENDPOINT + '?action=kb_asset&f=';
 
 /* --------------------------------------------------------------- helpers */
 
@@ -39,6 +40,59 @@ function lvl(v, w, c) { return v == null ? '' : (v >= c ? 'crit' : v >= w ? 'war
 function ts(t) {
   var d = new Date(t * 1000);
   return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2);
+}
+
+/* Minimal markdown -> preact vnodes for AI-written KB reports (headings,
+   bold/italic, unordered/ordered lists, paragraphs). Deliberately not a
+   full CommonMark implementation — the model is instructed to use only
+   this subset (see agent/study.mjs / research.mjs prompts). No raw HTML
+   is ever interpreted; text runs go through h()'s normal text-child
+   escaping, so this is safe against anything the model emits. */
+function mdInline(text, key) {
+  var parts = [], rest = text, re = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/;
+  var i = 0;
+  while (rest.length) {
+    var m = re.exec(rest);
+    if (!m) { parts.push(rest); break; }
+    if (m.index > 0) parts.push(rest.slice(0, m.index));
+    if (m[1] !== undefined) parts.push(h('b', { key: key + '-' + (i++) }, m[1]));
+    else if (m[2] !== undefined) parts.push(h('i', { key: key + '-' + (i++) }, m[2]));
+    else parts.push(h('code', { key: key + '-' + (i++) }, m[3]));
+    rest = rest.slice(m.index + m[0].length);
+  }
+  return parts;
+}
+function renderMd(md) {
+  if (!md) return null;
+  var lines = String(md).replace(/\r\n/g, '\n').split('\n');
+  var out = [], list = null, para = null, key = 0;
+  function flushPara() { if (para) { out.push(h('p', { key: key++ }, mdInline(para.join(' '), 'p' + key))); para = null; } }
+  function flushList() { if (list) { out.push(h(list.tag, { key: key++ }, list.items)); list = null; } }
+  lines.forEach(function (raw) {
+    var line = raw.trim();
+    var mh = /^(#{1,4})\s+(.*)$/.exec(line);
+    var mul = /^[-*]\s+(.*)$/.exec(line);
+    var mol = /^\d+\.\s+(.*)$/.exec(line);
+    if (line === '') { flushPara(); flushList(); return; }
+    if (mh) {
+      flushPara(); flushList();
+      var tag = 'h' + Math.min(6, mh[1].length + 2); // markdown ## -> h4, keeps report headings visually subordinate to the KB card title
+      out.push(h(tag, { key: key++ }, mdInline(mh[2], 'h' + key)));
+      return;
+    }
+    if (mul || mol) {
+      flushPara();
+      var tag2 = mul ? 'ul' : 'ol';
+      if (!list || list.tag !== tag2) { flushList(); list = { tag: tag2, items: [] }; }
+      list.items.push(h('li', { key: 'li' + list.items.length }, mdInline((mul || mol)[1], 'li' + key + '-' + list.items.length)));
+      return;
+    }
+    flushList();
+    if (!para) para = [];
+    para.push(line);
+  });
+  flushPara(); flushList();
+  return out;
 }
 
 /* uPlot needs concrete colours; the vars live on .vitals, not :root. */
@@ -1590,9 +1644,18 @@ function KbTab() {
             h('div', { class: 'v-kb-doc-head' },
               h('i', { class: 'fa ' + (SEV_KB_ICON[doc.source] || 'fa-file-text-o') }),
               h('span', { class: 'v-kb-doc-title' }, doc.title),
+              doc.kind && doc.kind !== 'note' ? h(Pill, { kind: doc.kind === 'study' ? 'info' : 'run' }, doc.kind) : null,
               doc.topic ? h('span', { class: 'v-ai-agent' }, doc.topic) : null,
               h('span', { class: 'muted', style: 'margin-left:auto' }, ts(doc.created_at))),
-            h('div', { class: 'v-kb-doc-body' }, doc.content));
+            doc.summary ? h('div', { class: 'v-kb-doc-summary' }, doc.summary) : null,
+            doc.images && doc.images.length ? h('div', { class: 'v-kb-doc-images' },
+              doc.images.map(function (im, i) {
+                return h('figure', { key: i, class: 'v-kb-doc-fig' },
+                  h('img', { src: KB_ASSET_BASE + im.path, alt: im.caption || doc.title, loading: 'lazy' }),
+                  im.caption ? h('figcaption', null, im.caption) : null);
+              })) : null,
+            h('div', { class: 'v-kb-doc-body' + (doc.kind === 'report' || doc.kind === 'study' ? ' v-kb-doc-rich' : '') },
+              renderMd(doc.content)));
         })));
 }
 
@@ -1603,6 +1666,9 @@ function ResearchTab() {
   var s2 = useState([]); var jobs = s2[0], setJobs = s2[1];
   var s3 = useState(null); var activeJob = s3[0], setActiveJob = s3[1];
   var s4 = useState(false); var submitting = s4[0], setSubmitting = s4[1];
+  var s5 = useState('once'); var mode = s5[0], setMode = s5[1];
+  var s6 = useState(12); var hours = s6[0], setHours = s6[1];
+  var s7 = useState(15); var tickMinutes = s7[0], setTickMinutes = s7[1];
 
   var loadJobs = function () {
     fetch(ENDPOINT + '?action=research_list', { cache: 'no-store' })
@@ -1617,11 +1683,22 @@ function ResearchTab() {
       .then(function (j) { if (j && j.ok) setActiveJob(j.job); });
   };
 
+  // A studying job's own status doesn't change tick-to-tick, so a fixed
+  // 10s poll (same interval as loadJobs) is enough to show new
+  // observations as they land without a dedicated fast-poll path.
+  useEffect(function () {
+    if (!activeJob || activeJob.status !== 'studying') return;
+    var iv = setInterval(function () { openJob(activeJob.id); }, 10000);
+    return function () { clearInterval(iv); };
+  }, [activeJob && activeJob.id, activeJob && activeJob.status]);
+
   var submit = function (e) {
     e.preventDefault();
     if (!prompt.trim()) return;
     setSubmitting(true);
-    var body = new URLSearchParams({ prompt: prompt, csrf_token: window.__V_CSRF__ || '' });
+    var params = { prompt: prompt, mode: mode, csrf_token: window.__V_CSRF__ || '' };
+    if (mode === 'study') { params.hours = String(hours); params.tick_minutes = String(tickMinutes); }
+    var body = new URLSearchParams(params);
     fetch(ENDPOINT + '?action=research_ask', { method: 'POST', body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
@@ -1632,27 +1709,66 @@ function ResearchTab() {
       .catch(function () { setSubmitting(false); });
   };
 
+  var now = Math.floor(Date.now() / 1000);
+  var studyPct = activeJob && activeJob.mode === 'study' && activeJob.study_until
+    ? Math.max(0, Math.min(100, 100 * (1 - (activeJob.study_until - now) / Math.max(1, activeJob.study_until - activeJob.created_at))))
+    : null;
+
   return h('div', null,
-    h(Panel, { title: 'Ask a question', span2: true,
+    h(Panel, { title: 'Ask or study', span2: true,
       hint: 'runs in the background using local models — may take a few minutes on this hardware' },
       h('form', { class: 'v-kb-search', onSubmit: submit, style: 'flex-direction:column;align-items:stretch;gap:8px' },
-        h('textarea', { class: 'v-input', rows: 3, placeholder: 'e.g. Why has the cache pool been running hot this week? What should I check first?',
+        h('div', { class: 'v-seg', role: 'tablist' },
+          h('button', { type: 'button', class: 'v-seg-btn' + (mode === 'once' ? ' active' : ''), onClick: function () { setMode('once'); } },
+            h('i', { class: 'fa fa-question-circle' }), ' Ask once'),
+          h('button', { type: 'button', class: 'v-seg-btn' + (mode === 'study' ? ' active' : ''), onClick: function () { setMode('study'); } },
+            h('i', { class: 'fa fa-binoculars' }), ' Study over time')),
+        h('textarea', { class: 'v-input', rows: 3,
+          placeholder: mode === 'study'
+            ? 'e.g. Study the system for the next 12 hours and let me know what is going on — watch temps, disk activity and container health.'
+            : 'e.g. Why has the cache pool been running hot this week? What should I check first?',
           value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
+        mode === 'study' ? h('div', { class: 'v-row', style: 'gap:16px;flex-wrap:wrap' },
+          h('label', { class: 'v-field' }, 'Study for',
+            h('select', { class: 'v-input', value: hours, onChange: function (e) { setHours(Number(e.target.value)); } },
+              [1, 2, 4, 6, 12, 24, 48, 72].map(function (n) { return h('option', { key: n, value: n }, n + ' hour' + (n === 1 ? '' : 's')); }))),
+          h('label', { class: 'v-field' }, 'Check every',
+            h('select', { class: 'v-input', value: tickMinutes, onChange: function (e) { setTickMinutes(Number(e.target.value)); } },
+              [5, 15, 30, 60, 120].map(function (n) { return h('option', { key: n, value: n }, n + ' min'); })))) : null,
         h('button', { class: 'v-btn primary', type: 'submit', disabled: submitting, style: 'align-self:flex-start' },
-          h('i', { class: 'fa fa-flask' }), submitting ? ' Submitting…' : ' Research in background'))),
-    activeJob ? h(Panel, { title: 'Result', span2: true, hint: activeJob.status },
+          h('i', { class: 'fa ' + (mode === 'study' ? 'fa-binoculars' : 'fa-flask') }),
+          submitting ? ' Submitting…' : (mode === 'study' ? ' Start studying' : ' Research in background')))),
+    activeJob ? h(Panel, { title: activeJob.mode === 'study' ? 'Study' : 'Result', span2: true,
+        hint: activeJob.status + (activeJob.mode === 'study' && activeJob.status === 'studying'
+          ? ' — ' + dur(activeJob.study_until - now) + ' remaining' : '') },
       activeJob.status === 'pending' || activeJob.status === 'running'
         ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Researching — this can take a few minutes, feel free to leave this tab.')
+        : activeJob.status === 'studying'
+        ? h('div', null,
+            h('div', { class: 'v-bar', style: 'margin-bottom:12px' },
+              h('i', { style: 'width:' + studyPct.toFixed(0) + '%;background:var(--v-accent)' })),
+            h('div', { class: 'v-empty', style: 'padding:8px 0' },
+              h('i', { class: 'fa fa-binoculars' }),
+              ' Studying — checking every ' + (activeJob.tick_minutes || 15) + ' min. ' +
+              (activeJob.observations ? activeJob.observations.length : 0) + ' observation(s) so far.'),
+            activeJob.observations && activeJob.observations.length
+              ? h('div', { class: 'v-scroll', style: 'max-height:280px' },
+                  h('ul', { class: 'v-journal' },
+                    activeJob.observations.slice().reverse().map(function (o, i) {
+                      return h('li', { key: i }, h('span', { class: 'muted' }, ts(o.at)), ' ', o.note);
+                    })))
+              : null)
         : activeJob.status === 'error'
         ? h('div', { class: 'v-empty' }, 'Failed: ', activeJob.error)
-        : h('div', { class: 'v-kb-doc-body' }, activeJob.answer)) : null,
+        : h('div', { class: 'v-kb-doc-body v-kb-doc-rich' }, renderMd(activeJob.answer))) : null,
     h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
       !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
       : h(Table, null,
-          h('tr', null, h('th', null, 'Question'), h('th', null, 'Status'), h('th', null, 'Asked'), h('th', null, '')),
+          h('tr', null, h('th', null, 'Question'), h('th', null, 'Mode'), h('th', null, 'Status'), h('th', null, 'Asked'), h('th', null, '')),
           jobs.map(function (j) {
             return h('tr', { key: j.id },
               h('td', { class: 'v-name' }, j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
+              h('td', null, j.mode === 'study' ? h(Pill, { kind: 'info' }, j.tick_minutes ? 'study/' + j.tick_minutes + 'm' : 'study') : '—'),
               h('td', null, h(Pill, { kind: j.status === 'done' ? 'run' : j.status === 'error' ? 'stop' : 'warn' }, j.status)),
               h('td', { class: 'muted' }, ts(j.created_at)),
               h('td', null, h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View')));

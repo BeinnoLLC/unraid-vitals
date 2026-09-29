@@ -133,6 +133,48 @@
 .vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
 .vitals .v-kb-doc-title { font-weight: 600; font-size: 13px; }
 .vitals .v-kb-doc-body { font-size: 12.5px; color: var(--v-muted); white-space: pre-wrap; line-height: 1.5; }
+.vitals .v-kb-doc-summary { font-size: 12.5px; font-style: italic; opacity: .85; margin-bottom: 8px; }
+/* Rich reports (research / study kind) — render through renderMd() as real
+   headings/lists/paragraphs, so this drops the pre-wrap and gives them
+   normal prose rhythm instead of the flat finding-note look. */
+.vitals .v-kb-doc-body.v-kb-doc-rich { white-space: normal; font-size: 13px; }
+.vitals .v-kb-doc-body.v-kb-doc-rich h3,
+.vitals .v-kb-doc-body.v-kb-doc-rich h4,
+.vitals .v-kb-doc-body.v-kb-doc-rich h5 { color: var(--v-fg, inherit); margin: 14px 0 6px; font-size: 13px; opacity: .95; }
+.vitals .v-kb-doc-body.v-kb-doc-rich h3:first-child,
+.vitals .v-kb-doc-body.v-kb-doc-rich h4:first-child { margin-top: 0; }
+.vitals .v-kb-doc-body.v-kb-doc-rich p { margin: 0 0 10px; }
+.vitals .v-kb-doc-body.v-kb-doc-rich ul, .vitals .v-kb-doc-body.v-kb-doc-rich ol { margin: 0 0 10px 18px; padding: 0; }
+.vitals .v-kb-doc-body.v-kb-doc-rich li { margin-bottom: 3px; }
+.vitals .v-kb-doc-body.v-kb-doc-rich code { background: color-mix(in srgb, currentColor 10%, transparent); padding: 1px 4px; border-radius: 3px; font-size: 11.5px; }
+.vitals .v-kb-doc-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.vitals .v-kb-doc-fig { margin: 0; }
+.vitals .v-kb-doc-fig img { width: 100%; border-radius: var(--v-radius-sm); border: 1px solid var(--v-border); display: block; }
+.vitals .v-kb-doc-fig figcaption { font-size: 11px; opacity: .65; margin-top: 3px; text-align: center; }
+.vitals .v-pill.info {
+  background: color-mix(in srgb, var(--v-accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--v-accent) 45%, transparent); color: var(--v-accent);
+}
+
+/* Segmented toggle (Ask once / Study over time). */
+.vitals .v-seg { display: inline-flex; border: 1px solid var(--v-border); border-radius: var(--v-radius-sm); overflow: hidden; align-self: flex-start; }
+.vitals .v-seg-btn {
+  background: var(--v-card); border: none; color: var(--v-muted); padding: 6px 12px; font-size: var(--v-fs-sm);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .14s ease, color .14s ease;
+}
+.vitals .v-seg-btn + .v-seg-btn { border-left: 1px solid var(--v-border); }
+.vitals .v-seg-btn.active { background: var(--v-accent); color: #fff; }
+.vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
+
+/* Labeled inline form field (used by study duration/cadence selects). */
+.vitals .v-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--v-muted); }
+.vitals .v-field .v-input { width: auto; min-width: 110px; }
+.vitals .v-row { display: flex; align-items: flex-end; }
+
+/* Study observation journal. */
+.vitals .v-journal { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vitals .v-journal li { font-size: 12.5px; line-height: 1.5; padding: 6px 8px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); }
+.vitals .v-journal .muted { font-variant-numeric: tabular-nums; margin-right: 4px; }
 
 /* ---- hwmon sensor tiles ------------------------------------------------ */
 .vitals .v-sensor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }

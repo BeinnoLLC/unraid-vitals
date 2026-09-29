@@ -104,7 +104,12 @@ export function getDb() {
       source_ref TEXT,             -- e.g. finding id, research job id
       topic TEXT,                  -- coarse grouping: agent name / free text
       title TEXT NOT NULL,
-      content TEXT NOT NULL,
+      content TEXT NOT NULL,       -- markdown — may include ![alt](chart.png) image refs
+      kind TEXT NOT NULL DEFAULT 'note',  -- 'note' | 'report' | 'study' — richer kinds render
+                                           -- as a full analysis/blog-post layout in the UI
+      summary TEXT,                -- 1-2 sentence teaser shown in list views
+      images TEXT,                 -- JSON array of {path, caption} — path relative to
+                                    -- VITALS_STATE_DIR/kb-assets/, served by ajax.php
       created_at INTEGER NOT NULL
     );
     CREATE VIRTUAL TABLE IF NOT EXISTS kb_fts USING fts5(
@@ -127,14 +132,24 @@ export function getDb() {
     CREATE TABLE IF NOT EXISTS research_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       prompt TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending', -- pending|running|done|error
+      status TEXT NOT NULL DEFAULT 'pending', -- pending|running|studying|done|error
       answer TEXT,
       sources TEXT,        -- JSON array of kb_documents ids used as context
       error TEXT,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
-      finished_at INTEGER
+      finished_at INTEGER,
+      -- Study mode (P20-xx): "study the system for the next 12 hours" is not
+      -- a question with one answer, it's a standing observation task. These
+      -- columns are NULL/default for an ordinary one-shot research job.
+      mode TEXT NOT NULL DEFAULT 'once',      -- 'once' | 'study'
+      study_until INTEGER,                    -- unix ts the study ends
+      tick_minutes INTEGER,                   -- how often study.mjs samples
+      last_tick_at INTEGER,
+      observations TEXT                       -- JSON array of {at, note}, the running journal
     );
+    CREATE INDEX IF NOT EXISTS idx_research_study_due
+      ON research_jobs(mode, status, study_until);
 
     -- Event store: everything that HAPPENS (alert breach, agent finding,
     -- control action) becomes a typed, timestamped, auto-resolving event
@@ -192,6 +207,23 @@ export function getDb() {
     );
     CREATE INDEX IF NOT EXISTS idx_solutions_event ON kb_solutions(event_id);
   `);
+
+  // Additive migration for DBs created before study mode existed —
+  // CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+  const cols = new Set(db.prepare(`PRAGMA table_info(research_jobs)`).all().map(c => c.name));
+  const addCol = (name, decl) => { if (!cols.has(name)) db.exec(`ALTER TABLE research_jobs ADD COLUMN ${name} ${decl}`); };
+  addCol('mode', `TEXT NOT NULL DEFAULT 'once'`);
+  addCol('study_until', 'INTEGER');
+  addCol('tick_minutes', 'INTEGER');
+  addCol('last_tick_at', 'INTEGER');
+  addCol('observations', 'TEXT');
+
+  const kbCols = new Set(db.prepare(`PRAGMA table_info(kb_documents)`).all().map(c => c.name));
+  const addKbCol = (name, decl) => { if (!kbCols.has(name)) db.exec(`ALTER TABLE kb_documents ADD COLUMN ${name} ${decl}`); };
+  addKbCol('kind', `TEXT NOT NULL DEFAULT 'note'`);
+  addKbCol('summary', 'TEXT');
+  addKbCol('images', 'TEXT');
+
   return db;
 }
 
@@ -247,8 +279,22 @@ export function ingestFindingToKb(agent, finding) {
   const content = [finding.detail, finding.recommendation, finding.subject ? `Subject: ${finding.subject}` : '']
     .filter(Boolean).join('\n');
   d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?)`
   ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, Math.floor(Date.now() / 1000));
+}
+
+/** Push a full-length report into the KB — a multi-paragraph analysis or
+ *  study writeup, optionally with charts. `kind`: 'report' (one-shot
+ *  research) or 'study' (a completed study-mode job). `images`: array of
+ *  {path, caption}, paths relative to the kb-assets dir (see lib/charts.mjs). */
+export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images }) {
+  const d = getDb();
+  const res = d.prepare(
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(source, sourceRef != null ? String(sourceRef) : null, topic || null, title, content, kind,
+        summary || null, images && images.length ? JSON.stringify(images) : null, Math.floor(Date.now() / 1000));
+  return res.lastInsertRowid;
 }
 
 /** FTS5 keyword search over the knowledge base, newest match first within
@@ -261,22 +307,36 @@ export function searchKb(query, limit = 20) {
   if (!safe) return [];
   try {
     return d.prepare(
-      `SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.created_at,
+      `SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.created_at,
               bm25(kb_fts) AS rank
        FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
        WHERE kb_fts MATCH ?
        ORDER BY rank LIMIT ?`
-    ).all(safe, limit);
+    ).all(safe, limit).map(parseKbImages);
   } catch {
     return []; // malformed FTS query from unusual input — fail soft, empty results
   }
 }
 
+function parseKbImages(row) {
+  if (row && row.images) { try { row.images = JSON.parse(row.images); } catch { row.images = []; } }
+  else if (row) row.images = [];
+  return row;
+}
+
 export function recentKb(limit = 50) {
   return getDb().prepare(
-    `SELECT id, source, source_ref, topic, title, content, created_at FROM kb_documents
+    `SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at FROM kb_documents
      ORDER BY created_at DESC, id DESC LIMIT ?`
-  ).all(limit);
+  ).all(limit).map(parseKbImages);
+}
+
+export function getKbDocument(id) {
+  const row = getDb().prepare(
+    `SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at
+     FROM kb_documents WHERE id = ?`
+  ).get(id);
+  return row ? parseKbImages(row) : null;
 }
 
 export function kbTopics() {
@@ -289,9 +349,64 @@ export function kbTopics() {
 export function createResearchJob(prompt) {
   const now = Math.floor(Date.now() / 1000);
   const res = getDb().prepare(
-    `INSERT INTO research_jobs (prompt, status, created_at) VALUES (?, 'pending', ?)`
+    `INSERT INTO research_jobs (prompt, status, mode, created_at) VALUES (?, 'pending', 'once', ?)`
   ).run(prompt, now);
   return res.lastInsertRowid;
+}
+
+/**
+ * A standing "watch the system and tell me what's going on" request instead
+ * of a one-shot question — e.g. "study the system for the next 12 hours".
+ * study.mjs (the cron-driven runner) samples the live snapshot + recent
+ * events/findings every `tickMinutes`, appends an observation, and once
+ * `studyUntil` passes, synthesizes everything gathered into one findings
+ * report (finishResearchJob, same as a one-shot job) so the UI treats a
+ * finished study exactly like a finished research answer.
+ */
+export function createStudyJob(prompt, durationMinutes, tickMinutes = 15) {
+  const now = Math.floor(Date.now() / 1000);
+  const until = now + Math.max(5, durationMinutes) * 60;
+  const res = getDb().prepare(
+    `INSERT INTO research_jobs (prompt, status, mode, study_until, tick_minutes, observations, created_at)
+     VALUES (?, 'studying', 'study', ?, ?, '[]', ?)`
+  ).run(prompt, until, Math.max(1, tickMinutes), now);
+  return res.lastInsertRowid;
+}
+
+/** Study jobs due for their next sample: still studying, and either never
+ *  ticked or the last tick was >= tick_minutes ago. Used by the cron runner
+ *  so it only wakes jobs that actually need a sample this pass. */
+export function dueStudyJobs() {
+  const now = Math.floor(Date.now() / 1000);
+  return getDb().prepare(
+    `SELECT * FROM research_jobs
+     WHERE mode = 'study' AND status = 'studying'
+       AND (last_tick_at IS NULL OR ? - last_tick_at >= tick_minutes * 60)`
+  ).all(now);
+}
+
+/** Study jobs whose window has closed and are ready to be synthesized into
+ *  a final answer. */
+export function expiredStudyJobs() {
+  const now = Math.floor(Date.now() / 1000);
+  return getDb().prepare(
+    `SELECT * FROM research_jobs WHERE mode = 'study' AND status = 'studying' AND study_until <= ?`
+  ).all(now);
+}
+
+/** Append one observation to a study job's running journal and bump
+ *  last_tick_at. Kept short by the caller — this is a log line, not the
+ *  final report. */
+export function appendStudyObservation(id, note) {
+  const d = getDb();
+  const row = d.prepare(`SELECT observations FROM research_jobs WHERE id = ?`).get(id);
+  if (!row) return;
+  let obs = [];
+  try { obs = JSON.parse(row.observations || '[]'); } catch { obs = []; }
+  obs.push({ at: Math.floor(Date.now() / 1000), note: String(note).slice(0, 500) });
+  if (obs.length > 500) obs = obs.slice(-500); // hard cap — a 12h study at 5min ticks is 144 entries
+  d.prepare(`UPDATE research_jobs SET observations = ?, last_tick_at = ? WHERE id = ?`)
+    .run(JSON.stringify(obs), Math.floor(Date.now() / 1000), id);
 }
 
 export function startResearchJob(id) {
@@ -311,12 +426,15 @@ export function failResearchJob(id, error) {
 }
 
 export function getResearchJob(id) {
-  return getDb().prepare(`SELECT * FROM research_jobs WHERE id = ?`).get(id) || null;
+  const row = getDb().prepare(`SELECT * FROM research_jobs WHERE id = ?`).get(id);
+  if (row && row.observations) { try { row.observations = JSON.parse(row.observations); } catch { row.observations = []; } }
+  return row || null;
 }
 
 export function listResearchJobs(limit = 30) {
   return getDb().prepare(
-    `SELECT id, prompt, status, created_at, finished_at FROM research_jobs ORDER BY id DESC LIMIT ?`
+    `SELECT id, prompt, status, mode, study_until, tick_minutes, last_tick_at, created_at, finished_at
+     FROM research_jobs ORDER BY id DESC LIMIT ?`
   ).all(limit);
 }
 

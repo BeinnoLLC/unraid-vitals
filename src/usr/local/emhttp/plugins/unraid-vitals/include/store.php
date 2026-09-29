@@ -816,16 +816,21 @@ function v_kb_search(string $query, int $limit = 20): array {
   $out = [];
   try {
     $stmt = $db->prepare(
-      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.created_at, bm25(kb_fts) AS rank
+      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.created_at, bm25(kb_fts) AS rank
        FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
        WHERE kb_fts MATCH :q ORDER BY rank LIMIT :lim");
     $stmt->bindValue(':q', $safe, SQLITE3_TEXT);
     $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
     $res = $stmt->execute();
-    while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+    while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
   } catch (Throwable $e) { /* malformed FTS query from odd input — return what we have */ }
   $db->close();
   return $out;
+}
+
+function v_kb_row_decode(array $row): array {
+  $row['images'] = $row['images'] ? (json_decode($row['images'], true) ?: []) : [];
+  return $row;
 }
 
 function v_kb_recent(int $limit = 50): array {
@@ -833,11 +838,23 @@ function v_kb_recent(int $limit = 50): array {
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  $res = $db->query("SELECT id, source, source_ref, topic, title, content, created_at
+  $res = $db->query("SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at
                       FROM kb_documents ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
-  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
   $db->close();
   return $out;
+}
+
+function v_kb_get(int $id): ?array {
+  $dbFile = v_db_path();
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
+  $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at
+                         FROM kb_documents WHERE id = ?");
+  $stmt->bindValue(1, $id, SQLITE3_INTEGER);
+  $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+  $db->close();
+  return $row ? v_kb_row_decode($row) : null;
 }
 
 function v_kb_topics(): array {
@@ -855,9 +872,13 @@ function v_kb_topics(): array {
 /* --------------------------------------------------------------- research */
 
 /** research_jobs is written from two sides: PHP creates the pending row,
- *  the detached node research.mjs process fills in the answer. Opened
- *  read-write only for the INSERT here; every other access is read-only. */
-function v_research_create(string $prompt): ?int {
+ *  the detached node research.mjs/study.mjs process fills in the answer.
+ *  Opened read-write only for the INSERT here; every other access is
+ *  read-only. Table shape must stay in sync with agent/lib/db.mjs's
+ *  migration — if this CREATE runs first (fresh install, node not
+ *  installed yet), node's own ALTER-based migration backfills any column
+ *  the next time analyze.mjs/study.mjs runs, so drift self-heals either way. */
+function v_research_create(string $prompt, string $mode = 'once', int $durationMinutes = 0, int $tickMinutes = 15): ?int {
   $dbFile = v_db_path();
   if ($dbFile === '' || !class_exists('SQLite3')) return null;
   try {
@@ -865,10 +886,21 @@ function v_research_create(string $prompt): ?int {
     $db->exec("CREATE TABLE IF NOT EXISTS research_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT, prompt TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending', answer TEXT, sources TEXT, error TEXT,
-      created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER)");
-    $stmt = $db->prepare("INSERT INTO research_jobs (prompt, status, created_at) VALUES (:p, 'pending', :t)");
+      created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER,
+      mode TEXT NOT NULL DEFAULT 'once', study_until INTEGER, tick_minutes INTEGER,
+      last_tick_at INTEGER, observations TEXT)");
+    $now = time();
+    if ($mode === 'study') {
+      $until = $now + max(5, $durationMinutes) * 60;
+      $stmt = $db->prepare("INSERT INTO research_jobs (prompt, status, mode, study_until, tick_minutes, observations, created_at)
+        VALUES (:p, 'studying', 'study', :u, :tk, '[]', :t)");
+      $stmt->bindValue(':u', $until, SQLITE3_INTEGER);
+      $stmt->bindValue(':tk', max(1, $tickMinutes), SQLITE3_INTEGER);
+    } else {
+      $stmt = $db->prepare("INSERT INTO research_jobs (prompt, status, mode, created_at) VALUES (:p, 'pending', 'once', :t)");
+    }
     $stmt->bindValue(':p', $prompt, SQLITE3_TEXT);
-    $stmt->bindValue(':t', time(), SQLITE3_INTEGER);
+    $stmt->bindValue(':t', $now, SQLITE3_INTEGER);
     $stmt->execute();
     $id = $db->lastInsertRowID();
     $db->close();
@@ -880,11 +912,14 @@ function v_research_get(int $id): ?array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
-  $stmt = $db->prepare("SELECT id, prompt, status, answer, sources, error, created_at, finished_at FROM research_jobs WHERE id = ?");
+  $stmt = $db->prepare("SELECT id, prompt, status, answer, sources, error, mode, study_until, tick_minutes,
+                                last_tick_at, observations, created_at, finished_at
+                         FROM research_jobs WHERE id = ?");
   $stmt->bindValue(1, $id, SQLITE3_INTEGER);
   $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
   $db->close();
   if ($row && $row['sources']) $row['sources'] = json_decode($row['sources'], true);
+  if ($row && $row['observations']) $row['observations'] = json_decode($row['observations'], true);
   return $row ?: null;
 }
 
@@ -893,7 +928,8 @@ function v_research_list(int $limit = 30): array {
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  $res = $db->query("SELECT id, prompt, status, created_at, finished_at FROM research_jobs ORDER BY id DESC LIMIT " . (int)$limit);
+  $res = $db->query("SELECT id, prompt, status, mode, study_until, tick_minutes, last_tick_at, created_at, finished_at
+                      FROM research_jobs ORDER BY id DESC LIMIT " . (int)$limit);
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
   $db->close();
   return $out;

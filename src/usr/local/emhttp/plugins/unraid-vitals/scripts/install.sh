@@ -113,8 +113,21 @@ if [ -n "$NODE_BIN" ] && [ -d "$PLUGDIR/agent/node_modules" ]; then
 AGENTCRON
   chmod 644 /etc/cron.d/${PLUGIN}-agents
   cp -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true
+
+  # --- study-mode ticker cron -------------------------------------------------
+  # Advances every standing "study the system for N hours" job: takes a
+  # sample if a job is due (per its own tick_minutes), and synthesizes a
+  # final report for any job whose window has closed. Runs every 5 min so a
+  # tick_minutes=5 study is actually honored; each individual job's own
+  # dueStudyJobs() check is what keeps this from over-sampling.
+  cat > /etc/cron.d/${PLUGIN}-study <<STUDYCRON
+# unraid-vitals study-mode ticker — installed by $PLUGIN.plg
+*/5 * * * * LLM_STUDIO_PRIMARY="$LLM_PRIMARY_CFG" LLM_STUDIO_BACKUP="$LLM_BACKUP_CFG" /usr/bin/flock -n $STATE/study.lock $NODE_BIN $PLUGDIR/agent/study.mjs >> $STATE/study.log 2>&1
+STUDYCRON
+  chmod 644 /etc/cron.d/${PLUGIN}-study
+  cp -f /etc/cron.d/${PLUGIN}-study "$FLASH/study.cron" 2>/dev/null || true
 else
-  rm -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true
+  rm -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" /etc/cron.d/${PLUGIN}-study "$FLASH/study.cron" 2>/dev/null || true
   echo "unraid-vitals: node/agent deps not found — background AI agents disabled (run 'cd $PLUGDIR/agent && npm install' to enable)"
 fi
 
