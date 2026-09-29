@@ -19,10 +19,22 @@ $action = $_GET['action'] ?? 'data';
 const V_CFG_FILE = '/boot/config/plugins/unraid-vitals/vitals.cfg';
 const V_INSTALL_SH = '/usr/local/emhttp/plugins/unraid-vitals/scripts/install.sh';
 
+/**
+ * CSRF gate for state-changing actions.
+ *
+ * NB: Unraid's global auto_prepend_file already validates `csrf_token` on
+ * every POST and then unsets it before plugin code runs — so an absent token
+ * here means "auto_prepend already cleared it after a successful check",
+ * not "missing token". Re-reading it unconditionally caused a live bug: the
+ * Research and Share-comment buttons failed with "bad csrf token" in the
+ * browser while CLI includes (which skip auto_prepend) passed.
+ * When a token IS still present we still compare it (CLI/test paths).
+ */
 function v_csrf_ok(): bool {
-  // Same token Unraid's own webGui uses for every state-changing request
-  // (var.ini csrf_token) — required on any POST that changes plugin config.
-  $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+  $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+  if ($sent === null) {
+    return PHP_SAPI === 'cli' || ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+  }
   $real = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? null;
   return $real && hash_equals($real, (string)$sent);
 }
