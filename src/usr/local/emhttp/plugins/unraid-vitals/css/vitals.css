@@ -90,6 +90,49 @@
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 .vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
+.vitals .v-core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
+.vitals .v-core { border: 1px solid var(--v-border); border-radius: 6px; padding: 6px 4px; text-align: center; background: var(--v-card); }
+.vitals .v-core-n { font-size: 10px; color: var(--v-muted); text-transform: uppercase; letter-spacing: .03em; }
+.vitals .v-core-pct { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.vitals .v-core-pin { font-size: 10px; color: var(--v-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.vitals .v-core.warn .v-core-pct { color: var(--v-warn-fg); }
+.vitals .v-core.crit .v-core-pct { color: var(--v-bad); }
+.vitals .v-ai-panel { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.vitals .v-ai-head { font-size: 12px; font-weight: 600; color: var(--v-muted); text-transform: uppercase; letter-spacing: .04em; }
+.vitals .v-ai-head .muted { text-transform: none; font-weight: 400; letter-spacing: 0; }
+.vitals .v-ai-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--v-border); background: var(--v-card); }
+.vitals .v-ai-item > i { margin-top: 2px; flex: 0 0 auto; }
+.vitals .v-ai-body { flex: 1 1 auto; min-width: 0; }
+.vitals .v-ai-title { font-weight: 600; font-size: 13px; }
+.vitals .v-ai-agent { margin-left: 8px; font-size: 10px; font-weight: 500; text-transform: uppercase; color: var(--v-muted); letter-spacing: .03em; }
+.vitals .v-ai-detail { font-size: 12px; color: var(--v-muted); margin-top: 2px; }
+.vitals .v-ai-rec { font-size: 12px; color: var(--v-accent); margin-top: 4px; }
+.vitals .v-ai-ok > i { color: var(--v-ok-fg); }
+.vitals .v-ai-info > i { color: var(--v-accent); }
+.vitals .v-ai-warning { border-color: var(--v-warn-fg); }
+.vitals .v-ai-warning > i { color: var(--v-warn-fg); }
+.vitals .v-ai-error, .vitals .v-ai-critical { border-color: var(--v-bad); }
+.vitals .v-ai-error > i, .vitals .v-ai-critical > i { color: var(--v-bad); }
+.vitals .v-share-comment { max-width: 220px; }
+.vitals .v-kb-search .v-input, .vitals textarea.v-input { width: auto; }
+.vitals .v-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
+.vitals .v-modal { background: var(--v-panel, #1a1a1a); border: 1px solid var(--v-border); border-radius: 10px; width: min(640px, 92vw); max-height: 78vh; display: flex; flex-direction: column; overflow: hidden; }
+.vitals .v-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--v-border); font-weight: 600; }
+.vitals .v-modal-body { padding: 8px; overflow-y: auto; flex: 1 1 auto; }
+.vitals .v-browse-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: default; font-size: 13px; }
+.vitals .v-browse-row[onclick], .vitals .v-browse-row.muted { cursor: pointer; }
+.vitals .v-browse-row:hover { background: var(--v-card); }
+.vitals .v-browse-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals .v-browse-meta { color: var(--v-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.vitals .v-kb-search { display: flex; gap: 8px; align-items: center; }
+.vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.vitals .v-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
+.vitals .v-chip.on { background: var(--v-accent); color: #fff; border-color: var(--v-accent); }
+.vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
+.vitals .v-kb-doc:last-child { border-bottom: none; }
+.vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.vitals .v-kb-doc-title { font-weight: 600; font-size: 13px; }
+.vitals .v-kb-doc-body { font-size: 12.5px; color: var(--v-muted); white-space: pre-wrap; line-height: 1.5; }
 
 /* Grids --------------------------------------------------------------------*/
 

@@ -81,6 +81,9 @@ async function promptOllama(systemPrompt, userPrompt, opts = {}) {
 /** Extract the first balanced {...} or [...] from a model response that may
  *  include reasoning/markdown fences around it. */
 export function extractJson(text) {
+  if (typeof text !== 'string') {
+    throw new Error(`expected string from LLM call, got ${typeof text}: ${JSON.stringify(text).slice(0, 200)}`);
+  }
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
   const body = fence ? fence[1] : text;
   const start = body.search(/[[{]/);

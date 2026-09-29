@@ -263,7 +263,7 @@ function v_vms(): array {
   foreach ($names as $name) {
     $info = v_run("virsh dominfo " . escapeshellarg($name), 5);
     $row = ['name' => $name, 'state' => 'unknown', 'cpus' => null, 'mem_kib' => null,
-            'autostart' => false];
+            'autostart' => false, 'pinning' => null];
     foreach (explode("\n", $info) as $line) {
       if (!str_contains($line, ':')) continue;
       [$k, $v] = array_map('trim', explode(':', $line, 2));
@@ -272,12 +272,40 @@ function v_vms(): array {
       elseif ($k === 'Used memory') $row['mem_kib'] = (int)$v;
       elseif ($k === 'Autostart') $row['autostart'] = str_starts_with($v, 'enable');
     }
+    // vcpupin only means something while the VM is actually running; a
+    // stopped VM's affinity call is either empty or misleading.
+    if ($row['state'] === 'running') {
+      $pin = v_run('virsh vcpupin ' . escapeshellarg($name), 5);
+      $rows = [];
+      foreach (explode("\n", $pin) as $line) {
+        if (preg_match('/^\s*(\d+)\s+(\S.*)$/', $line, $m)) $rows[] = ['vcpu' => (int)$m[1], 'affinity' => trim($m[2])];
+      }
+      if ($rows) $row['pinning'] = $rows;
+    }
     $list[] = $row;
   }
   usort($list, fn($a, $b) => strcasecmp($a['name'], $b['name']));
   $running = count(array_filter($list, fn($r) => $r['state'] === 'running'));
   return ['available' => true, 'count' => count($list), 'running' => $running,
           'stopped' => count($list) - $running, 'list' => $list];
+}
+
+/** Physical CPU topology (sockets/cores/threads) — static hardware layout,
+ *  paired with v_cpu_pct()'s live per-core load so the System tab can show
+ *  which physical cores are hot, and cross-reference against VM pinning. */
+function v_cpu_topology(): array {
+  $out = v_run('lscpu -p=CPU,CORE,SOCKET 2>/dev/null', 5);
+  $cpus = [];
+  foreach (explode("\n", $out) as $line) {
+    $line = trim($line);
+    if ($line === '' || $line[0] === '#') continue;
+    $p = explode(',', $line);
+    if (count($p) < 3) continue;
+    $cpus[] = ['cpu' => (int)$p[0], 'core' => (int)$p[1], 'socket' => (int)$p[2]];
+  }
+  $sockets = count(array_unique(array_column($cpus, 'socket')));
+  $cores = count(array_unique(array_map(fn($c) => $c['socket'] . ':' . $c['core'], $cpus)));
+  return ['threads' => count($cpus), 'cores' => $cores, 'sockets' => $sockets, 'map' => $cpus];
 }
 
 /* -------------------------------------------------------------------- docker */
@@ -435,6 +463,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'time'    => time(),
     'system'  => v_system(),
     'cpu'     => ['cores' => [], 'total' => null],
+    'cpu_topology' => v_cpu_topology(),
     'mem'     => v_mem(),
     'load'    => v_load(),
     'array'   => v_array_disks(),

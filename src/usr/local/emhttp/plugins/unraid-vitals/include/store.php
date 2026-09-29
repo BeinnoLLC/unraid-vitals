@@ -315,13 +315,6 @@ function v_check_alerts(array $snap): array {
   return $fired;
 }
 
-/**
- * Notify on new critical/error findings from the background AI agents
- * (agent/lib/db.mjs writes into the same SQLite DB). Same notify script and
- * suppression state file as v_check_alerts, keyed by finding id so a
- * finding only notifies once even if it persists across several PHP ticks
- * before the next agent run replaces it.
- */
 function v_check_ai_findings(): void {
   $dbFile = v_state_dir() . '/vitals.db';
   if (!is_file($dbFile) || !class_exists('SQLite3')) return;
@@ -350,6 +343,184 @@ function v_check_ai_findings(): void {
   }
   $db->close();
   v_write_json(v_alert_path(), $state);
+}
+
+/** Read-only: latest findings from every agent, newest first. UI renders
+ *  these as insight banners per tab; grouped by agent client-side. */
+function v_ai_findings(int $limit = 200): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT id, agent, severity, title, detail, recommendation, subject, created_at
+                      FROM findings ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/** Per-agent last-run status, so the UI can show "last checked 4m ago" /
+ *  "agent X failed: <reason>" even when there are zero findings yet. */
+function v_ai_runs(): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT agent, MAX(started_at) AS started_at, status, error, finished_at
+                      FROM runs GROUP BY agent ORDER BY agent");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/** Read-only: latest generated comment for a share, if any (written by
+ *  agent/share-comment.mjs, triggered fire-and-forget from ajax.php). */
+function v_share_comment(string $share): ?array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
+  $stmt = $db->prepare("SELECT comment, generated_at, status FROM share_comments WHERE share = ?");
+  $stmt->bindValue(1, $share, SQLITE3_TEXT);
+  $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+  $db->close();
+  return $row ?: null;
+}
+
+/* --------------------------------------------------------------------- KB */
+
+function v_kb_search(string $query, int $limit = 20): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $words = array_filter(preg_split('/\s+/', preg_replace('/["*^]/', ' ', $query)));
+  $safe = implode(' OR ', array_map(fn($w) => '"' . $w . '"', $words));
+  if ($safe === '') { $db->close(); return []; }
+  $out = [];
+  try {
+    $stmt = $db->prepare(
+      "SELECT kb_documents.id, source, source_ref, topic, title, content, created_at, bm25(kb_fts) AS rank
+       FROM kb_fts JOIN kb_documents ON kb_documents.id = kb_fts.rowid
+       WHERE kb_fts MATCH :q ORDER BY rank LIMIT :lim");
+    $stmt->bindValue(':q', $safe, SQLITE3_TEXT);
+    $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
+    $res = $stmt->execute();
+    while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  } catch (Throwable $e) { /* malformed FTS query from odd input — return what we have */ }
+  $db->close();
+  return $out;
+}
+
+function v_kb_recent(int $limit = 50): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT id, source, source_ref, topic, title, content, created_at
+                      FROM kb_documents ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+function v_kb_topics(): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT topic, COUNT(*) AS n, MAX(created_at) AS last FROM kb_documents
+                      WHERE topic IS NOT NULL GROUP BY topic ORDER BY last DESC");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/* --------------------------------------------------------------- research */
+
+/** research_jobs is written from two sides: PHP creates the pending row,
+ *  the detached node research.mjs process fills in the answer. Opened
+ *  read-write only for the INSERT here; every other access is read-only. */
+function v_research_create(string $prompt): ?int {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!class_exists('SQLite3')) return null;
+  try {
+    $db = new SQLite3($dbFile, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
+    $db->exec("CREATE TABLE IF NOT EXISTS research_jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, prompt TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending', answer TEXT, sources TEXT, error TEXT,
+      created_at INTEGER NOT NULL, started_at INTEGER, finished_at INTEGER)");
+    $stmt = $db->prepare("INSERT INTO research_jobs (prompt, status, created_at) VALUES (:p, 'pending', :t)");
+    $stmt->bindValue(':p', $prompt, SQLITE3_TEXT);
+    $stmt->bindValue(':t', time(), SQLITE3_INTEGER);
+    $stmt->execute();
+    $id = $db->lastInsertRowID();
+    $db->close();
+    return $id ?: null;
+  } catch (Throwable $e) { return null; }
+}
+
+function v_research_get(int $id): ?array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
+  $stmt = $db->prepare("SELECT id, prompt, status, answer, sources, error, created_at, finished_at FROM research_jobs WHERE id = ?");
+  $stmt->bindValue(1, $id, SQLITE3_INTEGER);
+  $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+  $db->close();
+  if ($row && $row['sources']) $row['sources'] = json_decode($row['sources'], true);
+  return $row ?: null;
+}
+
+function v_research_list(int $limit = 30): array {
+  $dbFile = v_state_dir() . '/vitals.db';
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT id, prompt, status, created_at, finished_at FROM research_jobs ORDER BY id DESC LIMIT " . (int)$limit);
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/** Read-only directory listing under /mnt/user/<share>[/<path>]. Every
+ *  path segment is validated: the share must be a real, currently-known
+ *  share (from v_shares()), and the resolved real path must stay inside
+ *  that share's root — realpath() collapses any ../ before the check so
+ *  this can't be tricked into escaping the share directory. */
+function v_browse_share(string $share, string $rel): array {
+  $shares = array_column(v_shares()['list'] ?? [], 'name');
+  if ($share === '' || !in_array($share, $shares, true)) {
+    return ['error' => 'unknown share', 'entries' => []];
+  }
+  $root = '/mnt/user/' . $share;
+  $rootReal = realpath($root);
+  if (!$rootReal) return ['error' => 'share path not found', 'entries' => []];
+
+  $target = $rel === '' ? $rootReal : $rootReal . '/' . ltrim($rel, '/');
+  $targetReal = realpath($target);
+  if (!$targetReal || strpos($targetReal, $rootReal) !== 0) {
+    return ['error' => 'invalid path', 'entries' => []];
+  }
+  if (!is_dir($targetReal)) return ['error' => 'not a directory', 'entries' => []];
+
+  $entries = [];
+  $items = @scandir($targetReal) ?: [];
+  foreach ($items as $name) {
+    if ($name === '.' || $name === '..') continue;
+    $full = $targetReal . '/' . $name;
+    $isDir = is_dir($full);
+    $entries[] = [
+      'name' => $name, 'dir' => $isDir,
+      'size' => $isDir ? null : (@filesize($full) ?: 0),
+      'mtime' => @filemtime($full) ?: 0,
+    ];
+    if (count($entries) >= 500) break; // sane cap for very large shares
+  }
+  usort($entries, function ($a, $b) {
+    if ($a['dir'] !== $b['dir']) return $a['dir'] ? -1 : 1;
+    return strcasecmp($a['name'], $b['name']);
+  });
+  $relOut = $targetReal === $rootReal ? '' : substr($targetReal, strlen($rootReal) + 1);
+  return ['share' => $share, 'path' => $relOut, 'entries' => $entries];
 }
 
 /**

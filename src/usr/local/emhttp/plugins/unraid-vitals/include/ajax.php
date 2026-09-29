@@ -77,6 +77,84 @@ try {
     exit;
   }
 
+  if ($action === 'findings') {
+    echo json_encode(['ok' => true, 'findings' => v_ai_findings(), 'runs' => v_ai_runs()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'share_comment') {
+    $share = trim((string)($_GET['share'] ?? ''));
+    if ($share === '') { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'missing share']); exit; }
+    echo json_encode(['ok' => true, 'comment' => v_share_comment($share)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'gen_share_comment') {
+    if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
+    $share = trim((string)($_POST['share'] ?? ''));
+    if ($share === '' || !preg_match('/^[\w.\- ]+$/', $share)) {
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'invalid share name']); exit;
+    }
+    $node = trim((string)@shell_exec('command -v node 2>/dev/null'));
+    $script = escapeshellarg(__DIR__ . '/../agent/share-comment.mjs');
+    if (!$node || !is_file(__DIR__ . '/../agent/share-comment.mjs')) {
+      http_response_code(500); echo json_encode(['ok' => false, 'error' => 'agent runtime not installed']); exit;
+    }
+    // Fire-and-forget: the agent call is a single CPU-bound LLM prompt that
+    // can take a while on this hardware, so don't block the HTTP request —
+    // the UI polls ?action=share_comment for the result once it lands.
+    exec(sprintf('nohup %s %s %s > /tmp/unraid-vitals-sharecomment.log 2>&1 &',
+      escapeshellarg($node), $script, escapeshellarg($share)));
+    echo json_encode(['ok' => true, 'status' => 'started']);
+    exit;
+  }
+
+  if ($action === 'browse') {
+    echo json_encode(['ok' => true] + v_browse_share((string)($_GET['share'] ?? ''), (string)($_GET['path'] ?? '')), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'kb_search') {
+    $q = trim((string)($_GET['q'] ?? ''));
+    echo json_encode(['ok' => true, 'results' => $q === '' ? [] : v_kb_search($q), 'topics' => v_kb_topics()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'kb_recent') {
+    echo json_encode(['ok' => true, 'docs' => v_kb_recent(), 'topics' => v_kb_topics()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'research_ask') {
+    if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
+    $prompt = trim((string)($_POST['prompt'] ?? ''));
+    if ($prompt === '' || mb_strlen($prompt) > 2000) {
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'prompt required (max 2000 chars)']); exit;
+    }
+    $id = v_research_create($prompt);
+    if ($id === null) { http_response_code(500); echo json_encode(['ok' => false, 'error' => 'db unavailable']); exit; }
+    $node = trim((string)@shell_exec('command -v node 2>/dev/null'));
+    $script = __DIR__ . '/../agent/research.mjs';
+    if ($node && is_file($script)) {
+      exec(sprintf('nohup %s %s %d > /tmp/unraid-vitals-research.log 2>&1 &',
+        escapeshellarg($node), escapeshellarg($script), (int)$id));
+    }
+    echo json_encode(['ok' => true, 'job_id' => $id]);
+    exit;
+  }
+
+  if ($action === 'research_status') {
+    $id = (int)($_GET['id'] ?? 0);
+    $job = $id ? v_research_get($id) : null;
+    echo json_encode(['ok' => true, 'job' => $job]);
+    exit;
+  }
+
+  if ($action === 'research_list') {
+    echo json_encode(['ok' => true, 'jobs' => v_research_list()]);
+    exit;
+  }
+
   $snap = v_latest();
   if (!$snap) $snap = v_tick(true);
   $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';

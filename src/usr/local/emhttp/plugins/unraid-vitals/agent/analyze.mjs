@@ -10,7 +10,7 @@
  * Usage: node analyze.mjs [agentId ...]   (default: run every registered agent)
  */
 import { randomUUID } from 'node:crypto';
-import { getDb, startRun, finishRun, replaceFindings } from './lib/db.mjs';
+import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb } from './lib/db.mjs';
 import * as disks from './agents/disks.mjs';
 import * as thermal from './agents/thermal.mjs';
 import * as pools from './agents/pools.mjs';
@@ -26,6 +26,12 @@ async function runAgent(mod) {
   try {
     const findings = await mod.run();
     replaceFindings(mod.AGENT_ID, runId, findings);
+    // Feed anything worth remembering into the knowledge base — routine
+    // 'ok' findings would just be noise, so only non-baseline severities
+    // get indexed for the KB search page / background research.
+    for (const f of findings) {
+      if (f.severity !== 'ok') ingestFindingToKb(mod.AGENT_ID, f);
+    }
     finishRun(runId, 'ok', null);
     console.log(`[${mod.AGENT_ID}] ok — ${findings.length} findings in ${Date.now() - t0}ms`);
   } catch (e) {

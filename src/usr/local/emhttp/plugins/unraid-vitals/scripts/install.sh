@@ -76,6 +76,24 @@ PRUNECRON
 cp -f /etc/cron.d/${PLUGIN}-prune "$FLASH/prune.cron" 2>/dev/null || true
 chmod 644 /etc/cron.d/${PLUGIN}-prune
 
+# --- background AI agents cron ------------------------------------------------
+# Runs the SmythOS/Ollama analysis suite hourly. flock guards against overlap:
+# a single run can legitimately take several minutes on CPU-only inference
+# hardware (see agent/lib/smythos-client.mjs), so a slow hour must not stack
+# a second run on top of it.
+NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -n "$NODE_BIN" ] && [ -d "$PLUGDIR/agent/node_modules" ]; then
+  cat > /etc/cron.d/${PLUGIN}-agents <<AGENTCRON
+# unraid-vitals background AI agents — installed by $PLUGIN.plg
+7 * * * * /usr/bin/flock -n $STATE/agents.lock $NODE_BIN $PLUGDIR/agent/analyze.mjs >> $STATE/agents.log 2>&1
+AGENTCRON
+  chmod 644 /etc/cron.d/${PLUGIN}-agents
+  cp -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true
+else
+  rm -f /etc/cron.d/${PLUGIN}-agents "$FLASH/agents.cron" 2>/dev/null || true
+  echo "unraid-vitals: node/agent deps not found — background AI agents disabled (run 'cd $PLUGDIR/agent && npm install' to enable)"
+fi
+
 # --- apply start-page preference --------------------------------------------
 # Two-way: "yes" points START_PAGE at Vitals; "no" only reverts it if WE set it,
 # never touching a start page the user chose themselves.

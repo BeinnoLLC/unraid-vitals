@@ -349,6 +349,8 @@ var TABS = [
   { id: 'sys',    label: 'System',        icon: 'fa-microchip' },
   { id: 'shares', label: 'Shares',        icon: 'fa-folder-open-o' },
   { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' },
+  { id: 'kb',     label: 'Knowledge',     icon: 'fa-book' },
+  { id: 'research', label: 'Research',   icon: 'fa-flask' },
   { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
 ];
 
@@ -358,6 +360,7 @@ function App() {
   var s3 = useState('dash'), tab = s3[0], setTab = s3[1];
   var s4 = useState('loading'), status = s4[0], setStatus = s4[1];
   var s5 = useState(null), daily = s5[0], setDaily = s5[1];
+  var s6 = useState([]), findings = s6[0], setFindings = s6[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
@@ -367,11 +370,20 @@ function App() {
       .catch(function () { setStatus('error'); });
   };
 
+  var loadFindings = function () {
+    fetch(ENDPOINT + '?action=findings', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setFindings(j.findings || []); })
+      .catch(function () {});
+  };
+
   useEffect(function () {
     resolvePalette();
     load(false);
+    loadFindings();
     var iv = setInterval(function () { load(false); }, 15000);
-    return function () { clearInterval(iv); };
+    var iv2 = setInterval(loadFindings, 60000);
+    return function () { clearInterval(iv); clearInterval(iv2); };
   }, []);
 
   useEffect(function () {
@@ -385,7 +397,7 @@ function App() {
   if (d && d.csrf_token) window.__V_CSRF__ = d.csrf_token;
   var ring = (payload && payload.ring) || [];
   var pts = ring.slice(-range);
-  var props = { d: d, pts: pts, range: range, daily: daily };
+  var props = { d: d, pts: pts, range: range, daily: daily, findings: findings };
 
   return h('div', null,
     h('div', { class: 'v-head' },
@@ -423,6 +435,8 @@ function App() {
         : tab === 'sys'    ? h(SysTab,    props)
         : tab === 'shares' ? h(SharesTab, props)
         : tab === 'hw'     ? h(HwTab,     props)
+        : tab === 'kb'     ? h(KbTab,     props)
+        : tab === 'research' ? h(ResearchTab, {})
         : tab === 'settings' ? h(SettingsTab, {}) : null),
 
     h('div', { class: 'v-foot' },
@@ -494,6 +508,7 @@ function DashTab(P) {
   ];
 
   return h('div', null,
+    h(AiFindingsPanel, { findings: P.findings }),
     h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'CPU & Memory', span2: true, hint: pts.length + ' samples' },
@@ -535,6 +550,36 @@ function merge(a, b) {
   return o;
 }
 
+var SEV_ORDER = { critical: 0, error: 1, warning: 2, info: 3, ok: 4 };
+var SEV_ICON = { critical: 'fa-bolt', error: 'fa-times-circle', warning: 'fa-exclamation-triangle',
+  info: 'fa-info-circle', ok: 'fa-check-circle' };
+
+/** Renders the background AI agents' findings as a compact list of
+ *  banners, worst severity first. `agents` optionally filters to one
+ *  domain (e.g. only 'thermal' findings on the Hardware tab); omitted on
+ *  the dashboard to show everything. Nothing rendered when there's
+ *  nothing to report yet — agents haven't run, or genuinely all-clear. */
+function AiFindingsPanel(P) {
+  var all = P.findings || [];
+  var list = P.agents ? all.filter(function (f) { return P.agents.indexOf(f.agent) !== -1; }) : all;
+  if (!list.length) return null;
+  var interesting = list.filter(function (f) { return f.severity !== 'ok'; });
+  var shown = (interesting.length ? interesting : list.slice(0, 1)).slice()
+    .sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); })
+    .slice(0, 6);
+  return h('div', { class: 'v-ai-panel' },
+    h('div', { class: 'v-ai-head' }, h('i', { class: 'fa fa-magic' }), ' AI health findings',
+      h('span', { class: 'muted' }, ' · updated hourly by local agents')),
+    shown.map(function (f) {
+      return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
+        h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
+        h('div', { class: 'v-ai-body' },
+          h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
+          f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
+          f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
+    }));
+}
+
 /* ---------------------------------------------------------------- array */
 
 function ArrayTab(P) {
@@ -551,6 +596,7 @@ function ArrayTab(P) {
     ? used.reduce(function (s, x) { return s + (x.usedPct || 0); }, 0) / used.length : null;
 
   return h('div', null,
+    h(AiFindingsPanel, { findings: P.findings, agents: ['disks', 'pools'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Array state', icon: 'fa-hdd-o', color: PAL['v-accent'], value: d.system.md_state,
@@ -671,6 +717,7 @@ function NetTab(P) {
   var sum = function (k, f) { return active.reduce(function (s, x) { return s + (net[x][f] || 0); }, 0); };
 
   return h('div', null,
+    h(AiFindingsPanel, { findings: P.findings, agents: ['network'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Interfaces', icon: 'fa-exchange', color: PAL['v-accent'], value: String(ifs.length),
@@ -742,7 +789,40 @@ function SysTab(P) {
           return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]),
             h('td', { class: 'num v-name' }, r[1] == null ? '—' : String(r[1])));
         }))),
-      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))));
+      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))),
+    h(Panel, { title: 'CPU cores', span2: true,
+      hint: (d.cpu_topology || {}).sockets ? d.cpu_topology.sockets + ' socket · ' + d.cpu_topology.cores + ' cores · ' + d.cpu_topology.threads + ' threads' : '' },
+      h(CoreGrid, { d: d })));
+}
+
+/** Per-thread load grid cross-referenced with live VM vcpupin so a hot core
+ *  can be traced back to the VM it's pinned to at a glance. */
+function CoreGrid(P) {
+  var d = P.d, cores = (d.cpu && d.cpu.cores) || {};
+  var keys = Object.keys(cores).filter(function (k) { return /^cpu\d+$/.test(k); })
+    .sort(function (a, b) { return Number(a.slice(3)) - Number(b.slice(3)); });
+  if (!keys.length) return h('div', { class: 'v-empty' }, 'No per-core data yet.');
+  var pinMap = {};
+  ((d.vms || {}).list || []).forEach(function (v) {
+    (v.pinning || []).forEach(function (p) {
+      String(p.affinity).split(',').forEach(function (part) {
+        part = part.trim();
+        var range = part.match(/^(\d+)-(\d+)$/);
+        if (range) { for (var i = Number(range[1]); i <= Number(range[2]); i++) pinMap[i] = v.name; }
+        else if (/^\d+$/.test(part)) pinMap[Number(part)] = v.name;
+      });
+    });
+  });
+  return h('div', { class: 'v-core-grid' },
+    keys.map(function (k) {
+      var n = Number(k.slice(3));
+      var pct = cores[k];
+      var pin = pinMap[n];
+      return h('div', { key: k, class: 'v-core ' + lvl(pct, 70, 90), title: pin ? 'pinned: ' + pin : 'unpinned' },
+        h('div', { class: 'v-core-n' }, 'CPU' + n),
+        h('div', { class: 'v-core-pct' }, pct == null ? '—' : Math.round(pct) + '%'),
+        pin ? h('div', { class: 'v-core-pin' }, pin) : null);
+    }));
 }
 
 /* --------------------------------------------------------------- shares */
@@ -750,6 +830,7 @@ function SysTab(P) {
 function SharesTab(P) {
   var d = P.d, sh = d.shares || {}, list = sh.list || [];
   var byPool = function (v) { return list.filter(function (s) { return s.pool === v; }).length; };
+  var bs = useState(null); var browseShare = bs[0], setBrowseShare = bs[1];
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
@@ -765,16 +846,107 @@ function SharesTab(P) {
     h(Panel, { title: 'All shares', span2: true, hint: list.length + ' configured' },
       list.length ? h(Table, null,
         h('tr', null, h('th', null, 'Share'), h('th', null, 'Comment'), h('th', null, 'Storage'),
-          h('th', { class: 'num' }, 'Free')),
+          h('th', { class: 'num' }, 'Free'), h('th', null, 'AI comment'), h('th', null, '')),
         list.map(function (s) {
           return h('tr', { key: s.name },
             h('td', { class: 'v-name' }, s.name),
             h('td', { class: 'muted' }, s.comment || '—'),
             h('td', null, h(Pill, { kind: s.pool === 'only' ? 'warn' : s.pool === 'yes' ? 'run' : 'stop' },
               s.pool === 'yes' ? 'pool + array' : s.pool === 'only' ? 'pool only' : 'array only')),
-            h('td', { class: 'num' }, s.free ? bytes(s.free, 1) : '—'));
+            h('td', { class: 'num' }, s.free ? bytes(s.free, 1) : '—'),
+            h('td', null, h(ShareCommentCell, { share: s.name })),
+            h('td', null, h('button', { class: 'v-btn xs', onClick: function () { setBrowseShare(s.name); } },
+              h('i', { class: 'fa fa-folder-open' }), ' Browse')));
         }))
-        : h('div', { class: 'v-empty' }, 'No shares configured.')));
+        : h('div', { class: 'v-empty' }, 'No shares configured.')),
+    browseShare ? h(ShareBrowser, { share: browseShare, onClose: function () { setBrowseShare(null); } }) : null);
+}
+
+/** Read-only /mnt/user/<share> file browser, driven by ?action=browse.
+ *  Client keeps its own path stack so "up a level" doesn't need a server
+ *  round trip for the parent path — v_browse_share() re-validates on
+ *  every request regardless (never trust client-held state for security). */
+function ShareBrowser(P) {
+  var s1 = useState(''); var path = s1[0], setPath = s1[1];
+  var s2 = useState(null); var data = s2[0], setData = s2[1];
+  var s3 = useState(false); var loading = s3[0], setLoading = s3[1];
+
+  var go = function (p) {
+    setLoading(true);
+    fetch(ENDPOINT + '?action=browse&share=' + encodeURIComponent(P.share) + '&path=' + encodeURIComponent(p))
+      .then(function (r) { return r.json(); })
+      .then(function (j) { setData(j); setPath(p); setLoading(false); })
+      .catch(function () { setLoading(false); });
+  };
+
+  useEffect(function () { go(''); }, [P.share]);
+
+  var parts = path ? path.split('/') : [];
+  return h('div', { class: 'v-modal-backdrop', onClick: P.onClose },
+    h('div', { class: 'v-modal', onClick: function (e) { e.stopPropagation(); } },
+      h('div', { class: 'v-modal-head' },
+        h('div', null, h('i', { class: 'fa fa-folder-open' }), ' ', P.share,
+          parts.length ? h('span', { class: 'muted' }, ' / ' + parts.join(' / ')) : null),
+        h('button', { class: 'v-btn xs', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
+      h('div', { class: 'v-modal-body' },
+        path ? h('div', { class: 'v-browse-row muted', onClick: function () {
+                  var up = parts.slice(0, -1).join('/'); go(up);
+                } },
+                h('i', { class: 'fa fa-level-up' }), ' ..') : null,
+        loading ? h('div', { class: 'v-empty' }, 'Loading…')
+        : data && data.error ? h('div', { class: 'v-empty' }, data.error)
+        : (data && data.entries || []).length === 0 ? h('div', { class: 'v-empty' }, 'Empty directory.')
+        : (data.entries || []).map(function (e) {
+            return h('div', { key: e.name, class: 'v-browse-row',
+              onClick: e.dir ? function () { go((path ? path + '/' : '') + e.name); } : null },
+              h('i', { class: 'fa ' + (e.dir ? 'fa-folder' : 'fa-file-o') }),
+              h('span', { class: 'v-browse-name' }, e.name),
+              e.dir ? null : h('span', { class: 'v-browse-meta' }, bytes(e.size)),
+              h('span', { class: 'v-browse-meta' }, ts(e.mtime)));
+          }))));
+}
+
+/** "Generate" kicks off agent/share-comment.mjs fire-and-forget on the PHP
+ *  side, then polls ?action=share_comment for the result. LLM latency on
+ *  this hardware is real (tens of seconds to a couple minutes) — the poll
+ *  interval is intentionally slow (6s) so it doesn't hammer the endpoint. */
+function ShareCommentCell(P) {
+  var s = useState(null); var result = s[0], setResult = s[1];
+  var b = useState(false); var busy = b[0], setBusy = b[1];
+  var timerRef = useRef(null);
+
+  var poll = function () {
+    fetch(ENDPOINT + '?action=share_comment&share=' + encodeURIComponent(P.share))
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.ok && j.comment) { setResult(j.comment); setBusy(false); }
+        else if (busy) { timerRef.current = setTimeout(poll, 6000); }
+      })
+      .catch(function () { if (busy) timerRef.current = setTimeout(poll, 6000); });
+  };
+
+  useEffect(function () {
+    poll();
+    return function () { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, [P.share]);
+
+  var generate = function () {
+    setBusy(true);
+    var body = new URLSearchParams({ share: P.share, csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=gen_share_comment', { method: 'POST', body: body })
+      .then(function () { timerRef.current = setTimeout(poll, 6000); })
+      .catch(function () { setBusy(false); });
+  };
+
+  if (result && result.comment) {
+    return h('div', { class: 'v-share-comment' },
+      h('div', { class: 'muted' }, result.comment),
+      h('button', { class: 'v-btn xs', style: 'margin-top:4px', disabled: busy, onClick: generate },
+        h('i', { class: 'fa fa-refresh' }), ' Regenerate'));
+  }
+  return h('button', { class: 'v-btn xs primary', disabled: busy, onClick: generate },
+    busy ? [h('i', { key: 's', class: 'fa fa-spinner fa-spin' }), ' Generating…']
+         : [h('i', { key: 'm', class: 'fa fa-magic' }), ' Generate']);
 }
 
 /* ------------------------------------------------------------- hardware */
@@ -794,6 +966,7 @@ function HwTab(P) {
          : (Array.isArray(gpu) && gpu.length ? gpu[0] : null);
 
   return h('div', null,
+    h(AiFindingsPanel, { findings: P.findings, agents: ['thermal', 'general'] }),
     h(Panel, { title: 'Virtual machines', span2: true,
       hint: d.vms && d.vms.available ? d.vms.running + ' running / ' + d.vms.count + ' total' : '' },
       h(VmTable, { vms: d.vms })),
@@ -835,6 +1008,126 @@ function HwTab(P) {
     h(Panel, { title: 'SMART detail', span2: true,
       hint: Object.keys(d.smart || {}).length + ' disks' },
       h(SmartTable, { d: d })));
+}
+
+/* ------------------------------------------------------------------- kb */
+
+var SEV_KB_ICON = { finding: 'fa-heartbeat', research: 'fa-flask', manual: 'fa-pencil' };
+
+function KbTab() {
+  var s1 = useState(''); var q = s1[0], setQ = s1[1];
+  var s2 = useState([]); var results = s2[0], setResults = s2[1];
+  var s3 = useState([]); var topics = s3[0], setTopics = s3[1];
+  var s4 = useState(false); var searching = s4[0], setSearching = s4[1];
+  var s5 = useState(null); var topicFilter = s5[0], setTopicFilter = s5[1];
+
+  var loadRecent = function () {
+    fetch(ENDPOINT + '?action=kb_recent', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); } });
+  };
+  useEffect(function () { loadRecent(); }, []);
+
+  var search = function (e) {
+    e.preventDefault();
+    if (!q.trim()) { loadRecent(); return; }
+    setSearching(true);
+    fetch(ENDPOINT + '?action=kb_search&q=' + encodeURIComponent(q), { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { setResults(j.results || []); setTopics(j.topics || []); } setSearching(false); })
+      .catch(function () { setSearching(false); });
+  };
+
+  var shown = topicFilter ? results.filter(function (r) { return r.topic === topicFilter; }) : results;
+
+  return h('div', null,
+    h(Panel, { title: 'Search the knowledge base', span2: true,
+      hint: 'built from everything the background AI agents have learned' },
+      h('form', { class: 'v-kb-search', onSubmit: search },
+        h('input', { class: 'v-input', style: 'flex:1', placeholder: 'e.g. cache pool temperature, disk errors, network drops…',
+          value: q, onInput: function (e) { setQ(e.target.value); } }),
+        h('button', { class: 'v-btn primary', type: 'submit', disabled: searching },
+          h('i', { class: 'fa fa-search' }), ' Search')),
+      topics.length ? h('div', { class: 'v-kb-topics' },
+        h('span', { class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all'),
+        topics.map(function (t) {
+          return h('span', { key: t.topic, class: 'v-chip' + (topicFilter === t.topic ? ' on' : ''),
+            onClick: function () { setTopicFilter(t.topic); } }, t.topic + ' (' + t.n + ')');
+        })) : null),
+    h(Panel, { title: q ? 'Results' : 'Recent knowledge', span2: true, hint: shown.length + ' documents' },
+      !shown.length ? h('div', { class: 'v-empty' }, 'Nothing here yet — the background agents populate this as they run.')
+      : shown.map(function (doc) {
+          return h('div', { key: doc.id, class: 'v-kb-doc' },
+            h('div', { class: 'v-kb-doc-head' },
+              h('i', { class: 'fa ' + (SEV_KB_ICON[doc.source] || 'fa-file-text-o') }),
+              h('span', { class: 'v-kb-doc-title' }, doc.title),
+              doc.topic ? h('span', { class: 'v-ai-agent' }, doc.topic) : null,
+              h('span', { class: 'muted', style: 'margin-left:auto' }, ts(doc.created_at))),
+            h('div', { class: 'v-kb-doc-body' }, doc.content));
+        })));
+}
+
+/* --------------------------------------------------------------- research */
+
+function ResearchTab() {
+  var s1 = useState(''); var prompt = s1[0], setPrompt = s1[1];
+  var s2 = useState([]); var jobs = s2[0], setJobs = s2[1];
+  var s3 = useState(null); var activeJob = s3[0], setActiveJob = s3[1];
+  var s4 = useState(false); var submitting = s4[0], setSubmitting = s4[1];
+
+  var loadJobs = function () {
+    fetch(ENDPOINT + '?action=research_list', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setJobs(j.jobs || []); });
+  };
+  useEffect(function () { loadJobs(); var iv = setInterval(loadJobs, 10000); return function () { clearInterval(iv); }; }, []);
+
+  var openJob = function (id) {
+    fetch(ENDPOINT + '?action=research_status&id=' + id, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setActiveJob(j.job); });
+  };
+
+  var submit = function (e) {
+    e.preventDefault();
+    if (!prompt.trim()) return;
+    setSubmitting(true);
+    var body = new URLSearchParams({ prompt: prompt, csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=research_ask', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setSubmitting(false);
+        if (j && j.ok) { setPrompt(''); loadJobs(); openJob(j.job_id); }
+        else window.alert('Failed: ' + ((j && j.error) || 'unknown error'));
+      })
+      .catch(function () { setSubmitting(false); });
+  };
+
+  return h('div', null,
+    h(Panel, { title: 'Ask a question', span2: true,
+      hint: 'runs in the background using local models — may take a few minutes on this hardware' },
+      h('form', { class: 'v-kb-search', onSubmit: submit, style: 'flex-direction:column;align-items:stretch;gap:8px' },
+        h('textarea', { class: 'v-input', rows: 3, placeholder: 'e.g. Why has the cache pool been running hot this week? What should I check first?',
+          value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
+        h('button', { class: 'v-btn primary', type: 'submit', disabled: submitting, style: 'align-self:flex-start' },
+          h('i', { class: 'fa fa-flask' }), submitting ? ' Submitting…' : ' Research in background'))),
+    activeJob ? h(Panel, { title: 'Result', span2: true, hint: activeJob.status },
+      activeJob.status === 'pending' || activeJob.status === 'running'
+        ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Researching — this can take a few minutes, feel free to leave this tab.')
+        : activeJob.status === 'error'
+        ? h('div', { class: 'v-empty' }, 'Failed: ', activeJob.error)
+        : h('div', { class: 'v-kb-doc-body' }, activeJob.answer)) : null,
+    h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
+      !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
+      : h(Table, null,
+          h('tr', null, h('th', null, 'Question'), h('th', null, 'Status'), h('th', null, 'Asked'), h('th', null, '')),
+          jobs.map(function (j) {
+            return h('tr', { key: j.id },
+              h('td', { class: 'v-name' }, j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
+              h('td', null, h(Pill, { kind: j.status === 'done' ? 'run' : j.status === 'error' ? 'stop' : 'warn' }, j.status)),
+              h('td', { class: 'muted' }, ts(j.created_at)),
+              h('td', null, h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View')));
+          }))));
 }
 
 /* ------------------------------------------------------------- settings */
