@@ -18,8 +18,31 @@ require_once __DIR__ . '/collect.php';
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
 
+/**
+ * CSRF gate for this endpoint.
+ *
+ * NB: Unraid's global auto_prepend_file (webGui/include/local_prepend.php)
+ * already validates the CSRF token on EVERY POST and then UNSETS it from
+ * $_POST / the X-CSRF-Token header before plugin code runs. So by the time
+ * this function executes the token is normally gone — re-reading it would
+ * always fail (this was a real bug: the Research/Share-comment buttons
+ * returned "bad csrf token" on a live box while CLI tests passed, because
+ * invoking ajax.php from the CLI bypasses auto_prepend).
+ *
+ * The correct contract is therefore: under the web server, a POST that
+ * reached this code has ALREADY passed Unraid's own csrf_terminate() check
+ * and cannot be a cross-site request. We accept that, and only fall back to
+ * a direct comparison when a token is still present (CLI/test path, or a
+ * future Unraid that stops unsetting it).
+ */
 function v_action_csrf_ok(): bool {
-  $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+  $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
+  if ($sent === null) {
+    // Already cleared by auto_prepend after a successful validation, or this
+    // is a CLI invocation. Require the web-server case to be a genuine POST
+    // that auto_prepend actually guarded.
+    return PHP_SAPI === 'cli' || ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
+  }
   $real = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? null;
   return $real && hash_equals($real, (string)$sent);
 }
