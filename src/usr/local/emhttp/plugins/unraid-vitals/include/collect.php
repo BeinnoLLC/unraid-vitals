@@ -596,6 +596,14 @@ function v_smart(): array {
     if (preg_match('/Critical Warning:\s+0x([0-9a-f]+)/i', $raw, $m))    $r['nvme_critical_warning'] = hexdec($m[1]);
     $out[$dev] = $r;
   }
+  // Unraid writes each disk's SMART report twice: once under the kernel
+  // device (sdb, nvme1n1) and once under the array slot (disk1,
+  // virtualmachine3). Keep the slot-named copy (that is the name the user
+  // knows) and drop the device-named twin, otherwise every SMART finding is
+  // reported twice for the same physical disk.
+  foreach ($out as $dev => $r) {
+    if (isset($devmap[$dev]) && $devmap[$dev] !== $dev && isset($out[$devmap[$dev]])) unset($out[$dev]);
+  }
   ksort($out);
   return $out;
 }
