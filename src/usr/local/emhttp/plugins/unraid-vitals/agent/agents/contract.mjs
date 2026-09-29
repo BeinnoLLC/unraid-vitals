@@ -99,9 +99,21 @@ export function groundFindings(findings, knownSubjects = [], inputText = '') {
 
   const kept = [], dropped = [];
   for (const f of findings) {
-    if (f.subject && subjects.size && !subjects.has(String(f.subject).trim().toLowerCase())) {
-      dropped.push({ finding: f, reason: `unknown subject "${f.subject}"` });
-      continue;
+    // A model legitimately naming several real subjects in one comma-
+    // separated string (e.g. "disk3, disk6, disk8" for a multi-disk
+    // pattern) previously failed the exact-match check against the whole
+    // string and got dropped entirely — silently eating a real finding
+    // exactly when it named more than one thing. Split and validate each
+    // named subject individually; only reject if at least one doesn't
+    // match anything known (still blocks a fabricated "disk9" on an
+    // 8-disk box mixed in with real names).
+    if (f.subject && subjects.size) {
+      const parts = String(f.subject).split(',').map(s => s.trim()).filter(Boolean);
+      const unknown = parts.filter(p => !subjects.has(p.toLowerCase()));
+      if (unknown.length) {
+        dropped.push({ finding: f, reason: `unknown subject "${unknown.join(', ')}"` });
+        continue;
+      }
     }
     const bad = numbersIn(f.detail).filter(n => !supported(n));
     if (bad.length) {

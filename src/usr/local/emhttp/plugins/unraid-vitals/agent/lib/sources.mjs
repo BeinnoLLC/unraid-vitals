@@ -99,10 +99,19 @@ export function dockerContainerImages() {
       { encoding: 'utf8', timeout: 8000 }).split('\n').map(s => s.trim()).filter(Boolean);
     return names.map(name => {
       try {
-        const image = execFileSync('/usr/bin/docker', ['inspect', '--format', '{{.Config.Image}}', name],
-          { encoding: 'utf8', timeout: 5000 }).trim();
-        const digestOut = execFileSync('/usr/bin/docker', ['inspect', '--format', '{{index .RepoDigests 0}}', name],
-          { encoding: 'utf8', timeout: 5000 }).trim();
+        // Full JSON inspect, not a Go --format template: some containers'
+        // inspect output has NO "RepoDigests" key at all (not just an
+        // empty array) — {{.Config.Image}} and even {{json .RepoDigests}}
+        // both error out ("map has no entry for key") in that case, and
+        // that error goes to stderr where it spammed agents.log for every
+        // such container on every run without actually failing anything
+        // (caught below either way). Parsing the JSON ourselves sidesteps
+        // Go template's strict key lookup entirely.
+        const out = execFileSync('/usr/bin/docker', ['inspect', name], { encoding: 'utf8', timeout: 5000 });
+        const info = JSON.parse(out)[0] || {};
+        const image = info?.Config?.Image || null;
+        const digests = Array.isArray(info?.RepoDigests) ? info.RepoDigests : [];
+        const digestOut = digests[0] || '';
         const localDigest = digestOut.includes('@sha256:') ? digestOut.split('@')[1] : null;
         return { name, image, localDigest };
       } catch {
