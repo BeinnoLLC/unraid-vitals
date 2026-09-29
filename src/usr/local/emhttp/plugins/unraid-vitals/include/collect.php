@@ -646,6 +646,67 @@ function v_shares(): array {
   return $out;
 }
 
+/** Array disk mount names currently present (disk1, disk2, ... — not always contiguous). */
+function v_array_disk_mounts(): array {
+  $out = [];
+  foreach (glob('/mnt/disk*') ?: [] as $p) {
+    $name = basename($p);
+    if (preg_match('/^disk\d+$/', $name) && is_dir($p)) $out[] = $name;
+  }
+  sort($out, SORT_NATURAL);
+  return $out;
+}
+
+/**
+ * Share placement conflicts (P14-05): a pool-only share ("useCache=only")
+ * that also has a top-level folder sitting on an array disk (or vice versa
+ * for an array-only share with a folder left on cache) means files got
+ * written to the wrong place — classic causes are a share's cache setting
+ * changed after files already existed, or the mover never ran. This is the
+ * kind of split that keeps array disks spinning for an "SSD-only" share
+ * like appdata, and makes Docker slow.
+ *
+ * Deliberately shallow: only checks for the share's own top-level folder's
+ * *existence* on the wrong pool/disk (is_dir), not a full recursive walk —
+ * a full walk of every share on every disk would be one of the slowest
+ * things this plugin could do. "Files on disks the include/exclude rules
+ * out" and the case-mismatch check are left for a follow-up if this
+ * shallow version proves too coarse in practice.
+ */
+function v_share_placement(): array {
+  $shares = v_ini('/var/local/emhttp/shares.ini');
+  $arrayDisks = v_array_disk_mounts();
+  $out = [];
+  foreach ($shares as $name => $s) {
+    if (!is_array($s)) continue;
+    $pool = $s['useCache'] ?? 'no';
+    $stray = [];
+    if ($pool === 'only') {
+      // Cache-only share — flag any array disk that also has this top-level folder.
+      foreach ($arrayDisks as $disk) {
+        $p = '/mnt/' . $disk . '/' . $name;
+        if (is_dir($p)) $stray[] = ['disk' => $disk, 'path' => $p, 'expected' => 'cache'];
+      }
+    } elseif ($pool === 'no') {
+      // Array-only share — flag if it also exists on cache.
+      $p = '/mnt/cache/' . $name;
+      if (is_dir($p)) $stray[] = ['disk' => 'cache', 'path' => $p, 'expected' => 'array'];
+    }
+    if ($stray) $out[$name] = ['pool' => $pool, 'stray' => $stray];
+  }
+  return $out;
+}
+
+/** v_share_placement() sampled at most once an hour, cached in the state dir. */
+function v_share_placement_cached(): array {
+  $path = v_state_dir() . '/share_placement.json';
+  $cache = v_read_json($path);
+  if (($cache['ts'] ?? 0) > time() - 3600) return $cache['conflicts'] ?? [];
+  $conflicts = v_share_placement();
+  v_write_json($path, ['ts' => time(), 'conflicts' => $conflicts]);
+  return $conflicts;
+}
+
 /* ------------------------------------------------------------------ network */
 
 function v_net_read(): array {
@@ -785,6 +846,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'gpu'     => v_gpu(),
     'ups'     => v_ups(),
     'shares'  => v_shares(),
+    'share_placement' => v_share_placement_cached(),
     'net'     => [],
     'top'     => v_top_procs(8),
   ];
