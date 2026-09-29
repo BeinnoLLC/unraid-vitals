@@ -6,6 +6,6 @@
   "description": "Background health-analysis workers for unraid-vitals — specialised SmythOS agents read recent logs/metrics, call a local LLM, and write findings to SQLite for the plugin UI to render.",
   "scripts": { "analyze": "node analyze.mjs" },
   "dependencies": {
-    "@smythos/sdk": "latest"
+    "@smythos/sdk": "1.6.0"
   }
 }
