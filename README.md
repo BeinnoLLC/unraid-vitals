@@ -172,7 +172,8 @@ Produces `dist/unraid-vitals.plg` (the install manifest) and
 `dist/unraid-vitals-<version>-x86_64-1.txz` (the payload, attached to a GitHub
 release). The `.plg` in `plugins/` is what users install; it points at
 `releases/latest/download/`, so every release must ship the payload under the
-exact versioned name.
+exact versioned name. **The full release + Community Applications submission
+procedure is in [docs/PUBLISHING.md](docs/PUBLISHING.md).**
 
 ## Roadmap
 
