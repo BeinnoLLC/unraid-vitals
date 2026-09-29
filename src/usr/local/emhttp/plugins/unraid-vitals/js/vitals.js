@@ -552,6 +552,7 @@ function App() {
   var s5 = useState(null), daily = s5[0], setDaily = s5[1];
   var s6 = useState([]), findings = s6[0], setFindings = s6[1];
   var s7 = useState(false), drawerOpen = s7[0], setDrawerOpen = s7[1];
+  var s8 = useState(false), findingsOpen = s8[0], setFindingsOpen = s8[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
@@ -609,6 +610,7 @@ function App() {
           h('option', { value: 1440 }, 'Last 24 hours')),
         h('button', { class: 'v-btn', onClick: function () { load(true); } },
           h('i', { class: 'fa fa-refresh' }), ' Refresh'),
+        h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
         h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
           onClick: function () { setDrawerOpen(!drawerOpen); } },
           h('i', { class: 'fa fa-file-text-o' }), ' Logs'))),
@@ -635,7 +637,8 @@ function App() {
 
     h('div', { class: 'v-foot' },
       'unraid-vitals · samples retained on flash'),
-    h(LogDrawer, { open: drawerOpen, onClose: function () { setDrawerOpen(false); } }));
+    h(LogDrawer, { open: drawerOpen, onClose: function () { setDrawerOpen(false); } }),
+    h(FindingsDrawer, { findings: findings, open: findingsOpen, onClose: function () { setFindingsOpen(false); } }));
 }
 
 /* ------------------------------------------------------------ log drawer */
@@ -791,7 +794,6 @@ function DashTab(P) {
   };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings }),
     h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) {
       return h(StatCard, merge(c, { key: i }));
     })),
@@ -847,25 +849,55 @@ var SEV_ICON = { critical: 'fa-bolt', error: 'fa-times-circle', warning: 'fa-exc
  *  domain (e.g. only 'thermal' findings on the Hardware tab); omitted on
  *  the dashboard to show everything. Nothing rendered when there's
  *  nothing to report yet — agents haven't run, or genuinely all-clear. */
-function AiFindingsPanel(P) {
+function AiBell(P) {
   var all = P.findings || [];
-  var list = P.agents ? all.filter(function (f) { return P.agents.indexOf(f.agent) !== -1; }) : all;
-  if (!list.length) return null;
-  var interesting = list.filter(function (f) { return f.severity !== 'ok'; });
-  var shown = (interesting.length ? interesting : list.slice(0, 1)).slice()
-    .sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); })
-    .slice(0, 6);
-  return h('div', { class: 'v-ai-panel' },
-    h('div', { class: 'v-ai-head' }, h('i', { class: 'fa fa-magic' }), ' AI health findings',
-      h('span', { class: 'muted' }, ' · updated hourly by local agents')),
-    shown.map(function (f) {
-      return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
-        h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
-        h('div', { class: 'v-ai-body' },
-          h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
-          f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
-          f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
-    }));
+  var interesting = all.filter(function (f) { return f.severity !== 'ok'; });
+  var worst = interesting.reduce(function (w, f) {
+    return (SEV_ORDER[f.severity] ?? 5) < (SEV_ORDER[w] ?? 5) ? f.severity : w;
+  }, 'info');
+  return h('button', { class: 'v-btn v-bell' + (P.open ? ' primary' : '') + (interesting.length ? ' has-badge' : ''),
+      title: 'AI health findings', onClick: P.onClick },
+    h('i', { class: 'fa fa-magic' }), ' Findings',
+    interesting.length ? h('span', { class: 'v-badge v-badge-' + worst }, interesting.length) : null);
+}
+
+/** Right-side drawer: every AI finding across every agent, newest/worst
+ *  first — same drawer pattern as the log viewer instead of a full-width
+ *  block sitting on top of every tab. */
+function FindingsDrawer(P) {
+  var all = P.findings || [];
+  var s1 = useState('all'); var agentFilter = s1[0], setAgentFilter = s1[1];
+  var agents = Array.from(new Set(all.map(function (f) { return f.agent; }).filter(Boolean))).sort();
+  var interesting = all.filter(function (f) { return f.severity !== 'ok'; });
+  var pool = interesting.length ? interesting : all;
+  var shown = pool.filter(function (f) { return agentFilter === 'all' || f.agent === agentFilter; })
+    .slice().sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); });
+
+  return P.open ? h('div', null,
+    h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
+    h('div', { class: 'v-drawer' },
+      h('div', { class: 'v-drawer-head' },
+        h('i', { class: 'fa fa-magic' }),
+        h('span', { class: 'v-drawer-title' }, 'AI health findings'),
+        h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
+        h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
+      h('div', { class: 'v-drawer-tools' },
+        h('select', { class: 'v-select', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
+          h('option', { value: 'all' }, 'All agents'),
+          agents.map(function (a) { return h('option', { key: a, value: a }, a); })),
+        h('span', { class: 'muted', style: 'align-self:center;font-size:11.5px' }, 'updated hourly by local agents')),
+      h('div', { class: 'v-drawer-body' },
+        !shown.length ? h('div', { class: 'v-empty' }, 'No findings yet — the agents run hourly.')
+        : shown.map(function (f) {
+            return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
+              h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
+              h('div', { class: 'v-ai-body' },
+                h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
+                f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
+                f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
+          })),
+      h('div', { class: 'v-drawer-foot' },
+        shown.length + ' of ' + all.length + ' total findings'))) : null;
 }
 
 /* ---------------------------------------------------------------- array */
@@ -904,7 +936,6 @@ function ArrayTab(P) {
   });
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['disks', 'pools'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Array state', icon: 'fa-hdd-o', color: PAL['v-accent'], value: d.system.md_state,
@@ -1039,7 +1070,6 @@ function NetTab(P) {
   var sum = function (k, f) { return active.reduce(function (s, x) { return s + (net[x][f] || 0); }, 0); };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['network'] }),
     h('div', { class: 'v-cards' },
       [
         { label: 'Interfaces', icon: 'fa-exchange', color: PAL['v-accent'], value: String(ifs.length),
@@ -1325,7 +1355,6 @@ function HwTab(P) {
   };
 
   return h('div', null,
-    h(AiFindingsPanel, { findings: P.findings, agents: ['thermal', 'general'] }),
     h(Panel, { title: 'Temperatures', span2: true,
       hint: (sensors.temps || []).length + ' sensors — headroom is distance to the chip threshold' },
       !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
