@@ -61,6 +61,123 @@ var SERIES_COLORS = ['#4f9cf9', '#b07cf9', '#35c48a', '#f97066', '#22d3ee',
                      '#c4b5fd', '#fdba74', '#67e8f9', '#86efac', '#fca5a5'];
 function pickColor(i) { return SERIES_COLORS[i % SERIES_COLORS.length]; }
 
+/** '#rrggbb' -> 'rgba(r,g,b,a)' for uPlot area fills (needs concrete colours). */
+function withAlpha(hex, a) {
+  if (hex && hex.slice(0, 1) === '#' && (hex.length === 7 || hex.length === 4)) {
+    var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+  }
+  return hex;
+}
+
+/* Grafana-style stat tile: value on a tinted background, tone-driven colour.
+   P: {label, value, sub, tone: ok|info|warn|crit|muted, spark: [[t,v]...]} */
+var TONE_COLOR = { ok: '#4ade80', info: '#4f9cf9', warn: '#fbbf24', crit: '#f87171', muted: '#9ca3af' };
+function StatTile(P) {
+  var tone = TONE_COLOR[P.tone || 'muted'];
+  return h('div', { class: 'v-stat-tile', style: '--tile:' + tone },
+    h('div', { class: 'v-stat-tile-label' }, P.label),
+    h('div', { class: 'v-stat-tile-value' }, P.value),
+    P.sub ? h('div', { class: 'v-stat-tile-sub' }, P.sub) : null,
+    P.spark ? h(Spark, { points: P.spark, color: tone }) : null);
+}
+
+/* Tiny sparkline (no axes, no legend) for use inside cards/tiles. */
+function Spark(P) {
+  var ref = useRef(null);
+  var plot = useRef(null);
+  useEffect(function () {
+    if (!ref.current) return;
+    var pts = (P.points || []).filter(function (q) { return q[1] != null; });
+    if (pts.length < 2) { ref.current.innerHTML = ''; return; }
+    var opts = {
+      width: ref.current.clientWidth || 120, height: P.height || 34,
+      cursor: { show: false }, legend: { show: false },
+      scales: { x: { time: false } },
+      axes: [{}, {}],
+      series: [{}, { stroke: P.color || PAL['v-accent'], width: 1.4, fill: withAlpha(P.color || PAL['v-accent'], .18), spanGaps: true }],
+      padding: [2, 2, 2, 2],
+      ms: 1,
+    };
+    opts.axes.forEach(function (a) { a.show = false; });
+    if (plot.current) plot.current.destroy();
+    plot.current = new uPlot(opts, [pts.map(function (q) { return q[0]; }), pts.map(function (q) { return q[1]; })], ref.current);
+  });
+  return h('div', { class: 'v-spark', ref: ref });
+}
+
+/* SVG donut with centre label + side legend. P: {segments:[{label,value,color}],
+   center:{big,small}, size} */
+function Donut(P) {
+  var segs = (P.segments || []).filter(function (s) { return s.value > 0; });
+  var total = segs.reduce(function (s, x) { return s + x.value; }, 0);
+  var size = P.size || 132, th = P.thickness || 16, r = (size - th) / 2, c = 2 * Math.PI * r;
+  var off = 0;
+  return h('div', { class: 'v-donut-wrap' },
+    h('div', { class: 'v-donut', style: 'width:' + size + 'px;height:' + size + 'px' },
+      h('svg', { width: size, height: size, viewBox: '0 0 ' + size + ' ' + size },
+        h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: 'rgba(127,127,127,.15)', 'stroke-width': th }),
+        segs.map(function (s, i) {
+          var frac = total ? s.value / total : 0;
+          var el = h('circle', { key: i, cx: size / 2, cy: size / 2, r: r, fill: 'none',
+            stroke: s.color, 'stroke-width': th,
+            'stroke-dasharray': (frac * c - 2) + ' ' + (c - frac * c + 2),
+            'stroke-dashoffset': -off * c,
+            transform: 'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')' });
+          off += frac;
+          return el;
+        })),
+      h('div', { class: 'v-donut-center' },
+        h('div', { class: 'v-donut-big' }, (P.center || {}).big || ''),
+        h('div', { class: 'v-donut-small' }, (P.center || {}).small || ''))),
+    h('div', { class: 'v-donut-legend' },
+      segs.map(function (s, i) {
+        return h('div', { key: i, class: 'v-donut-key' },
+          h('i', { style: 'background:' + s.color }), s.label,
+          h('b', null, ' ' + s.value));
+      })));
+}
+
+/* Ranked horizontal bars. P: {rows:[{label,value(string),pct(0-100),color}], max} */
+function HBars(P) {
+  var rows = P.rows || [];
+  if (!rows.length) return h('div', { class: 'v-empty' }, P.empty || 'No data yet.');
+  return h('div', { class: 'v-hbars' },
+    rows.map(function (r, i) {
+      var pct = r.pct == null ? 0 : Math.max(0, Math.min(100, r.pct));
+      return h('div', { key: i, class: 'v-hbar-row' },
+        h('div', { class: 'v-hbar-label', title: r.label }, r.label),
+        h('div', { class: 'v-hbar-track' },
+          h('i', { style: 'width:' + pct + '%;background:' + (r.color || pickColor(i)) })),
+        h('div', { class: 'v-hbar-val' }, r.value));
+    }));
+}
+
+/* OctoPrint-style inline stats for a chart: per series — now · avg · min–max.
+   P: {series:[{name,color,points}]} */
+function ChartStats(P) {
+  var rows = (P.series || []).map(function (s) {
+    var vs = (s.points || []).map(function (q) { return q[1]; }).filter(function (v) { return v != null; });
+    if (!vs.length) return null;
+    var sum = vs.reduce(function (a, b) { return a + b; }, 0);
+    return {
+      name: s.name, color: s.color, now: vs[vs.length - 1],
+      avg: sum / vs.length, min: Math.min.apply(null, vs), max: Math.max.apply(null, vs),
+      fmt: s.fmt || function (v) { return Math.round(v * 10) / 10; },
+    };
+  }).filter(Boolean);
+  if (!rows.length) return null;
+  return h('div', { class: 'v-chart-stats' },
+    rows.map(function (r, i) {
+      return h('span', { key: i, class: 'v-chart-stat' },
+        h('i', { style: 'background:' + r.color }),
+        h('b', null, r.name),
+        h('span', { class: 'num' }, ' ' + r.fmt(r.now)),
+        h('span', { class: 'muted' },
+          ' · avg ' + r.fmt(r.avg) + ' · ' + r.fmt(r.min) + '–' + r.fmt(r.max)));
+    }));
+}
+
 /* ------------------------------------------------------------ primitives */
 
 function Panel(P) {
@@ -83,10 +200,12 @@ function StatCard(P) {
       P.value, P.unit ? h('small', null, ' ' + P.unit) : null),
     P.sub ? h('div', { class: 'v-card-sub' }, P.sub) : null,
     P.bar != null ? h('div', { class: 'v-bar' },
-      h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null);
+      h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null,
+    P.spark ? h(Spark, { points: P.spark, color: P.sparkColor || P.color }) : null);
 }
 
-/* uPlot wrapper. P: {series:[{name,color,points}], max, floor, yFmt, height, empty} */
+/* uPlot wrapper. P: {series:[{name,color,points,fill(axis2,stack)}], max, floor,
+   height, yFmt, thresholds:[{v,color,label}], area, stack, y2Fmt, empty} */
 function Chart(P) {
   var ref = useRef(null);
   var plot = useRef(null);
@@ -105,32 +224,103 @@ function Chart(P) {
     var xs = series[0].points.map(function (q) { return q[0]; });
     var ys = series.map(function (s) { return s.points.map(function (q) { return q[1]; }); });
 
+    // Stacked mode: cumulative ys so uPlot's area fills draw a stacked band
+    // per series (values themselves stay raw for the legend readout via $F).
+    if (P.stack) {
+      for (var si = 1; si < ys.length; si++) {
+        ys[si] = ys[si].map(function (v, i) {
+          var prev = ys[si - 1][i];
+          return v == null ? prev : (prev == null ? v : v + prev);
+        });
+      }
+    }
+
     if (!maxV) {
       maxV = 0;
       ys.forEach(function (a) { a.forEach(function (v) { if (v != null && v > maxV) maxV = v; }); });
       maxV = maxV * 1.15;
     }
     if (!maxV || maxV <= minV) maxV = minV + 1;
+    // Make room for threshold lines above the data ceiling.
+    (P.thresholds || []).forEach(function (t) {
+      if (t.v != null && t.v > maxV) maxV = t.v * 1.06;
+    });
+
+    var thresholds = P.thresholds || [];
+
+    var fmt1 = function (s, v) {
+      if (s.fmt) return s.fmt(v);
+      if (v == null) return '';
+      return Math.round(v * 10) / 10 + (s.unit || '');
+    };
+    // In stacked mode the legend shows each band's own value, not the cumulative.
+    var legendVal = function (u, si) {
+      var raw = series[si] && series[si].points[u.cursor.idx];
+      return raw && raw[1] != null ? fmt1(series[si], raw[1]) : '';
+    };
 
     var opts = {
       width: ref.current.clientWidth || 600,
       height: P.height || 150,
-      legend: { show: series.length > 1, live: false },
+      legend: { show: series.length > 1, live: false, markers: { width: 1.5 } },
       cursor: { sync: { key: 'vit' } },
-      scales: { x: { time: false } },
+      scales: {
+        x: { time: false },
+        y: { range: [minV, maxV] },
+        y2: P.y2Fmt ? { range: [P.y2Floor != null ? P.y2Floor : 0, P.y2Max != null ? P.y2Max : 100] } : undefined,
+      },
       axes: [
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false },
           values: function (u, sp) { return sp.map(ts); } },
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
-          values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } }
+          values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } },
       ],
-      series: [{}].concat(series.map(function (s) {
-        return { label: s.name, stroke: s.color, width: 1.7, spanGaps: true, points: { show: false } };
+      series: [{}].concat(series.map(function (s, i) {
+        var o = {
+          label: s.name, stroke: s.color, width: P.stack ? 1 : 1.7,
+          spanGaps: true, points: { show: false },
+          value: function (u, v) { return legendVal(u, i + 1); },
+        };
+        if (P.area || s.fill || P.stack) o.fill = withAlpha(s.color, P.stack ? 0.55 : 0.22);
+        if (s.axis === 2) { o.scale = 'y2'; o.stroke = s.color; }
+        return o;
       })),
-      padding: [8, 10, 0, 0]
+      padding: [8, 10, 0, P.y2Fmt ? 46 : 0],
     };
+    // Secondary axis.
+    if (P.y2Fmt) {
+      opts.axes.push({ stroke: '#8886', grid: { show: false }, ticks: { show: false }, side: 1, size: 44,
+        scale: 'y2', values: function (u, sp) { return sp.map(function (v) { return P.y2Fmt(v); }); } });
+      opts.padding[1] = 52;
+    }
+    // Threshold dashes are drawn as post-render DOM overlays instead of uPlot
+    // series: keeps the data arrays pure and the legend free of phantom rows.
+    var drawThresholds = function () {
+      var host = ref.current;
+      if (!host) return;
+      host.querySelectorAll('.v-th-line').forEach(function (el) { el.remove(); });
+      thresholds.forEach(function (t) {
+        if (t.v == null || t.v < minV || t.v > maxV) return;
+        var y = maxV - t.v, span = maxV - minV;
+        if (span <= 0) return;
+        var el = document.createElement('div');
+        el.className = 'v-th-line';
+        el.style.bottom = (8 + (y / span) * (opts.height - 30)) + 'px';
+        el.style.borderColor = t.color || '#f87171';
+        if (t.label) el.setAttribute('data-label', t.label);
+        host.appendChild(el);
+      });
+    };
+
     if (plot.current) plot.current.destroy();
     plot.current = new uPlot(opts, [xs].concat(ys), ref.current);
+    if (thresholds.length) {
+      drawThresholds();
+      var ro = new ResizeObserver(drawThresholds);
+      ro.observe(ref.current);
+      var _oldDestroy = plot.current.destroy.bind(plot.current);
+      plot.current.destroy = function () { ro.disconnect(); _oldDestroy(); };
+    }
 
     var onR = function () {
       if (plot.current && ref.current) {
@@ -556,22 +746,29 @@ function DashTab(P) {
       points: pick(function (p) { return p.ctr && p.ctr[name] ? p.ctr[name][0] : null; }) };
   });
 
+  // Grafana-style sparklines under the headline cards.
+  var sparkOf = function (f, color) {
+    var pts2 = pts.map(function (p) { return [p.t, f(p)]; });
+    return { spark: pts2, sparkColor: color };
+  };
   var cards = [
     { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
       level: lvl(d.cpu && d.cpu.total, 80, 95),
       sub: (load.cores || '?') + ' threads · load ' +
            (load.l1 != null ? load.l1.toFixed(2) : '—'),
       bar: d.cpu && d.cpu.total },
-    { label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
+    merge({ label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
       level: lvl(d.mem && d.mem.pct, 80, 92),
       sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), bar: d.mem && d.mem.pct },
+      sparkOf(function (p) { return p.mem; }, PAL['v-mem'])),
     { label: 'Array', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(t.data_disks || 0), unit: 'data',
       sub: d.system.md_state + ' · ' + (t.parity_disks || 0) + ' parity · ' + (t.cache_disks || 0) + ' pool' },
     { label: 'Storage', icon: 'fa-database', color: PAL['v-mem'], value: pctStr(t.used_pct),
       level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), bar: t.used_pct },
-    { label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
+    merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
       value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
       level: tMax == null ? '' : lvl(tMax, 45, 55), sub: temps.length + ' disks reporting' },
+      sparkOf(function (p) { return p.temp_max; }, PAL['v-temp'])),
     { label: 'Containers', icon: 'fa-cubes', color: PAL['v-ok-fg'],
       value: String((d.docker || {}).running || 0), unit: '/ ' + ((d.docker || {}).count || 0),
       sub: ((d.docker || {}).stopped || 0) + ' stopped' },
@@ -582,24 +779,40 @@ function DashTab(P) {
       sub: ((d.shares || {}).cache || 0) + ' cached · ' + ((d.shares || {}).array || 0) + ' array' }
   ];
 
+  // Donut: containers by state (reference: "tasks by status" chart).
+  var dkr = d.docker || {};
+  var donut = {
+    segments: [
+      { label: 'Running', value: dkr.running || 0, color: PAL['v-ok-fg'] },
+      { label: 'Stopped', value: dkr.stopped || 0, color: PAL['v-warn-fg'] },
+    ],
+    center: { big: String(dkr.count || 0), small: 'containers' },
+    size: 120,
+  };
+
   return h('div', null,
     h(AiFindingsPanel, { findings: P.findings }),
-    h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
+    h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) {
+      return h(StatCard, merge(c, { key: i }));
+    })),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'CPU & Memory', span2: true, hint: pts.length + ' samples' },
-        h(Chart, { series: cpuSeries, max: 100, height: 165,
+        h(Chart, { series: cpuSeries, max: 100, height: 165, area: true,
           yFmt: function (v) { return v + '%'; } })),
-      h(Panel, { title: 'Network throughput' },
-        h(Chart, { series: netSeries, height: 165, yFmt: bytes })),
-      h(Panel, { title: 'Disk temperature' },
+      h(Panel, { title: 'Network flow', hint: 'stacked RX + TX' },
+        h(Chart, { series: netSeries, height: 165, stack: true, area: true, yFmt: bytes })),
+      h(Panel, { title: 'Disk temperature', hint: 'alert at 55°C' },
         h(Chart, { series: [{ name: 'Hottest °C', color: PAL['v-temp'],
             points: pick(function (p) { return p.temp_max; }) }],
           floor: tMax == null ? 0 : Math.max(0, Math.floor(tMax - 10)), height: 165,
+          thresholds: [{ v: 55, color: '#f87171', label: 'alert 55°' }],
           yFmt: function (v) { return v + '°'; } }))),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Container CPU', hint: ctrTop.length ? 'top ' + ctrTop.length : '' },
-        h(Chart, { series: ctrSeries, yFmt: function (v) { return v + '%'; },
+        h(Chart, { series: ctrSeries, yFmt: function (v) { return v + '%'; }, area: true,
           empty: 'Container series appear once docker stats are sampled.' })),
+      h(Panel, { title: 'Containers by state' },
+        h(Donut, donut)),
       h(Panel, { title: 'Pools', hint: ((a.cache || []).length || 0) + ' devices' },
         h('table', null,
           h('tr', null, h('th', null, 'Pool'), h('th', { class: 'num' }, 'Size'),
@@ -670,6 +883,26 @@ function ArrayTab(P) {
   var avg = used.length
     ? used.reduce(function (s, x) { return s + (x.usedPct || 0); }, 0) / used.length : null;
 
+  // Ranked temperature hot-list (reference: total-tasks-by-assignee bars).
+  var hotRows = smTop.map(function (name) {
+    var cur = null;
+    for (var i = pts.length - 1; i >= 0; i--) {
+      var s = pts[i].smart && pts[i].smart[name];
+      if (s && s[0] != null) { cur = s[0]; break; }
+    }
+    return { label: name, value: cur == null ? '—' : cur + '°',
+      pct: cur == null ? 0 : Math.min(100, (cur / 60) * 100),
+      color: cur == null ? '#666' : cur >= 55 ? PAL['v-bad-fg'] : cur >= 45 ? PAL['v-warn-fg'] : PAL['v-ok-fg'] };
+  });
+
+  // SMART sector growth: reallocated/pending for disks with non-zero counters.
+  var smNames = topKeys(pts, 'smart', 1, 6);
+  var hasGrowth = smNames.length > 0;
+  var growthSeries = smNames.map(function (name, i) {
+    return { name: name + ' realloc', color: pickColor(i + 3),
+      points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][1] : null; }) };
+  });
+
   return h('div', null,
     h(AiFindingsPanel, { findings: P.findings, agents: ['disks', 'pools'] }),
     h('div', { class: 'v-cards' },
@@ -685,9 +918,23 @@ function ArrayTab(P) {
         { label: 'Pool devices', icon: 'fa-server', color: PAL['v-accent'], value: String(t.cache_disks || 0),
           sub: (a.cache || []).filter(function (x) { return x.spundown; }).length + ' spun down' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
-    h(Panel, { title: 'Per-disk temperature', span2: true, hint: smTop.length ? 'hottest ' + smTop.length : '' },
-      h(Chart, { series: smSeries, height: 180, yFmt: function (v) { return v + '°'; },
-        empty: 'Per-disk temps appear once SMART data is cached.' })),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Per-disk temperature', span2: true, hint: smTop.length ? 'hottest ' + smTop.length + ', alert at 55°' : '' },
+        smSeries.length ? h('div', null,
+          h(Chart, { series: smSeries, height: 190, area: true,
+            thresholds: [{ v: 55, color: '#f8717166', label: '55° alert' }],
+            yFmt: function (v) { return v + '°'; },
+            empty: 'Per-disk temps appear once SMART data is cached.' }),
+          h(ChartStats, { series: smSeries.map(function (s) {
+            return merge(s, { fmt: function (v) { return (Math.round(v * 10) / 10) + '°'; } });
+          }) })) : h('div', { class: 'v-empty' }, 'Per-disk temps appear once SMART data is cached.')),
+      h(Panel, { title: 'Hottest disks', hint: 'current, vs 60° scale' },
+        h(HBars, { rows: hotRows, empty: 'Waiting for SMART samples.' })),
+      h(Panel, { title: 'SMART sector counters', hint: hasGrowth ? 'lifetime totals — growth is the signal' : '' },
+        hasGrowth ? h(Chart, { series: growthSeries, height: 170,
+          yFmt: function (v) { return String(Math.round(v)); },
+          empty: 'No disks with non-zero reallocated/pending counters.' })
+        : h('div', { class: 'v-empty' }, 'No disks with non-zero reallocated/pending counters — healthy.'))),
     h(Panel, { title: 'Disks', span2: true, hint: disks.length + ' devices' }, h(DiskTable, { d: d })),
     h(Panel, { title: 'SMART detail', span2: true, hint: Object.keys(d.smart || {}).length + ' disks' },
       h(SmartTable, { d: d })),
@@ -1052,64 +1299,104 @@ function HwTab(P) {
   var lvl = function (t) {
     if (t.crit != null && t.value >= t.crit) return 'crit';
     if (t.max != null && t.value >= t.max) return 'warn';
-    if (t.value >= 60) return 'warn';
     if (t.value >= 75) return 'crit';
+    if (t.value >= 60) return 'warn';
     return 'ok';
+  };
+  // Distance to threshold for the proximity readout (reference: "9% remaining").
+  var headroom = function (t) {
+    var ref = t.crit != null ? t.crit : (t.max != null ? t.max : null);
+    if (ref == null) return null;
+    return Math.round((ref - t.value) * 10) / 10;
+  };
+  var tempSeriesFor = function (id) {
+    return pts.map(function (p) { return [p.t, p.sensors_t ? p.sensors_t[id] : null]; });
+  };
+  var fanSeriesFor = function (id) {
+    return pts.map(function (p) { return [p.t, p.sensors_f ? p.sensors_f[id] : null]; });
+  };
+  // OctoPrint-style per-series stats under a chart.
+  var hwSeriesStats = function (ids, meta, sfn) {
+    return h(ChartStats, { series: ids.map(function (id, i) {
+      var m = meta[id] || {};
+      return { name: m.label || id.split('/').pop(), color: PAL[PAL_T[i % 4]],
+        points: sfn(id), fmt: function (v) { return (Math.round(v * 10) / 10) + '°'; } };
+    }) });
   };
 
   return h('div', null,
     h(AiFindingsPanel, { findings: P.findings, agents: ['thermal', 'general'] }),
     h(Panel, { title: 'Temperatures', span2: true,
-      hint: (sensors.temps || []).length + ' sensors — thresholds are chip-reported where available' },
+      hint: (sensors.temps || []).length + ' sensors — headroom is distance to the chip threshold' },
       !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
       : h('div', { class: 'v-sensor-grid' },
           sensors.temps.map(function (t) {
+            var hr = headroom(t);
             return h('div', { key: t.id, class: 'v-sensor v-temp-' + lvl(t), title:
               (t.crit != null ? 'chip crit: ' + t.crit + '°C' : '') +
               (t.max != null ? (t.crit != null ? ' · ' : '') + 'chip max: ' + t.max + '°C' : '') },
               h('div', { class: 'v-sensor-val' }, t.value != null ? t.value.toFixed(1) + '°' : '—'),
               h('div', { class: 'v-sensor-label', title: t.chip }, t.label),
-              h('div', { class: 'v-sensor-th' },
-                t.max != null || t.crit != null
-                  ? (t.max != null ? 'max ' + t.max + '°' : '') + (t.crit != null ? (t.max != null ? ' · crit ' : 'crit ') + t.crit + '°' : '')
-                  : '\u00A0'));
+              hr != null
+                ? h('div', { class: 'v-sensor-th' }, h('b', { class: hr <= 5 ? 'crit' : hr <= 12 ? 'warn' : '' }, hr + '° headroom'),
+                    (t.crit != null ? ' · crit ' + t.crit + '°' : (t.max != null ? ' · max ' + t.max + '°' : '')))
+                : h('div', { class: 'v-sensor-th' }, '\u00A0'));
           }))),
     tempSeries ? h(Panel, { title: 'Temperature history', span2: true, hint: 'hottest 4 sensors, last 24 h' },
       h(Chart, {
         series: topTempIds.map(function (id, i) {
           return { name: (sensorMeta[id] || {}).label || id, color: PAL[PAL_T[i % 4]],
-            points: pts.map(function (p) { return [p.t, p.sensors_t ? p.sensors_t[id] : null]; }) };
+            points: tempSeriesFor(id) };
         }),
         max: Math.max(90, Math.ceil(Math.max.apply(null, [60].concat(
           topTempIds.map(function (id) {
             var m = sensorMeta[id];
             return m && m.max ? m.max : 0;
-          })))) ), height: 180, yFmt: function (v) { return v + '°C'; }
-      })) : null,
+          })))) ), height: 190, area: true,
+        thresholds: topTempIds.map(function (id) {
+          var m = sensorMeta[id];
+          return m && m.max ? { v: m.max, color: '#f8717166', label: m.label + ' max' } : null;
+        }).filter(Boolean),
+        yFmt: function (v) { return v + '°C'; }
+      }),
+      hwSeriesStats(topTempIds, sensorMeta, tempSeriesFor)) : null,
+    h(Panel, { title: 'Thermal vs load', span2: true,
+      hint: 'CPU package temp (left) over total CPU load (right) — throttling shows as temp up while load drops' },
+      tempSeries ? h(Chart, {
+        series: [
+          { name: 'CPU temp °C', color: PAL['v-temp'], points: tempSeriesFor(topTempIds[0] || '') },
+          { name: 'CPU load %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }), axis: 2 },
+        ],
+        max: 100, y2Max: 100, height: 170, area: true, y2Fmt: function (v) { return v + '%'; },
+        yFmt: function (v) { return v + '°'; }
+      }) : h('div', { class: 'v-empty' }, 'Sensor history still building.')),
     h(Panel, { title: 'Fans', span2: true,
       hint: (sensors.fans || []).length + ' fans · PWM duty from the controller' },
       !(sensors.fans || []).length ? h('div', { class: 'v-empty' }, 'No hwmon fan sensors found (server fans on a controller this kernel does not expose, or none present).')
-      : h('table', null,
-          h('tr', null, h('th', null, 'Fan'), h('th', null, 'RPM'), h('th', null, 'Duty'), h('th', null, 'Mode')),
+      : h('div', { class: 'v-fan-grid' },
           sensors.fans.map(function (f) {
             var pwm = (sensors.pwms || []).filter(function (p) { return p.chip === f.chip; });
             var duty = pwm.length ? pwm[0].duty_pct : null;
             var mode = pwm.length ? pwm[0].mode : null;
-            return h('tr', { key: f.id },
-              h('td', { class: 'v-name' }, f.label),
-              h('td', { class: 'num' },
-                f.rpm > 0 ? f.rpm + ' RPM'
-                  : h('span', { class: 'muted' }, '0 — unused or stalled')),
-              h('td', { class: 'num' }, duty != null ? duty + '%' : '—'),
-              h('td', { class: 'muted' }, mode || '—'));
+            return h('div', { key: f.id, class: 'v-sensor v-fan' + (f.rpm > 0 ? '' : ' idle') },
+              h('div', { class: 'v-sensor-val' }, f.rpm > 0 ? f.rpm : '0'),
+              h('div', { class: 'v-sensor-label' }, 'RPM · ' + f.label),
+              h('div', { class: 'v-sensor-th' },
+                (duty != null ? duty + '% duty' : '') + (mode ? (duty != null ? ' · ' : '') + mode : '') || '\u00A0'),
+              f.rpm > 0 ? h('div', { class: 'v-fan-bar' },
+                h('i', { style: 'width:' + Math.min(100, Math.round(f.rpm / 40)) + '%' })) : null);
           })),
-      fanSeries ? h(Chart, {
-        series: topFanIds.map(function (id, i) {
-          return { name: id.split('/').pop(), color: PAL[PAL_T[i % 4]],
-            points: pts.map(function (p) { return [p.t, p.sensors_f ? p.sensors_f[id] : null]; }) };
+      fanSeries ? h('div', null,
+        h(Chart, {
+          series: topFanIds.map(function (id, i) {
+            return { name: id.split('/').pop(), color: PAL[PAL_T[i % 4]], points: fanSeriesFor(id) };
+          }),
+          height: 150, area: true, yFmt: function (v) { return Math.round(v) + ' RPM'; }
         }),
-        height: 140, yFmt: function (v) { return Math.round(v) + ' RPM'; }
-      }) : null),
+        h(ChartStats, { series: topFanIds.map(function (id, i) {
+          return { name: id.split('/').pop(), color: PAL[PAL_T[i % 4]], points: fanSeriesFor(id),
+            fmt: function (v) { return Math.round(v) + ''; } };
+        }) })) : null),
     h(Panel, { title: 'Virtual machines', span2: true,
       hint: d.vms && d.vms.available ? d.vms.running + ' running / ' + d.vms.count + ' total' : '' },
       h(VmTable, { vms: d.vms })),

@@ -167,6 +167,52 @@
 .vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: 11px; color: var(--v-muted); }
 .vitals .v-ai-agent.warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
 
+/* ---- reference-dashboard primitives ------------------------------------- */
+/* Grafana-style sparkline inside cards */
+.vitals .v-spark { height: 34px; margin-top: 6px; opacity: .85; }
+.vitals .v-spark .uplot { width: 100%; }
+
+/* ranked horizontal bars */
+.vitals .v-hbars { display: flex; flex-direction: column; gap: 7px; }
+.vitals .v-hbar-row { display: grid; grid-template-columns: minmax(64px, 96px) 1fr 52px; gap: 8px; align-items: center; }
+.vitals .v-hbar-label { font-size: 11.5px; color: var(--v-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.vitals .v-hbar-track { height: 12px; border-radius: 6px; background: rgba(127,127,127,.12); overflow: hidden; }
+.vitals .v-hbar-track i { display: block; height: 100%; border-radius: 6px; opacity: .9; transition: width .3s ease; }
+.vitals .v-hbar-val { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--v-muted); }
+
+/* donut + legend */
+.vitals .v-donut-wrap { display: flex; align-items: center; gap: 16px; }
+.vitals .v-donut { position: relative; flex: none; }
+.vitals .v-donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.vitals .v-donut-big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-donut-small { font-size: 10px; color: var(--v-muted); }
+.vitals .v-donut-legend { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.vitals .v-donut-key { display: flex; align-items: center; gap: 6px; color: var(--v-muted); }
+.vitals .v-donut-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.vitals .v-donut-key b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--v-fg); }
+
+/* OctoPrint-style per-series stats under a chart */
+.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 6px 10px 2px; font-size: 11.5px; }
+.vitals .v-chart-stat { display: inline-flex; align-items: center; gap: 5px; }
+.vitals .v-chart-stat i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.vitals .v-chart-stat .num { font-variant-numeric: tabular-nums; font-weight: 600; }
+.vitals .v-chart-stat .muted { font-variant-numeric: tabular-nums; }
+
+/* threshold overlay lines */
+.vitals .v-chart { position: relative; }
+.vitals .v-th-line { position: absolute; left: 46px; right: 12px; border-top: 1px dashed #f87171; pointer-events: none; z-index: 2; }
+.vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: #f87171aa; }
+
+/* fan tiles */
+.vitals .v-fan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.vitals .v-fan .v-sensor-val { font-size: 20px; }
+.vitals .v-fan.idle { opacity: .45; }
+.vitals .v-fan-bar { height: 5px; border-radius: 3px; background: rgba(127,127,127,.15); margin-top: 6px; overflow: hidden; }
+.vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu, #4f9cf9); border-radius: 3px; }
+.vitals .v-sensor-th b { font-weight: 700; }
+.vitals .v-sensor-th b.warn { color: #f59e0b; }
+.vitals .v-sensor-th b.crit { color: var(--v-bad, #ef4444); }
+
 /* Grids --------------------------------------------------------------------*/
 
 .vitals .v-cards {
