@@ -3,7 +3,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 
-const dir = process.env.TMPDIR + '/tl-test';
+// Unique dir per run — a fixed path left stale DB state (events already
+// created/resolved) from a prior run, corrupting flapping counts on rerun.
+import { rmSync } from 'node:fs';
+const dir = `${process.env.TMPDIR}/tl-test-${process.pid}-${Date.now()}`;
+rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir + '/flash', { recursive: true });
 process.env.VITALS_STATE_DIR = dir;
 process.env.VITALS_FLASH_HISTORY = dir + '/flash';

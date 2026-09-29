@@ -189,10 +189,20 @@ export async function runSpecialistMultiModel({ agentName, behavior, systemRole,
   // itself useful signal, shown as separate findings).
   const bySubjectSeverity = new Map();
   for (const { model, findings } of perModel) {
+    // A single model can independently raise two findings that collapse to
+    // the same (subject, severity) key (e.g. it lists the same disk twice
+    // under slightly different framing) — dedupe per model here, or one
+    // model's repeated finding gets counted as multiple "agreeing" models
+    // (seen live: "corroborated by 3/1 models" from ONE successful model).
+    const seenKeysForModel = new Set();
     for (const f of findings) {
       const key = `${(f.subject || '').toLowerCase()}::${f.severity}`;
-      if (!bySubjectSeverity.has(key)) bySubjectSeverity.set(key, { finding: f, models: [model] });
-      else bySubjectSeverity.get(key).models.push(model);
+      if (!bySubjectSeverity.has(key)) bySubjectSeverity.set(key, { finding: f, models: [] });
+      const entry = bySubjectSeverity.get(key);
+      if (!seenKeysForModel.has(key)) {
+        seenKeysForModel.add(key);
+        entry.models.push(model);
+      }
     }
   }
   const merged = [...bySubjectSeverity.values()].map(({ finding, models: agreeingModels }) => {

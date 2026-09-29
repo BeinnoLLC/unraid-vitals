@@ -2,13 +2,11 @@
 
 [All phases](../index.md) · [Milestone on GitHub](https://github.com/BeinnoLLC/unraid-vitals/milestone/6)
 
-**Progress:** `[██████████████████████████████░] 100%` — **3 / 3** tickets done (0 open)
+**Progress:** `[██████████████████████████████] 100%` — **2 / 2** tickets done (0 open)
 
 > Ticket detail (type, priority, discussion) lives on GitHub. This file is a summary: progress and links only.
 
 | Ticket | Title | Status |
 | --- | --- | --- |
-| `—` | [CPU core detail grid with live VM pinning cross-reference](https://github.com/BeinnoLLC/unraid-vitals/issues/25) | done |
-| `—` | [Docker/VM restart, stop, start controls with CSRF protection](https://github.com/BeinnoLLC/unraid-vitals/issues/24) | done |
 | `—` | [Shares file browser + AI-generated share comment button](https://github.com/BeinnoLLC/unraid-vitals/issues/26) | done |
-
+| `—` | [CPU core detail grid with live VM pinning cross-reference](https://github.com/BeinnoLLC/unraid-vitals/issues/25) | done |
