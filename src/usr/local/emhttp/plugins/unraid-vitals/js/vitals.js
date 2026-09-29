@@ -482,28 +482,40 @@ function SmartTable(P) {
   if (!keys.length) return h('div', { class: 'v-empty' }, 'No SMART data cached yet.');
   var rows = keys.map(function (k) { return P.d.smart[k]; });
   rows.sort(function (a, b) { return (b.temp || 0) - (a.temp || 0); });
-  var flagged = rows.some(function (r) { return (r.reallocated || 0) + (r.pending || 0) > 0; });
+  var growing = function (r) {
+    var g = r.growth_30d || {};
+    return (g.reallocated || 0) > 0 || (g.pending || 0) > 0 || (g.crc || 0) > 0;
+  };
+  var flagged = rows.some(growing);
+  var wearOf = function (r) { return r.nvme_pct_used != null ? r.nvme_pct_used : r.ssd_wear_pct; };
   return h('div', null,
     h(Table, null,
       h('tr', null, h('th', null, 'Disk'), h('th', null, 'Health'), h('th', { class: 'num' }, 'Temp'),
         h('th', { class: 'num' }, 'Power-on h'), h('th', { class: 'num' }, 'Realloc'),
         h('th', { class: 'num' }, 'Pending'), h('th', { class: 'num' }, 'Uncorr'),
-        h('th', { class: 'num' }, 'CRC')),
+        h('th', { class: 'num' }, 'CRC'), h('th', { class: 'num' }, 'Growth (30d)'),
+        h('th', { class: 'num' }, 'Wear')),
       rows.map(function (r) {
         var hcls = r.health === 'PASSED' ? 'ok' : (r.health ? 'crit' : 'muted');
+        var g = r.growth_30d || {};
+        var isGrowing = growing(r);
+        var growthLabel = g.days == null ? 'watching' : (isGrowing ? ('+' + [g.reallocated, g.pending, g.crc].filter(function (v) { return v; }).reduce(function (a, b) { return a + b; }, 0) + ' in ' + g.days + 'd') : 'stable');
+        var wear = wearOf(r);
         return h('tr', { key: r.dev || r.name },
           h('td', { class: 'v-name' }, r.name),
           h('td', null, h('span', { class: hcls }, r.health || 'n/a')),
           h('td', { class: 'num ' + lvl(r.temp, 45, 55) }, r.temp == null ? '—' : r.temp + '°'),
           h('td', { class: 'num muted' }, r.hours == null ? '—' : r.hours.toLocaleString()),
-          h('td', { class: 'num ' + (r.reallocated ? 'crit' : 'muted') }, r.reallocated == null ? '—' : String(r.reallocated)),
-          h('td', { class: 'num ' + (r.pending ? 'crit' : 'muted') }, r.pending == null ? '—' : String(r.pending)),
+          h('td', { class: 'num ' + (r.reallocated ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.reallocated == null ? '—' : String(r.reallocated)),
+          h('td', { class: 'num ' + (r.pending ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.pending == null ? '—' : String(r.pending)),
           h('td', { class: 'num ' + (r.uncorrectable ? 'crit' : 'muted') }, r.uncorrectable == null ? '—' : String(r.uncorrectable)),
-          h('td', { class: 'num ' + (r.crc ? 'warn' : 'muted') }, r.crc == null ? '—' : String(r.crc)));
+          h('td', { class: 'num ' + (r.crc ? (isGrowing ? 'crit' : 'warn') : 'muted') }, r.crc == null ? '—' : String(r.crc)),
+          h('td', { class: 'num ' + (isGrowing ? 'crit' : 'muted') }, growthLabel),
+          h('td', { class: 'num ' + lvl(wear, 80, 90) }, wear == null ? '—' : wear + '%'));
       })),
     flagged ? h('div', { class: 'v-warnnote' },
       h('i', { class: 'fa fa-exclamation-triangle' }),
-      ' Reallocated or pending sectors present — check disk health.') : null);
+      ' Reallocated, pending, or CRC counters actively growing — check disk/cabling.') : null);
 }
 
 function DiskTable(P) {

@@ -441,18 +441,45 @@ function v_check_alerts(array $snap): array {
     v_event_resolve('load');
   }
 
-  // SMART counters — any non-zero reallocated/pending is worth knowing about.
+  // SMART sector counters (P14-07): alert on GROWTH over the tracked
+  // window, not on a standing lifetime value that never changes — a disk
+  // with 8 reallocated sectors from years ago that hasn't grown in 30 days
+  // is informational, not an hourly nag. growth_30d comes from
+  // v_smart_tracked()'s day-bucketed history (collect.php); when there
+  // isn't yet a second day of history (growth_30d.days === null), fall
+  // back to reporting the standing value as 'info' only — first-run/fresh-
+  // install behaviour, never louder than that until real growth is proven.
   foreach ($snap['smart'] ?? [] as $s) {
+    $growth = $s['growth_30d'] ?? ['days' => null];
     foreach (['reallocated' => 'reallocated sectors', 'pending' => 'pending sectors'] as $k => $label) {
       $key = 'smart_' . $k . '_' . $s['name'];
-      if (($s[$k] ?? 0) > 0) {
-        $raise($key, 'Vitals: ' . $s['name'] . ' has ' . $label,
-          'Disk ' . $s['name'] . ' reports ' . $s[$k] . ' ' . $label . '. Total is a lifetime counter; watch for growth.', 'alert');
+      $value = $s[$k] ?? 0;
+      $grew = $growth[$k] ?? null;
+      if ($value > 0 && $grew !== null && $grew > 0) {
+        $raise($key, 'Vitals: ' . $s['name'] . ' ' . $label . ' growing',
+          'Disk ' . $s['name'] . ' reports ' . $value . ' ' . $label . ', up ' . $grew
+          . ' in the last ' . $growth['days'] . ' days. Active growth on a sector counter is worth investigating now.', 'alert');
         v_event_raise('smart', $s['name'], $key, 'alert',
-          $s['name'] . ' has ' . $s[$k] . ' ' . $label, ['value' => $s[$k], 'counter' => $k]);
+          $s['name'] . ' ' . $label . ' grew by ' . $grew . ' in ' . $growth['days'] . 'd',
+          ['value' => $value, 'grew' => $grew, 'days' => $growth['days'], 'counter' => $k]);
+      } elseif ($value > 0 && $grew === 0) {
+        // Confirmed unchanged over the tracked window — exactly the
+        // ticket's acceptance case: info, not an hourly alert.
+        v_event_raise('smart', $s['name'], $key, 'info',
+          $s['name'] . ' has ' . $value . ' ' . $label . ', unchanged in ' . $growth['days'] . 'd',
+          ['value' => $value, 'grew' => 0, 'days' => $growth['days'], 'counter' => $k]);
+        v_event_resolve($key);
+      } elseif ($value > 0) {
+        // No growth history yet (first day) — informational only, never
+        // an hourly alert on a value we haven't watched long enough to
+        // judge.
+        v_event_raise('smart', $s['name'], $key, 'info',
+          $s['name'] . ' has ' . $value . ' ' . $label . ' (watching for growth)',
+          ['value' => $value, 'counter' => $k]);
+        v_event_resolve($key);
+      } else {
+        v_event_resolve($key);
       }
-      // SMART sector counters are lifetime totals — they never self-heal, so
-      // deliberately no v_event_resolve() here; only a manual close applies.
     }
   }
 

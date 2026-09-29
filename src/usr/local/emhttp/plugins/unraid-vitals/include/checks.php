@@ -43,6 +43,7 @@ function v_checks_defaults(): array {
     'fs_watch_full' => 'warning',
     'share_placement' => 'warning',
     'parity_health' => 'warning',
+    'smart_deep' => 'warning',
   ];
 }
 

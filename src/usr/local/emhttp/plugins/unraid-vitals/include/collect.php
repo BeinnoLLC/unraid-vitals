@@ -240,6 +240,13 @@ function v_smart(): array {
       'health' => null, 'temp' => null, 'hours' => null,
       'reallocated' => null, 'pending' => null, 'uncorrectable' => null, 'crc' => null,
       'spin_retry' => null,
+      // NVMe-specific — null on ATA/SATA disks (the fields don't exist there).
+      'nvme_pct_used' => null, 'nvme_spare_pct' => null, 'nvme_spare_threshold' => null,
+      'nvme_media_errors' => null, 'nvme_critical_warning' => null,
+      // SSD wear (SATA SSDs use different vendor attribute IDs for this —
+      // 177/233 are the two most common; null when neither is present,
+      // e.g. on a spinning disk or a vendor using a different ID).
+      'ssd_wear_pct' => null,
     ];
     if (preg_match('/SMART overall-health self-assessment test result:\s*(\S+)/i', $raw, $m)) {
       $r['health'] = strtoupper(trim($m[1], '.'));
@@ -247,14 +254,92 @@ function v_smart(): array {
     if (preg_match('/^\s*194\s+Temperature_Celsius\s+(.*)$/mi', $raw, $m))       $r['temp'] = v_ata_raw($m[1]);
     elseif (preg_match('/Temperature:\s+(\d+)\s+Celsius/i', $raw, $m))            $r['temp'] = (int)$m[1];
     if (preg_match('/^\s*9\s+Power_On_Hours\s+(.*)$/mi', $raw, $m))               $r['hours'] = v_ata_raw($m[1]);
+    elseif (preg_match('/Power On Hours:\s+([\d,]+)/i', $raw, $m))                $r['hours'] = (int)str_replace(',', '', $m[1]);
     if (preg_match('/^\s*5\s+Reallocated_Sector_Ct\s+(.*)$/mi', $raw, $m))        $r['reallocated'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*197\s+Current_Pending_Sector\s+(.*)$/mi', $raw, $m))     $r['pending'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*198\s+Offline_Uncorrectable\s+(.*)$/mi', $raw, $m))      $r['uncorrectable'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*199\s+UDMA_CRC_Error_Count\s+(.*)$/mi', $raw, $m))       $r['crc'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*10\s+Spin_Retry_Count\s+(.*)$/mi', $raw, $m))            $r['spin_retry'] = v_ata_raw($m[1]);
+    // SSD wear: attribute 177 (Wear_Leveling_Count) or 233 (Media_Wearout_Indicator)
+    // both encode remaining life as the "current" (normalized) column, not
+    // the raw column — 100 = fresh, decreasing toward 0.
+    if (preg_match('/^\s*177\s+Wear_Leveling_Count\s+0x[0-9a-f]+\s+(\d+)/mi', $raw, $m))      $r['ssd_wear_pct'] = 100 - (int)$m[1];
+    elseif (preg_match('/^\s*233\s+Media_Wearout_Indicator\s+0x[0-9a-f]+\s+(\d+)/mi', $raw, $m)) $r['ssd_wear_pct'] = 100 - (int)$m[1];
+    // NVMe fields — smartctl's NVMe log format is fixed-width text, not the
+    // ATA attribute-table format above.
+    if (preg_match('/Percentage Used:\s+(\d+)%/i', $raw, $m))            $r['nvme_pct_used'] = (int)$m[1];
+    if (preg_match('/Available Spare:\s+(\d+)%/i', $raw, $m))            $r['nvme_spare_pct'] = (int)$m[1];
+    if (preg_match('/Available Spare Threshold:\s+(\d+)%/i', $raw, $m))  $r['nvme_spare_threshold'] = (int)$m[1];
+    if (preg_match('/Media and Data Integrity Errors:\s+([\d,]+)/i', $raw, $m)) $r['nvme_media_errors'] = (int)str_replace(',', '', $m[1]);
+    if (preg_match('/Critical Warning:\s+0x([0-9a-f]+)/i', $raw, $m))    $r['nvme_critical_warning'] = hexdec($m[1]);
     $out[$dev] = $r;
   }
   ksort($out);
+  return $out;
+}
+
+/**
+ * v_smart() plus per-disk day-over-day snapshots of the sector/CRC counters
+ * (state-dir JSON, one entry per disk, rotated to the last 30 days),
+ * used to compute genuine growth instead of a standing lifetime value —
+ * the whole point of P14-07 ("a disk with 8 reallocated sectors that has
+ * not changed in 30 days produces an info finding, not an hourly alert").
+ *
+ * Sampled at most once per real calendar day (not per-minute) — the
+ * counters themselves only change occasionally, and a day-bucketed history
+ * is exactly what "how much did this grow in N days" needs.
+ */
+function v_smart_tracked(): array {
+  $current = v_smart();
+  $path = v_state_dir() . '/smart_history.json';
+  $hist = v_read_json($path);
+  if (!is_array($hist)) $hist = [];
+  $today = date('Y-m-d');
+
+  foreach ($current as $dev => $r) {
+    $series = $hist[$dev] ?? [];
+    // Already sampled today — don't overwrite today's bucket, but still
+    // attach the growth computed from history so every collection run
+    // (not just the first one of the day) reports it.
+    if (!isset($series[$today])) {
+      $series[$today] = [
+        'reallocated' => $r['reallocated'], 'pending' => $r['pending'],
+        'crc' => $r['crc'], 'uncorrectable' => $r['uncorrectable'],
+      ];
+      // Keep the last 30 calendar days only.
+      if (count($series) > 30) {
+        uksort($series, 'strcmp');
+        $series = array_slice($series, -30, null, true);
+      }
+      $hist[$dev] = $series;
+    }
+    $current[$dev]['growth_30d'] = v_smart_growth($series, $today);
+  }
+
+  v_write_json($path, $hist);
+  return $current;
+}
+
+/**
+ * Growth of each tracked counter from the OLDEST bucket present (up to 30
+ * days back) to today's bucket. Null when there's only one day of history
+ * yet (nothing to compare against) — that's what lets a long-standing
+ * value report as unchanged rather than looking like infinite growth.
+ */
+function v_smart_growth(array $series, string $today): array {
+  $dates = array_keys($series);
+  sort($dates, SORT_STRING);
+  $oldestDate = $dates[0] ?? null;
+  $out = ['days' => null, 'reallocated' => null, 'pending' => null, 'crc' => null, 'uncorrectable' => null];
+  if ($oldestDate === null || $oldestDate === $today || !isset($series[$today])) return $out;
+  $oldest = $series[$oldestDate];
+  $latest = $series[$today];
+  $out['days'] = (int)((strtotime($today) - strtotime($oldestDate)) / 86400);
+  foreach (['reallocated', 'pending', 'crc', 'uncorrectable'] as $k) {
+    if (($oldest[$k] ?? null) !== null && ($latest[$k] ?? null) !== null) {
+      $out[$k] = max(0, $latest[$k] - $oldest[$k]);
+    }
+  }
   return $out;
 }
 
@@ -901,7 +986,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'parity_history' => v_parity_history(20),
     'rootfs'  => v_rootfs(),
     'fs_watch' => v_fs_watch(),
-    'smart'   => v_smart(),
+    'smart'   => v_smart_tracked(),
     'vms'     => v_vms(),
     'docker'  => v_docker(),
     'docker_image' => v_docker_image(),
