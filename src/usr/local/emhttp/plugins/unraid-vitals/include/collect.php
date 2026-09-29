@@ -675,6 +675,176 @@ function v_smart_growth(array $series, string $today): array {
 
 /* ----------------------------------------------------------------------- VMs */
 
+/**
+ * VM storage (P14-14): per-vdisk virtual (allocated) size vs real size on
+ * disk, the sum of all vdisks against the free space of the pool hosting
+ * them, and libvirt.img usage.
+ *
+ * Uses `qemu-img info --output=json` for the sizes rather than the file
+ * size alone, because the gap between virtual-size (what the guest sees)
+ * and actual-size (what the pool actually pays for) is the whole point --
+ * a sparse qcow2 can claim terabytes while occupying megabytes. Verified
+ * against Selene's real VMs (raw-format vdisks under
+ * /mnt/virtualmachine/domains/<name>/), where virtual-size 59055800320
+ * vs actual-size 54945746944 shows the slack a raw file still carries.
+ */
+function v_vm_storage(): array {
+  $out = ['vdisks' => [], 'total_virtual' => 0, 'total_actual' => 0,
+          'pools' => [], 'libvirt_img' => null, 'overcommit' => null];
+  if (!is_executable('/usr/bin/qemu-img')) return $out;
+
+  // --- locate the vdisk files. The libvirt XML definitions are
+  // authoritative (they name the real path libvirt opens), so they are
+  // tried first. The conventional-layout glob is only a fallback.
+  //
+  // Deduplication matters: on Unraid the SAME file is reachable both as
+  // /mnt/user/domains/<vm>/vdisk1.img (the FUSE user-share view) and
+  // /mnt/virtualmachine/domains/<vm>/vdisk1.img (the real pool). A plain
+  // glob over /mnt/*/domains/*/* therefore reports every vdisk twice and
+  // attributes it to /mnt/user, which is not the filesystem the bytes
+  // actually live on. Verified live: 18 paths for 9 real vdisks. Keyed by
+  // dev+inode so the two views collapse to one entry.
+  $files = [];
+  $seen = [];
+  $confDir = '/etc/libvirt/qemu';
+  foreach (glob($confDir . '/*.xml') ?: [] as $xml) {
+    $doc = @file_get_contents($xml);
+    if ($doc === false) continue;
+    if (preg_match_all('/<source\s+file=(["\'])(.*?)\1/', $doc, $ms)) {
+      foreach ($ms[2] as $src) {
+        if (!is_file($src)) continue;
+        $real = realpath($src) ?: $src;
+        $k = @fileinode($real) . ':' . (@stat($real)['dev'] ?? '');
+        if (isset($seen[$k])) continue;
+        $seen[$k] = true;
+        $files[$real] = true;
+      }
+    }
+  }
+  if (!$files) {
+    foreach (glob('/mnt/*/domains/*/*') ?: [] as $f) {
+      if (!preg_match('/\.(img|qcow2|raw)$/i', $f) || !is_file($f)) continue;
+      $real = realpath($f) ?: $f;
+      $st = @stat($real);
+      $k = ($st['ino'] ?? '') . ':' . ($st['dev'] ?? '');
+      if (isset($seen[$k])) continue;
+      $seen[$k] = true;
+      $files[$real] = true;
+    }
+  }
+
+  foreach (array_keys($files) as $f) {
+    $info = v_run('qemu-img info --output=json ' . escapeshellarg($f), 10);
+    $j = $info !== '' ? json_decode($info, true) : null;
+    $vs = $j['virtual-size'] ?? null;
+    $as = $j['actual-size'] ?? null;
+    if ($vs === null) { $vs = @filesize($f) ?: null; }
+    if ($as === null) { $as = @filesize($f) ?: null; }
+    // The pool that hosts this file -- take the longest mount point that
+    // is a prefix of the path (a plain "first match wins" would pick a
+    // shorter, wrong mount like /mnt over /mnt/virtualmachine).
+    $pool = v_pool_for_path($f);
+    $out['vdisks'][] = [
+      'file' => $f, 'vm' => basename(dirname($f)), 'format' => $j['format'] ?? null,
+      'virtual_size' => $vs, 'actual_size' => $as, 'pool' => $pool,
+    ];
+    if ($vs !== null) $out['total_virtual'] += $vs;
+    if ($as !== null) $out['total_actual'] += $as;
+  }
+
+  // --- free space of every pool that actually hosts a vdisk.
+  foreach (array_unique(array_filter(array_column($out['vdisks'], 'pool'))) as $pool) {
+    $total = @disk_total_space($pool);
+    $free  = @disk_free_space($pool);
+    $out['pools'][$pool] = $total !== false && $free !== false
+      ? ['total' => (float)$total, 'free' => (float)$free]
+      : null;
+  }
+
+  // --- overcommit: total VIRTUAL size of vdisks on a pool vs that pool's
+  // size. Virtual is the right number here -- that is what every guest
+  // believes it can write, so that is what can actually run the pool out
+  // of space when the disks fill up. Reported per pool, with the
+  // shortfall in bytes.
+  foreach ($out['pools'] as $pool => $p) {
+    if ($p === null) continue;
+    $virtual = 0;
+    foreach ($out['vdisks'] as $d) if ($d['pool'] === $pool && $d['virtual_size'] !== null) $virtual += $d['virtual_size'];
+    if ($virtual > $p['total']) {
+      $out['overcommit'][$pool] = ['virtual' => $virtual, 'pool_total' => $p['total'], 'shortfall' => $virtual - $p['total']];
+    }
+  }
+
+  // --- libvirt.img (the VM config/XML image libvirt itself lives on).
+  $libvirt = v_run('grep -h libvirt /boot/config/plugins/dynamix/*.cfg 2>/dev/null', 5);
+  $libvirtPath = null;
+  if ($libvirt !== '' && preg_match('/libvirt[^\n=]*=\s*([^\n]+)/i', $libvirt, $m)) {
+    $cand = trim($m[1], " \"'");
+    if (is_file($cand)) $libvirtPath = $cand;
+  }
+  if ($libvirtPath === null) {
+    foreach (glob('/mnt/*/system/libvirt.img') ?: [] as $c) { $libvirtPath = $c; break; }
+  }
+  if ($libvirtPath !== null && is_file($libvirtPath)) {
+    $lsize = @filesize($libvirtPath);
+    // libvirt.img is a btrfs image; its real content usage is only
+    // visible from inside the mounted /etc/libvirt, so report both the
+    // image size and the mounted filesystem's usage.
+    $total = @disk_total_space('/etc/libvirt');
+    $free  = @disk_free_space('/etc/libvirt');
+    $out['libvirt_img'] = [
+      'file' => $libvirtPath, 'image_size' => $lsize !== false ? $lsize : null,
+      'mount_total' => $total !== false ? (float)$total : null,
+      'mount_free'  => $free !== false ? (float)$free : null,
+      'used_pct'    => ($total !== false && $free !== false && $total > 0)
+        ? round(100 * ($total - $free) / $total, 1) : null,
+    ];
+  }
+
+  return $out;
+}
+
+/**
+ * Longest mount point from /proc/mounts that is a prefix of $path.
+ *
+ * /mnt/user is special-cased: it is Unraid's FUSE user-share view, and
+ * `df` on it reports the whole array's aggregate free space, not the pool
+ * the bytes actually live on. Verified live -- a vdisk at
+ * /mnt/user/domains/X/vdisk1.img reported a 2.95 TB "pool" while the real
+ * file sits on /mnt/virtualmachine (2.8 TB). So a path under /mnt/user is
+ * re-resolved by finding which real /mnt/<pool>/ carries the same relative
+ * path at the same size. shfs rewrites inode numbers, so dev+inode cannot
+ * be used to match the two views -- size is the reliable signal.
+ */
+function v_pool_for_path(string $path): ?string {
+  static $mounts = null;
+  if ($mounts === null) {
+    $mounts = [];
+    foreach (@file('/proc/mounts', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+      $f = preg_split('/\s+/', $line);
+      if (count($f) >= 3 && str_starts_with($f[1], '/mnt/') && $f[2] !== 'shfs') {
+        $mounts[] = stripcslashes($f[1]);
+      }
+    }
+  }
+
+  if (str_starts_with($path, '/mnt/user/') || str_starts_with($path, '/mnt/user0/')) {
+    $rel = substr($path, strpos($path, '/', strlen('/mnt/user')) ?: strlen('/mnt/user'));
+    $size = @filesize($path);
+    foreach ($mounts as $m) {
+      $cand = rtrim($m, '/') . '/' . ltrim($rel, '/');
+      if (is_file($cand) && @filesize($cand) === $size) return $m;
+    }
+  }
+
+  $best = null;
+  foreach ($mounts as $m) {
+    $prefix = rtrim($m, '/') . '/';
+    if (str_starts_with($path, $prefix) && ($best === null || strlen($m) > strlen($best))) $best = $m;
+  }
+  return $best;
+}
+
 function v_vms(): array {
   if (!is_executable('/usr/bin/virsh')) return ['available' => false, 'list' => []];
   $raw = v_run("virsh list --all --name", 8);
@@ -1579,6 +1749,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'syslog_matches' => v_syslog_scan(),
     'smart'   => v_smart_tracked(),
     'vms'     => v_vms(),
+    'vm_storage' => v_vm_storage(),
     'docker'  => v_docker(),
     'docker_image' => v_docker_image(),
     'docker_hygiene' => v_docker_hygiene(),

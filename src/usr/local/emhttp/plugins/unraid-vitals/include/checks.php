@@ -50,6 +50,7 @@ function v_checks_defaults(): array {
     'net_health' => 'warning',
     'flash_health' => 'warning',
     'docker_hygiene' => 'warning',
+    'vm_storage' => 'warning',
   ];
 }
 
