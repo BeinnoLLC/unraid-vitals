@@ -44,6 +44,7 @@ function v_checks_defaults(): array {
     'share_placement' => 'warning',
     'parity_health' => 'warning',
     'smart_deep' => 'warning',
+    'spin_never_down' => 'warning',
   ];
 }
 

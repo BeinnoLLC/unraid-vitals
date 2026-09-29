@@ -157,6 +157,107 @@ function v_system(): array {
 
 /* -------------------------------------------------------------------- disks */
 
+/** Reads/writes (in sectors, 512 bytes each) for one device from /proc/diskstats. */
+function v_diskstats_for(string $device): ?array {
+  static $cache = null;
+  if ($cache === null) {
+    $cache = [];
+    $raw = @file_get_contents('/proc/diskstats') ?: '';
+    foreach (explode("\n", $raw) as $line) {
+      $f = preg_split('/\s+/', trim($line));
+      if (count($f) < 14) continue;
+      // major minor name reads-completed reads-merged sectors-read ms-reading
+      // writes-completed writes-merged sectors-written ms-writing ...
+      $cache[$f[2]] = ['reads' => (int)$f[5], 'writes' => (int)$f[9]];
+    }
+  }
+  return $cache[$device] ?? null;
+}
+
+/**
+ * Spin state / I/O history tracker (P14-08). One minute-resolution sample
+ * per disk, rotated to the last 24 hours (1440 samples) -- enough to
+ * answer "has this disk been spun up continuously for 24h" and, from the
+ * diskstats deltas between samples, "what interval kept waking it up".
+ *
+ * Sampled every collection run (per-minute cron) -- this is cheap (just
+ * appending to a small JSON array), unlike the docker/share checks that
+ * need hourly caching for expensive shell-outs.
+ */
+function v_spin_track(array $disks): void {
+  $path = v_state_dir() . '/spin_history.json';
+  $hist = v_read_json($path);
+  if (!is_array($hist)) $hist = [];
+  $now = time();
+  foreach ($disks as $d) {
+    if (empty($d['name'])) continue;
+    $series = $hist[$d['name']] ?? [];
+    $series[] = [
+      't' => $now, 'spundown' => $d['spundown'] ? 1 : 0,
+      'r' => $d['io_reads_sectors'] ?? null, 'w' => $d['io_writes_sectors'] ?? null,
+    ];
+    if (count($series) > 1440) $series = array_slice($series, -1440);
+    $hist[$d['name']] = $series;
+  }
+  v_write_json($path, $hist);
+}
+
+/**
+ * Per-disk spin-down analysis over the tracked window (up to 24h):
+ * spun-up minutes, whether it's been continuously spun up for 24h, and
+ * the I/O activity intervals observed while spun up (for the "what kept
+ * it awake" finding).
+ */
+function v_spin_analysis(): array {
+  $path = v_state_dir() . '/spin_history.json';
+  $hist = v_read_json($path);
+  if (!is_array($hist)) return [];
+  $out = [];
+  foreach ($hist as $name => $series) {
+    if (count($series) < 2) continue;
+    $spanMin = ($series[count($series) - 1]['t'] - $series[0]['t']) / 60;
+    $upSamples = array_filter($series, fn($s) => ($s['spundown'] ?? 0) === 0);
+    $upMinutes = count($upSamples); // ~1 sample/min
+    // Gaps between consecutive read/write activity while spun up, in
+    // minutes -- this is "the interval that kept it awake".
+    $activityGaps = [];
+    $lastActiveT = null;
+    $prevR = null; $prevW = null;
+    foreach ($series as $s) {
+      if (($s['spundown'] ?? 0) === 1) { $prevR = null; $prevW = null; continue; }
+      $active = false;
+      if ($prevR !== null && $s['r'] !== null && $s['r'] > $prevR) $active = true;
+      if ($prevW !== null && $s['w'] !== null && $s['w'] > $prevW) $active = true;
+      $prevR = $s['r']; $prevW = $s['w'];
+      if ($active) {
+        if ($lastActiveT !== null) $activityGaps[] = round(($s['t'] - $lastActiveT) / 60, 1);
+        $lastActiveT = $s['t'];
+      }
+    }
+    $out[$name] = [
+      'span_minutes' => round($spanMin, 1),
+      'spun_up_minutes' => $upMinutes,
+      'continuously_up' => $upMinutes >= count($series) && $spanMin >= 1439, // full window, no spin-down seen
+      // Median gap is more representative than mean when a scan tool wakes
+      // the disk at a very regular interval but the occasional user access
+      // adds noise -- sorting is cheap at this size (<=1440 entries).
+      'median_activity_gap_min' => v_median($activityGaps),
+      'activity_count' => count($activityGaps) + ($lastActiveT !== null ? 1 : 0),
+    ];
+  }
+  return $out;
+}
+
+if (!function_exists('v_median')) {
+  function v_median(array $vals): ?float {
+    if (!$vals) return null;
+    sort($vals);
+    $n = count($vals);
+    $mid = intdiv($n, 2);
+    return $n % 2 ? $vals[$mid] : ($vals[$mid - 1] + $vals[$mid]) / 2;
+  }
+}
+
 function v_array_disks(): array {
   $disks = v_ini('/var/local/emhttp/disks.ini');
   $out = ['parity' => [], 'data' => [], 'cache' => [], 'totals' => []];
@@ -182,6 +283,13 @@ function v_array_disks(): array {
       'color'  => $d['color'] ?? '',
     ];
     $e['usedPct'] = $e['fsSize'] > 0 ? round(100 * $e['fsUsed'] / $e['fsSize'], 1) : 0;
+    // /proc/diskstats sector counters (P14-08) -- reads[2] and
+    // writes[6] fields (0-indexed within the space-separated stat line),
+    // used to detect what's keeping a disk from spinning down.
+    if (!empty($e['device'])) {
+      $ds = v_diskstats_for($e['device']);
+      if ($ds !== null) { $e['io_reads_sectors'] = $ds['reads']; $e['io_writes_sectors'] = $ds['writes']; }
+    }
     if ($e['type'] === 'Parity') {
       $out['parity'][] = $e;
     } elseif (stripos($e['type'], 'Cache') !== false || stripos($e['name'], 'cache') === 0) {
@@ -983,6 +1091,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'mem'     => v_mem(),
     'load'    => v_load(),
     'array'   => v_array_disks(),
+    'spin_analysis' => [],
     'parity_history' => v_parity_history(20),
     'rootfs'  => v_rootfs(),
     'fs_watch' => v_fs_watch(),
@@ -1019,5 +1128,13 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
   }
 
   $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow];
+
+  // Spin-down tracking (P14-08): record this sample, then compute analysis
+  // from the accumulated history -- must happen after v_array_disks() has
+  // already populated $snap['array'] with spundown + diskstats.
+  $allDisks = array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []);
+  v_spin_track($allDisks);
+  $snap['spin_analysis'] = v_spin_analysis();
+
   return $snap;
 }
