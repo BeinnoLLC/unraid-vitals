@@ -6,11 +6,11 @@ knowledge base that learns from what happens on your server — all collected
 and computed **locally**. No InfluxDB, no Grafana, no cloud telemetry, no
 external API keys required.
 
-![Dashboard](assets/screenshot-dashboard.png)
+![unraid-vitals icon](assets/icon.png)
 
 ## What you get
 
-**10 tabs**, one nav entry (`Tools → Vitals`):
+**10 tabs**, one nav entry (`Dashboard → Vitals`):
 
 | Tab | What's there |
 |---|---|
@@ -142,9 +142,8 @@ delete them manually if you want a clean slate.
 
 | Path | Role |
 |---|---|
-| `Vitals.page` | Main dashboard page (Unraid `Tools` menu) |
+| `Vitals.page` | Main dashboard page (Unraid `Dashboard` menu); Settings is a tab on this page, not a separate `.page` |
 | `Vitals.Dashboard.page` | Compact tile for the stock dashboard |
-| `VitalsSettings.page` | Sample interval, retention, alert thresholds, start-page switch |
 | `js/vitals.js` | The entire UI — Preact + uPlot, vendored (no CDN) |
 | `include/collect.php` | One sample of every metric source, incl. hwmon sensors |
 | `include/store.php` | Ring buffer, flash rollups, alert engine, event store, KB reads |
