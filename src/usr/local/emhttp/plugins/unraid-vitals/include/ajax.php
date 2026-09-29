@@ -181,6 +181,20 @@ try {
     exit;
   }
 
+  if ($action === 'events_list') {
+    $status = $_GET['status'] ?? null;
+    $status = in_array($status, ['open', 'resolved', 'superseded'], true) ? $status : null;
+    $limit = min(200, max(1, (int)($_GET['limit'] ?? 100)));
+    echo json_encode(['ok' => true, 'events' => v_events_list($status, $limit)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'events_get') {
+    $id = (int)($_GET['id'] ?? 0);
+    echo json_encode(['ok' => true, 'event' => $id ? v_event_get($id) : null], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   $snap = v_latest();
   if (!$snap) $snap = v_tick(true);
   $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';

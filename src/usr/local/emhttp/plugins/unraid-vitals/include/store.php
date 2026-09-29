@@ -304,9 +304,15 @@ function v_check_alerts(array $snap): array {
 
   // Disk temperature
   foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []) as $d) {
+    $key = 'temp_' . $d['name'];
     if ($d['temp'] !== null && $d['temp'] >= $th['temp']) {
-      $raise('temp_' . $d['name'], 'Vitals: ' . $d['name'] . ' at ' . $d['temp'] . '°C',
+      $raise($key, 'Vitals: ' . $d['name'] . ' at ' . $d['temp'] . '°C',
         'Disk ' . $d['name'] . ' (' . $d['device'] . ') is at ' . $d['temp'] . '°C, above the ' . $th['temp'] . '°C threshold.', 'warning');
+      v_event_raise('temp', $d['name'], $key, 'warning',
+        $d['name'] . ' at ' . $d['temp'] . '°C (threshold ' . $th['temp'] . '°C)',
+        ['value' => $d['temp'], 'threshold' => $th['temp'], 'device' => $d['device']]);
+    } else {
+      v_event_resolve($key);
     }
   }
 
@@ -315,21 +321,35 @@ function v_check_alerts(array $snap): array {
   if ($fill !== null && $fill >= $th['fill']) {
     $raise('fill', 'Vitals: array ' . $fill . '% full',
       'The fullest data disk is ' . $fill . '% full, above the ' . $th['fill'] . '% threshold.', 'warning');
+    v_event_raise('fill', 'array', 'fill', 'warning',
+      'Array ' . $fill . '% full (threshold ' . $th['fill'] . '%)', ['value' => $fill, 'threshold' => $th['fill']]);
+  } else {
+    v_event_resolve('fill');
   }
 
   // Load average (opt-in: only when a limit is configured)
   if ($th['load'] > 0 && (float)($snap['load']['l1'] ?? 0) >= $th['load']) {
     $raise('load', 'Vitals: load ' . $snap['load']['l1'],
       '1-minute load average is ' . $snap['load']['l1'] . ', above the configured limit of ' . $th['load'] . '.', 'warning');
+    v_event_raise('load', 'system', 'load', 'warning',
+      'Load average ' . $snap['load']['l1'] . ' (limit ' . $th['load'] . ')',
+      ['value' => $snap['load']['l1'], 'threshold' => $th['load']]);
+  } else {
+    v_event_resolve('load');
   }
 
   // SMART counters — any non-zero reallocated/pending is worth knowing about.
   foreach ($snap['smart'] ?? [] as $s) {
     foreach (['reallocated' => 'reallocated sectors', 'pending' => 'pending sectors'] as $k => $label) {
+      $key = 'smart_' . $k . '_' . $s['name'];
       if (($s[$k] ?? 0) > 0) {
-        $raise('smart_' . $k . '_' . $s['name'], 'Vitals: ' . $s['name'] . ' has ' . $label,
+        $raise($key, 'Vitals: ' . $s['name'] . ' has ' . $label,
           'Disk ' . $s['name'] . ' reports ' . $s[$k] . ' ' . $label . '. Total is a lifetime counter; watch for growth.', 'alert');
+        v_event_raise('smart', $s['name'], $key, 'alert',
+          $s['name'] . ' has ' . $s[$k] . ' ' . $label, ['value' => $s[$k], 'counter' => $k]);
       }
+      // SMART sector counters are lifetime totals — they never self-heal, so
+      // deliberately no v_event_resolve() here; only a manual close applies.
     }
   }
 
@@ -339,11 +359,18 @@ function v_check_alerts(array $snap): array {
   foreach ($snap['sensors']['temps'] ?? [] as $t) {
     if ($t['value'] === null) continue;
     foreach ([['crit', 'alert'], ['max', 'warning']] as [$k, $imp]) {
+      $key = 'sensor_' . $k . '_' . $t['id'];
       if ($t[$k] !== null && $t[$k] > 0 && $t['value'] >= $t[$k]) {
-        $raise('sensor_' . $k . '_' . $t['id'],
+        $breached = true;
+        $raise($key,
           'Vitals: ' . $t['label'] . ' at ' . $t['value'] . '°C (' . $k . ')',
           'Sensor ' . $t['label'] . ' on ' . $t['chip'] . ' is at ' . $t['value'] .
           '°C, at or above the chip ' . $k . ' threshold of ' . $t[$k] . '°C.', $imp);
+        v_event_raise('temp', $t['id'], $key, $imp,
+          $t['label'] . ' at ' . $t['value'] . '°C (' . $k . ' ' . $t[$k] . '°C)',
+          ['value' => $t['value'], 'threshold' => $t[$k], 'chip' => $t['chip']]);
+      } else {
+        v_event_resolve($key);
       }
     }
   }
@@ -352,11 +379,13 @@ function v_check_alerts(array $snap): array {
   // a dead/failing fan or a severed cable, not a deliberate stop.
   foreach ($snap['sensors']['fans'] ?? [] as $f) {
     $key = 'fan_stall_' . $f['id'];
-    if ($f['rpm'] > 0) { unset($state[$key]); continue; }
+    if ($f['rpm'] > 0) { unset($state[$key]); v_event_resolve($key); continue; }
     if (empty($state['fan_seen_' . $f['id']])) continue;   // never spun: header may be unused
     $raise($key, 'Vitals: fan stalled — ' . $f['label'],
       'Fan ' . $f['label'] . ' on ' . $f['chip'] . ' reported ' . $f['rpm'] .
       ' RPM (was spinning earlier). Check the fan and its header/cable.', 'alert');
+    v_event_raise('fan_stall', $f['id'], $key, 'alert',
+      'Fan ' . $f['label'] . ' stalled (was spinning)', ['chip' => $f['chip']]);
   }
   foreach ($snap['sensors']['fans'] ?? [] as $f) {
     if ($f['rpm'] > 0) $state['fan_seen_' . $f['id']] = 1;
@@ -374,6 +403,7 @@ function v_check_alerts(array $snap): array {
       if (($c['state'] ?? '') === 'running') {
         $runningNow[$name] = true;
         unset($state[$key], $state['ctr_alert_' . $name]);
+        v_event_resolve('ctr_alert_' . $name);
         continue;
       }
       // Only count a stop if this container was running in the last sample.
@@ -382,6 +412,8 @@ function v_check_alerts(array $snap): array {
       if ($state[$key] >= $th['restarts']) {
         $raise('ctr_alert_' . $name, 'Vitals: ' . $name . ' not running',
           'Container ' . $name . ' (' . $c['image'] . ') was running and has been down for ' . $state[$key] . ' consecutive samples.', 'alert');
+        v_event_raise('container', $name, 'ctr_alert_' . $name, 'alert',
+          $name . ' down for ' . $state[$key] . ' samples', ['image' => $c['image']]);
       }
     }
     // Remember what we saw, so the next sample can tell "stopped" from "never started".
@@ -404,6 +436,120 @@ function v_check_alerts(array $snap): array {
  * a standing problem notifies once, again after VITALS_AI_RENOTIFY if it is
  * still there, and immediately if its severity changes.
  */
+function v_events_db(): ?SQLite3 {
+  if (!class_exists('SQLite3')) return null;
+  $dbFile = v_db_path();
+  if ($dbFile === '') return null;
+  try {
+    $db = new SQLite3($dbFile, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
+    $db->busyTimeout(2000);
+    // Mirrors agent/lib/db.mjs's kb_events/kb_lessons/kb_solutions schema;
+    // either side may create these first depending on which process starts
+    // up first (the collector cron runs every minute, agents run hourly).
+    $db->exec("CREATE TABLE IF NOT EXISTS kb_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL, entity TEXT NOT NULL, alert_key TEXT,
+      severity TEXT NOT NULL CHECK (severity IN ('info','warning','alert','critical')),
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','superseded')),
+      summary TEXT NOT NULL, evidence TEXT, source TEXT, source_ref TEXT,
+      started_at INTEGER NOT NULL, resolved_at INTEGER)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_events_status ON kb_events(status, started_at DESC)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_events_key ON kb_events(alert_key)");
+    $db->exec("CREATE TABLE IF NOT EXISTS kb_lessons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, entity TEXT NOT NULL,
+      lesson TEXT NOT NULL, confidence REAL NOT NULL DEFAULT 0.5,
+      times_seen INTEGER NOT NULL DEFAULT 1, first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL, merged_from TEXT)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_lessons_kind_entity ON kb_lessons(kind, entity)");
+    $db->exec("CREATE TABLE IF NOT EXISTS kb_solutions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, event_id INTEGER NOT NULL, lesson_id INTEGER,
+      detection TEXT, action_taken TEXT,
+      outcome TEXT NOT NULL DEFAULT 'unknown' CHECK (outcome IN ('worked','did_not_work','unknown')),
+      created_at INTEGER NOT NULL)");
+    $db->exec("CREATE INDEX IF NOT EXISTS idx_solutions_event ON kb_solutions(event_id)");
+    return $db;
+  } catch (Throwable $e) { return null; }
+}
+
+/** Open (or refresh) an event tied to an alert_key. Idempotent: a condition
+ *  still breaching on every collector tick updates the same open row rather
+ *  than spawning one event per minute. */
+function v_event_raise(string $kind, string $entity, string $alertKey, string $severity, string $summary, array $evidence = []): void {
+  $db = v_events_db();
+  if (!$db) return;
+  $now = time();
+  $stmt = $db->prepare("SELECT id FROM kb_events WHERE alert_key = ? AND status = 'open' LIMIT 1");
+  $stmt->bindValue(1, $alertKey, SQLITE3_TEXT);
+  $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+  if ($row) {
+    $u = $db->prepare("UPDATE kb_events SET evidence = ?, summary = ? WHERE id = ?");
+    $u->bindValue(1, json_encode($evidence), SQLITE3_TEXT);
+    $u->bindValue(2, $summary, SQLITE3_TEXT);
+    $u->bindValue(3, $row['id'], SQLITE3_INTEGER);
+    $u->execute();
+  } else {
+    $i = $db->prepare("INSERT INTO kb_events (kind, entity, alert_key, severity, status, summary, evidence, source, started_at)
+                        VALUES (?, ?, ?, ?, 'open', ?, ?, 'alert-engine', ?)");
+    $i->bindValue(1, $kind, SQLITE3_TEXT);
+    $i->bindValue(2, $entity, SQLITE3_TEXT);
+    $i->bindValue(3, $alertKey, SQLITE3_TEXT);
+    $i->bindValue(4, $severity, SQLITE3_TEXT);
+    $i->bindValue(5, $summary, SQLITE3_TEXT);
+    $i->bindValue(6, json_encode($evidence), SQLITE3_TEXT);
+    $i->bindValue(7, $now, SQLITE3_INTEGER);
+    $i->execute();
+  }
+  $db->close();
+}
+
+/** Close any open event for this alert_key — the metric normalized. */
+function v_event_resolve(string $alertKey): void {
+  $db = v_events_db();
+  if (!$db) return;
+  $stmt = $db->prepare("UPDATE kb_events SET status = 'resolved', resolved_at = ? WHERE alert_key = ? AND status = 'open'");
+  $stmt->bindValue(1, time(), SQLITE3_INTEGER);
+  $stmt->bindValue(2, $alertKey, SQLITE3_TEXT);
+  $stmt->execute();
+  $db->close();
+}
+
+function v_events_list(?string $status = null, int $limit = 100): array {
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $sql = "SELECT id, kind, entity, alert_key, severity, status, summary, source, started_at, resolved_at FROM kb_events";
+  if ($status) $sql .= " WHERE status = '" . SQLite3::escapeString($status) . "'";
+  $sql .= " ORDER BY started_at DESC LIMIT " . (int)$limit;
+  $out = [];
+  $res = $db->query($sql);
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/** Full event detail including evidence, plus any lesson/solution already
+ *  distilled for it — for the Knowledge-tab event drill-down. */
+function v_event_get(int $id): ?array {
+  $db = v_events_db();  // ensures kb_lessons/kb_solutions exist even on first call
+  if (!$db) return null;
+  $stmt = $db->prepare("SELECT * FROM kb_events WHERE id = ?");
+  $stmt->bindValue(1, $id, SQLITE3_INTEGER);
+  $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+  if (!$row) { $db->close(); return null; }
+  $row['evidence'] = json_decode($row['evidence'] ?? '{}', true) ?: new stdClass();
+  $sol = $db->prepare("SELECT * FROM kb_solutions WHERE event_id = ? ORDER BY id DESC LIMIT 1");
+  $sol->bindValue(1, $id, SQLITE3_INTEGER);
+  $solRow = $sol->execute()->fetchArray(SQLITE3_ASSOC);
+  $row['solution'] = $solRow ?: null;
+  if ($solRow && $solRow['lesson_id']) {
+    $l = $db->prepare("SELECT * FROM kb_lessons WHERE id = ?");
+    $l->bindValue(1, $solRow['lesson_id'], SQLITE3_INTEGER);
+    $row['lesson'] = $l->execute()->fetchArray(SQLITE3_ASSOC) ?: null;
+  }
+  $db->close();
+  return $row;
+}
+
 function v_check_ai_findings(): void {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return;
@@ -444,6 +590,43 @@ function v_check_ai_findings(): void {
     }
   }
   v_write_json(v_alert_path(), $state);
+}
+
+/** Bridge AI agent findings into the event store. Unlike metric alerts,
+ *  findings have no clean "normalized" signal to auto-resolve on — they are
+ *  the agent's point-in-time judgement — so they are created once (deduped
+ *  by finding id via source_ref) and superseded when a fresh finding for the
+ *  same agent+subject arrives with a low severity, meaning the agent no
+ *  longer sees a problem there. */
+function v_events_from_findings(): void {
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !is_file($dbFile) || !class_exists('SQLite3')) return;
+  try { $ro = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return; }
+  $res = $ro->query("SELECT id, agent, severity, title, detail, recommendation, subject, created_at
+                      FROM findings WHERE severity IN ('warning','error','critical') ORDER BY id DESC LIMIT 100");
+  $rows = [];
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $rows[] = $row;
+  $ro->close();
+  if (!$rows) return;
+
+  $db = v_events_db();
+  if (!$db) return;
+  foreach ($rows as $row) {
+    $ref = (string)$row['id'];
+    $exists = $db->querySingle("SELECT id FROM kb_events WHERE source = 'finding' AND source_ref = '" . SQLite3::escapeString($ref) . "'");
+    if ($exists) continue;
+    $sev = $row['severity'] === 'critical' ? 'critical' : ($row['severity'] === 'error' ? 'alert' : 'warning');
+    $stmt = $db->prepare("INSERT INTO kb_events (kind, entity, severity, status, summary, evidence, source, source_ref, started_at)
+                           VALUES ('finding', ?, ?, 'open', ?, ?, 'finding', ?, ?)");
+    $stmt->bindValue(1, $row['agent'] . ':' . ($row['subject'] ?: 'general'), SQLITE3_TEXT);
+    $stmt->bindValue(2, $sev, SQLITE3_TEXT);
+    $stmt->bindValue(3, $row['title'], SQLITE3_TEXT);
+    $stmt->bindValue(4, json_encode(['detail' => $row['detail'], 'recommendation' => $row['recommendation']]), SQLITE3_TEXT);
+    $stmt->bindValue(5, $ref, SQLITE3_TEXT);
+    $stmt->bindValue(6, (int)$row['created_at'], SQLITE3_INTEGER);
+    $stmt->execute();
+  }
+  $db->close();
 }
 
 /** Read-only: latest findings from every agent, newest first. UI renders
@@ -646,6 +829,7 @@ function v_tick(bool $full = true): array {
     v_rollup($slim);
     $slim['alerts'] = v_check_alerts($slim);
     v_check_ai_findings();
+    v_events_from_findings();
   }
   return $slim;
 }

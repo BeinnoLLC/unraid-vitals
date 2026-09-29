@@ -135,6 +135,62 @@ export function getDb() {
       started_at INTEGER,
       finished_at INTEGER
     );
+
+    -- Event store: everything that HAPPENS (alert breach, agent finding,
+    -- control action) becomes a typed, timestamped, auto-resolving event
+    -- with frozen evidence. This is distinct from the KB: an event is a
+    -- fact about what occurred; a lesson (below) is what we learned from
+    -- it once it resolved.
+    CREATE TABLE IF NOT EXISTS kb_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,          -- 'temp' | 'fan_stall' | 'load' | 'fill' |
+                                    -- 'smart' | 'memory' | 'container' | 'finding'
+      entity TEXT NOT NULL,        -- the specific thing: disk name, sensor id,
+                                    -- container name, agent name...
+      alert_key TEXT,              -- matches v_check_alerts' edge-trigger key
+                                    -- for temp/fan/load/fill/smart events, so
+                                    -- the collector can resolve by key lookup
+      severity TEXT NOT NULL CHECK (severity IN ('info','warning','alert','critical')),
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved','superseded')),
+      summary TEXT NOT NULL,
+      evidence TEXT,                -- JSON: {series:[...], logs:[...], value, threshold}
+      source TEXT,                  -- 'alert-engine' | 'agent:<name>' | 'manual'
+      source_ref TEXT,              -- finding id, etc.
+      started_at INTEGER NOT NULL,
+      resolved_at INTEGER
+    );
+    CREATE INDEX IF NOT EXISTS idx_events_status ON kb_events(status, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_events_key ON kb_events(alert_key);
+
+    -- Durable lessons distilled from resolved events. Recurring events of the
+    -- same kind/entity merge into one lesson (times_seen++, confidence up)
+    -- instead of duplicating.
+    CREATE TABLE IF NOT EXISTS kb_lessons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL,
+      entity TEXT NOT NULL,
+      lesson TEXT NOT NULL,
+      confidence REAL NOT NULL DEFAULT 0.5,
+      times_seen INTEGER NOT NULL DEFAULT 1,
+      first_seen_at INTEGER NOT NULL,
+      last_seen_at INTEGER NOT NULL,
+      merged_from TEXT             -- JSON array of event ids that fed this lesson
+    );
+    CREATE INDEX IF NOT EXISTS idx_lessons_kind_entity ON kb_lessons(kind, entity);
+
+    -- What was done about a specific resolved event: detection story, the
+    -- action taken, and the outcome. One-to-one with an event.
+    CREATE TABLE IF NOT EXISTS kb_solutions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      event_id INTEGER NOT NULL,
+      lesson_id INTEGER,
+      detection TEXT,
+      action_taken TEXT,
+      outcome TEXT NOT NULL DEFAULT 'unknown' CHECK (outcome IN ('worked','did_not_work','unknown')),
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (event_id) REFERENCES kb_events(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_solutions_event ON kb_solutions(event_id);
   `);
   return db;
 }
@@ -262,4 +318,126 @@ export function listResearchJobs(limit = 30) {
   return getDb().prepare(
     `SELECT id, prompt, status, created_at, finished_at FROM research_jobs ORDER BY id DESC LIMIT ?`
   ).all(limit);
+}
+
+/* ------------------------------------------------------------------ events */
+
+/** Create (or reuse) an open event for a given kind+entity(+alert_key).
+ *  Idempotent per alert_key: a breach that is still firing every collector
+ *  tick must not spawn a new event each minute — it updates the existing
+ *  open one's evidence instead. Returns the event id. */
+export function createOrTouchEvent({ kind, entity, alertKey, severity, summary, evidence, source, sourceRef }) {
+  const d = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  if (alertKey) {
+    const open = d.prepare(
+      `SELECT id FROM kb_events WHERE alert_key = ? AND status = 'open' LIMIT 1`
+    ).get(alertKey);
+    if (open) {
+      d.prepare(`UPDATE kb_events SET evidence = ?, summary = ? WHERE id = ?`)
+        .run(JSON.stringify(evidence || {}), summary, open.id);
+      return open.id;
+    }
+  }
+  const res = d.prepare(
+    `INSERT INTO kb_events (kind, entity, alert_key, severity, status, summary, evidence, source, source_ref, started_at)
+     VALUES (?, ?, ?, ?, 'open', ?, ?, ?, ?, ?)`
+  ).run(kind, entity, alertKey || null, severity, summary, JSON.stringify(evidence || {}),
+    source || 'alert-engine', sourceRef || null, now);
+  return res.lastInsertRowid;
+}
+
+/** Resolve every open event for an alert_key (metric normalized). Returns
+ *  the resolved event ids, so a caller can kick off distillation. */
+export function resolveEventsByKey(alertKey) {
+  const d = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  const rows = d.prepare(`SELECT id FROM kb_events WHERE alert_key = ? AND status = 'open'`).all(alertKey);
+  if (!rows.length) return [];
+  d.prepare(`UPDATE kb_events SET status = 'resolved', resolved_at = ? WHERE alert_key = ? AND status = 'open'`)
+    .run(now, alertKey);
+  return rows.map(r => r.id);
+}
+
+export function getEvent(id) {
+  return getDb().prepare(`SELECT * FROM kb_events WHERE id = ?`).get(id) || null;
+}
+
+export function listEvents({ status, kind, limit = 100 } = {}) {
+  const d = getDb();
+  const clauses = [];
+  const args = [];
+  if (status) { clauses.push('status = ?'); args.push(status); }
+  if (kind) { clauses.push('kind = ?'); args.push(kind); }
+  const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
+  args.push(limit);
+  return d.prepare(
+    `SELECT id, kind, entity, alert_key, severity, status, summary, source, started_at, resolved_at
+     FROM kb_events ${where} ORDER BY started_at DESC LIMIT ?`
+  ).all(...args);
+}
+
+/** Events that resolved but have no lesson/solution yet — the distiller's
+ *  work queue. */
+export function unlearnedResolvedEvents(limit = 20) {
+  return getDb().prepare(
+    `SELECT e.* FROM kb_events e
+     LEFT JOIN kb_solutions s ON s.event_id = e.id
+     WHERE e.status = 'resolved' AND s.id IS NULL
+     ORDER BY e.resolved_at ASC LIMIT ?`
+  ).all(limit);
+}
+
+/* ----------------------------------------------------------- lessons/solutions */
+
+export function upsertLesson({ kind, entity, lesson, eventId }) {
+  const d = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  const existing = d.prepare(`SELECT * FROM kb_lessons WHERE kind = ? AND entity = ?`).get(kind, entity);
+  if (existing) {
+    const merged = JSON.parse(existing.merged_from || '[]');
+    if (eventId && !merged.includes(eventId)) merged.push(eventId);
+    d.prepare(
+      `UPDATE kb_lessons SET lesson = ?, confidence = MIN(0.98, confidence + 0.08),
+       times_seen = times_seen + 1, last_seen_at = ?, merged_from = ? WHERE id = ?`
+    ).run(lesson, now, JSON.stringify(merged), existing.id);
+    return existing.id;
+  }
+  const res = d.prepare(
+    `INSERT INTO kb_lessons (kind, entity, lesson, confidence, times_seen, first_seen_at, last_seen_at, merged_from)
+     VALUES (?, ?, ?, 0.5, 1, ?, ?, ?)`
+  ).run(kind, entity, lesson, now, now, JSON.stringify(eventId ? [eventId] : []));
+  return res.lastInsertRowid;
+}
+
+export function addSolution({ eventId, lessonId, detection, actionTaken, outcome }) {
+  const d = getDb();
+  return d.prepare(
+    `INSERT INTO kb_solutions (event_id, lesson_id, detection, action_taken, outcome, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).run(eventId, lessonId || null, detection || null, actionTaken || null,
+    outcome || 'unknown', Math.floor(Date.now() / 1000)).lastInsertRowid;
+}
+
+export function lessonsFor(kind, entity) {
+  return getDb().prepare(
+    `SELECT * FROM kb_lessons WHERE kind = ? AND entity = ? ORDER BY confidence DESC, last_seen_at DESC`
+  ).all(kind, entity);
+}
+
+export function listLessons(limit = 100) {
+  return getDb().prepare(
+    `SELECT * FROM kb_lessons ORDER BY last_seen_at DESC LIMIT ?`
+  ).all(limit);
+}
+
+export function listSolutions(limit = 100) {
+  return getDb().prepare(
+    `SELECT s.*, e.summary AS event_summary, e.kind, e.entity FROM kb_solutions s
+     JOIN kb_events e ON e.id = s.event_id ORDER BY s.created_at DESC LIMIT ?`
+  ).all(limit);
+}
+
+export function setSolutionOutcome(id, outcome) {
+  getDb().prepare(`UPDATE kb_solutions SET outcome = ? WHERE id = ?`).run(outcome, id);
 }
