@@ -61,6 +61,14 @@ export function getDb() {
   const legacy = `${STATE_DIR}/vitals.db`;
   if (path !== legacy && !existsSync(path) && existsSync(legacy)) copyFileSync(legacy, path);
   db = new DatabaseSync(path);
+  // Two independent cron-driven node processes (analyze.mjs hourly,
+  // study.mjs every 5 min) can legitimately open this DB at overlapping
+  // times. Default SQLite locking fails immediately with "database is
+  // locked" on any overlap — WAL mode lets readers and a single writer
+  // coexist, and a busy_timeout makes a genuine write/write collision
+  // retry instead of erroring out immediately.
+  db.exec(`PRAGMA journal_mode = WAL;`);
+  db.exec(`PRAGMA busy_timeout = 5000;`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS findings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,8 +156,10 @@ export function getDb() {
       last_tick_at INTEGER,
       observations TEXT                       -- JSON array of {at, note}, the running journal
     );
-    CREATE INDEX IF NOT EXISTS idx_research_study_due
-      ON research_jobs(mode, status, study_until);
+    -- idx_research_study_due created after the additive migration below
+    -- (this table pre-existed without the mode column on upgrades, so
+    -- creating an index on it here — inside the same exec() as the
+    -- CREATE TABLE — would fail before the ALTER ever runs).
 
     -- Event store: everything that HAPPENS (alert breach, agent finding,
     -- control action) becomes a typed, timestamped, auto-resolving event
@@ -217,6 +227,7 @@ export function getDb() {
   addCol('tick_minutes', 'INTEGER');
   addCol('last_tick_at', 'INTEGER');
   addCol('observations', 'TEXT');
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_research_study_due ON research_jobs(mode, status, study_until);`);
 
   const kbCols = new Set(db.prepare(`PRAGMA table_info(kb_documents)`).all().map(c => c.name));
   const addKbCol = (name, decl) => { if (!kbCols.has(name)) db.exec(`ALTER TABLE kb_documents ADD COLUMN ${name} ${decl}`); };

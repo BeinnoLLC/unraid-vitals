@@ -883,6 +883,7 @@ function v_research_create(string $prompt, string $mode = 'once', int $durationM
   if ($dbFile === '' || !class_exists('SQLite3')) return null;
   try {
     $db = new SQLite3($dbFile, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
+    $db->busyTimeout(2000);
     $db->exec("CREATE TABLE IF NOT EXISTS research_jobs (
       id INTEGER PRIMARY KEY AUTOINCREMENT, prompt TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'pending', answer TEXT, sources TEXT, error TEXT,

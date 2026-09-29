@@ -31,7 +31,7 @@ import {
   finishResearchJob, failResearchJob, insertKbDocument, getResearchJob,
 } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
-import { latestSnapshot, alerts } from './lib/sources.mjs';
+import { latestSnapshot } from './lib/sources.mjs';
 
 const TICK_BEHAVIOR = `You are the Unraid Vitals study assistant, mid-way through a standing
 observation task. You are given the user's original study goal, a short history of what you
@@ -51,7 +51,6 @@ if the window was quiet), then a "## Recommendation" section. Ground every claim
 async function tickOne(job) {
   try {
     const snap = latestSnapshot() || {};
-    const alertList = (alerts() || []).slice(0, 8);
     const recentObs = (job.observations || []).slice(-6)
       .map(o => `- ${new Date(o.at * 1000).toISOString()}: ${o.note}`).join('\n') || '(none yet)';
 
@@ -64,7 +63,6 @@ async function tickOne(job) {
 
     const prompt = `Study goal: ${job.prompt}\n\nPrior observations (most recent last):\n${recentObs}\n\n` +
       `Current snapshot: ${JSON.stringify(summary).slice(0, 1500)}\n\n` +
-      `Active alerts: ${alertList.length ? JSON.stringify(alertList).slice(0, 800) : 'none'}\n\n` +
       `Respond with strict JSON: {"observation": "<1-3 sentence note>"}`;
 
     const agent = await makeAnalysisAgent('Vitals-Study-Tick', TICK_BEHAVIOR, { maxTokens: 220, temperature: 0.2 });
