@@ -10,7 +10,7 @@
  * Usage: node analyze.mjs [agentId ...]   (default: run every registered agent)
  */
 import { randomUUID } from 'node:crypto';
-import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun } from './lib/db.mjs';
+import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun, insertKbDocument } from './lib/db.mjs';
 import * as disks from './agents/disks.mjs';
 import * as thermal from './agents/thermal.mjs';
 import * as pools from './agents/pools.mjs';
@@ -44,6 +44,22 @@ async function runAgent(mod) {
     // get indexed for the KB search page / background research.
     for (const f of findings) {
       if (f.severity !== 'ok') ingestFindingToKb(mod.AGENT_ID, f);
+    }
+    // Gated deep scans also land as ONE dated report document, so "what
+    // did the last 6h scan find?" is answerable by KB search even when
+    // every individual finding was routine.
+    if (mod.KB_REPORT) {
+      const when = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const worst = findings.some(f => f.severity === 'critical') ? 'critical'
+        : findings.some(f => f.severity === 'error') ? 'error'
+        : findings.some(f => f.severity === 'warning') ? 'warning' : 'ok';
+      const body = findings.map(f => `### ${f.severity.toUpperCase()} — ${f.title}${f.subject ? ` (${f.subject})` : ''}\n${f.detail || ''}${f.recommendation ? `\n\n**Next:** ${f.recommendation}` : ''}`).join('\n\n');
+      insertKbDocument({
+        source: 'finding', sourceRef: runId, topic: mod.AGENT_ID, kind: 'report',
+        title: `${mod.KB_REPORT} — ${when}`,
+        summary: `${findings.length} finding(s), worst: ${worst}`,
+        content: `# ${mod.KB_REPORT}\n\n_Run ${when}, ${findings.length} finding(s)._\n\n${body}`,
+      });
     }
     finishRun(runId, 'ok', null);
     console.log(`[${mod.AGENT_ID}] ok — ${findings.length} findings in ${Date.now() - t0}ms`);

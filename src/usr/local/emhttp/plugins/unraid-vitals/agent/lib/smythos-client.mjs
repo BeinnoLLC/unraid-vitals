@@ -19,6 +19,17 @@ const PRIMARY = process.env.LLM_STUDIO_PRIMARY || 'https://llmstudio2.hazemhagra
 const FALLBACK = process.env.LLM_STUDIO_BACKUP || 'https://llmstudio1.hazemhagrass.com';
 const MODEL = process.env.VITALS_AGENT_MODEL || 'qwen3:14b';
 const TIMEOUT_MS = Number(process.env.VITALS_AGENT_TIMEOUT_MS || 600000);
+// Context window sent as options.num_ctx. Without it Ollama uses the model's
+// default (often 2048-4096) and silently truncates a long prompt — the model
+// loses either the instructions or the data and the run still reports ok.
+// 8192 fits a 24-disk snapshot + 4 KB log tail + contract with room for the
+// answer; raise it for boxes with more disks if the recorded prompt tokens
+// approach the limit (see lastCallStats.prompt_eval_count).
+const NUM_CTX = Number(process.env.VITALS_AGENT_NUM_CTX || 8192);
+// ~4 chars/token is the usual English/JSON estimate; the safety margin
+// covers model-specific tokenizers being less efficient on '|', '=' and
+// numbers, which dominate our prompts.
+const CHARS_PER_TOKEN = 3.6;
 
 class OllamaError extends Error {
   constructor(message, causes) {
@@ -28,30 +39,82 @@ class OllamaError extends Error {
   }
 }
 
+/** Stats from the most recent successful model call — read by the
+ *  orchestrator after each agent so runs can record prompt/response tokens
+ *  and warn when the prompt got within 10% of num_ctx. */
+export const lastCallStats = { prompt_eval_count: null, eval_count: null, num_ctx: NUM_CTX, near_limit: false, endpoint: null, format: null };
+
+export function estimateTokens(text) { return Math.ceil(String(text ?? '').length / CHARS_PER_TOKEN); }
+
+/**
+ * Fit a prompt into the context window. `sections` is an ordered list of
+ * { text, priority } — LOWER priority is trimmed first (log tails before the
+ * disk table before the instructions). Each trimmed section is cut from the
+ * end and marked so the model knows data was elided rather than absent.
+ * Returns { text, trimmed: [names], tokens }.
+ */
+export function budgetPrompt(sections, systemPrompt, maxTokens = 900, numCtx = NUM_CTX) {
+  const budget = numCtx - maxTokens - estimateTokens(systemPrompt) - 64; // 64 = chat template overhead
+  const parts = sections.map(s => ({ ...s, text: String(s.text ?? '') }));
+  let used = parts.reduce((n, s) => n + estimateTokens(s.text), 0);
+  const trimmed = [];
+  const order = [...parts].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+  for (const s of order) {
+    if (used <= budget) break;
+    const over = used - budget;
+    const keepTokens = Math.max(0, estimateTokens(s.text) - over);
+    const keepChars = Math.floor(keepTokens * CHARS_PER_TOKEN);
+    if (keepChars >= s.text.length) continue;
+    const marker = `\n[... ${s.name || 'section'} truncated to fit the context window ...]`;
+    s.text = s.text.slice(0, Math.max(0, keepChars - marker.length)) + marker;
+    trimmed.push(s.name || 'section');
+    used = parts.reduce((n, x) => n + estimateTokens(x.text), 0);
+  }
+  return { text: parts.map(s => s.text).join('\n\n'), trimmed, tokens: used };
+}
+
 async function callOnce(baseURL, systemPrompt, userPrompt, opts = {}) {
   // Native /api/chat + think:false — the OpenAI-compat endpoint has no way
   // to disable qwen3's reasoning mode, so it burns max_tokens on hidden
   // "reasoning" and returns empty content. Native+think:false is ~10x
   // faster and returns clean content directly (measured: 25s -> 1.7s).
+  const body = {
+    model: opts.model || MODEL,
+    stream: false,
+    think: false,
+    options: { temperature: opts.temperature ?? 0.2, num_predict: opts.maxTokens ?? 900, num_ctx: opts.numCtx ?? NUM_CTX },
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt }
+    ]
+  };
+  // Structured output: when a JSON schema is given the model can only emit
+  // JSON of that shape — braces inside a detail string stop being a parse
+  // hazard. Models/servers that ignore `format` just return text and the
+  // caller's extractJson() fallback still applies.
+  if (opts.format) body.format = opts.format;
   const res = await fetch(`${baseURL.replace(/\/$/, '')}/api/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: opts.model || MODEL,
-      stream: false,
-      think: false,
-      options: { temperature: opts.temperature ?? 0.2, num_predict: opts.maxTokens ?? 900 },
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
-      ]
-    }),
+    body: JSON.stringify(body),
     signal: AbortSignal.timeout(opts.timeoutMs || TIMEOUT_MS)
   });
   if (!res.ok) throw new Error(`${baseURL} returned HTTP ${res.status}`); // never echo body (secret-safe)
   const json = await res.json();
   const content = json?.message?.content;
   if (!content) throw new Error(`${baseURL} returned empty content`);
+  const numCtx = body.options.num_ctx;
+  Object.assign(lastCallStats, {
+    prompt_eval_count: json.prompt_eval_count ?? null,
+    eval_count: json.eval_count ?? null,
+    num_ctx: numCtx,
+    near_limit: json.prompt_eval_count != null && json.prompt_eval_count >= numCtx * 0.9,
+    endpoint: baseURL,
+    format: opts.format ? 'json_schema' : null
+  });
+  if (lastCallStats.near_limit) {
+    console.warn(`[llm] prompt used ${json.prompt_eval_count}/${numCtx} context tokens — raise VITALS_AGENT_NUM_CTX or the prompt was truncated`);
+  }
   return content;
 }
 
@@ -79,20 +142,32 @@ async function promptOllama(systemPrompt, userPrompt, opts = {}) {
 }
 
 /** Extract the first balanced {...} or [...] from a model response that may
- *  include reasoning/markdown fences around it. */
+ *  include reasoning/markdown fences around it. Fast path: the whole body is
+ *  JSON already (structured output). Slow path: a string-aware bracket walk
+ *  so `{` / `}` inside a finding's detail text no longer break parsing. */
 export function extractJson(text) {
   if (typeof text !== 'string') {
     throw new Error(`expected string from LLM call, got ${typeof text}: ${JSON.stringify(text).slice(0, 200)}`);
   }
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = fence ? fence[1] : text;
+  const body = (fence ? fence[1] : text).trim();
+  if (body.startsWith('{') || body.startsWith('[')) {
+    try { return JSON.parse(body); } catch { /* fall through to the walk */ }
+  }
   const start = body.search(/[[{]/);
   if (start < 0) throw new Error('no JSON found in model response');
-  const open = body[start], close = open === '{' ? '}' : ']';
-  let depth = 0;
+  let depth = 0, inStr = false, esc = false;
   for (let i = start; i < body.length; i++) {
-    if (body[i] === open) depth++;
-    else if (body[i] === close) { depth--; if (depth === 0) return JSON.parse(body.slice(start, i + 1)); }
+    const c = body[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === '\\') esc = true;
+      else if (c === '"') inStr = false;
+      continue;
+    }
+    if (c === '"') inStr = true;
+    else if (c === '{' || c === '[') depth++;
+    else if (c === '}' || c === ']') { depth--; if (depth === 0) return JSON.parse(body.slice(start, i + 1)); }
   }
   throw new Error('unbalanced JSON in model response');
 }
@@ -126,4 +201,4 @@ export async function callAnalyze(agent, system, user) {
   return res?.data ?? res;
 }
 
-export const config = { PRIMARY, FALLBACK, MODEL, TIMEOUT_MS };
+export const config = { PRIMARY, FALLBACK, MODEL, TIMEOUT_MS, NUM_CTX };

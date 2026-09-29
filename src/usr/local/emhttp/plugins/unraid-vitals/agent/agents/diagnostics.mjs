@@ -2,65 +2,75 @@
  * Diagnostics specialist — deep root-cause scan over a rolling window.
  *
  * Different from the per-domain specialists (disks/thermal/pools/general/
- * network), which each look at the LATEST snapshot in isolation: this one
- * looks BACK across the configured window (default 6h, matches
- * DIAG_WINDOW_HOURS in Settings) and correlates across domains — "CPU temp
- * rose right after container X started churning", "disk fill rate
- * accelerated the same hour SMB errors began" — the kind of causal link a
- * single-snapshot agent structurally cannot see.
+ * network), which each judge the LATEST snapshot in isolation: this one
+ * reads the stitched timeline for the configured window (default 6h —
+ * VITALS_DIAG_WINDOW_HOURS in Settings) AND the window before it, and
+ * hands the models pre-computed facts: ranges, per-container peaks, SMART
+ * counter deltas, fill rate, events, flapping alerts, and an explicit
+ * "this window vs previous window" delta table. Small local models are
+ * bad at summing rows and good at reading a table — so timeline.mjs does
+ * the arithmetic and the model does the correlation.
  *
  * Runs the SAME prompt across 2-3 local models (VITALS_DIAG_MODELS) and
- * merges via runSpecialistMultiModel — cross-model corroboration matters
- * more here than in the fast per-tick agents, because this is exactly the
- * kind of multi-signal correlation task where a single small local model
- * is most likely to hallucinate a causal link that isn't really there.
+ * merges via runSpecialistMultiModel: a correlation claimed by one small
+ * model alone is marked tentative; 2+ agreeing is corroborated. Cross-
+ * model agreement matters most exactly here, where "X caused Y" is the
+ * easiest thing to hallucinate.
  */
 import { runSpecialistMultiModel } from './contract.mjs';
-import { latestSnapshot, historyWindow, alerts, recentSyslogWarnings } from '../lib/sources.mjs';
+import { latestSnapshot, recentSyslogWarnings } from '../lib/sources.mjs';
+import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
 
 export const AGENT_ID = 'diagnostics';
+export const KB_REPORT = `${Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6))}-hour diagnostics scan`;
 
 const DEFAULT_MODELS = ['qwen3:14b', 'llama3.1:8b', 'gemma2:9b'];
 
-function summarizeWindow(points) {
-  if (!points.length) return '(no samples in window — collector may have just started, or window exceeds retained history)';
-  const first = points[0], last = points[points.length - 1];
-  const cpu = points.map(p => p.cpu_pct).filter(v => v != null);
-  const temp = points.map(p => p.temp_max).filter(v => v != null);
-  const mem = points.map(p => p.mem_pct).filter(v => v != null);
-  const range = (arr) => arr.length ? `${Math.min(...arr).toFixed(1)}–${Math.max(...arr).toFixed(1)} (avg ${(arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1)})` : 'n/a';
-  return `Window: ${new Date(first.time * 1000).toISOString()} to ${new Date(last.time * 1000).toISOString()} (${points.length} samples)
-CPU % range: ${range(cpu)}
-Hottest-disk temp C range: ${range(temp)}
-Memory % range: ${range(mem)}`;
+function deltaTable(cur, both) {
+  const rows = [];
+  const pick = (k, unit = '') => {
+    const c = cur.scalars[k], b = both.scalars[k];
+    if (!c || !b) return;
+    rows.push(`${k}: this window avg ${c.avg}${unit} / max ${c.max}${unit} — 2×window avg ${b.avg}${unit} / max ${b.max}${unit} → ${c.avg > b.avg + 2 ? 'RISING' : c.avg < b.avg - 2 ? 'falling' : 'flat'}`);
+  };
+  pick('cpu', '%'); pick('mem', '%'); pick('load'); pick('temp_max', '°C'); pick('gpu', '%');
+  if (cur.fill && both.fill) rows.push(`array fill rate: this window ${(cur.fill.per_day_bytes / 1e9).toFixed(1)} GB/day vs 2×window ${(both.fill.per_day_bytes / 1e9).toFixed(1)} GB/day`);
+  rows.push(`events: this window ${cur.events.length}, previous+this ${both.events.length}; flapping keys now ${cur.flapping.length}`);
+  const newCtrs = cur.containers.filter(c => c.appeared).map(c => c.name);
+  const goneCtrs = cur.containers.filter(c => c.vanished).map(c => c.name);
+  if (newCtrs.length) rows.push(`containers appeared this window: ${newCtrs.join(', ')}`);
+  if (goneCtrs.length) rows.push(`containers vanished this window: ${goneCtrs.join(', ')}`);
+  return rows.join('\n');
 }
 
 export async function run() {
-  const hours = Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6);
+  const hours = Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6));
   const models = (process.env.VITALS_DIAG_MODELS || DEFAULT_MODELS.join(','))
     .split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
 
   const snap = latestSnapshot();
-  const window = historyWindow(hours);
-  const alertMap = alerts();
-  const openAlerts = Object.entries(alertMap || {})
-    .filter(([, v]) => v && v.status !== 'ok')
-    .map(([k, v]) => `${k}: ${v.status || 'unknown'} (last check ${v.last_check || 'n/a'})`);
-  const syslog = recentSyslogWarnings(hours * 60, 300);
+  const cur = timelineWindow(hours);
+  const both = timelineWindow(hours * 2);
+  const syslog = recentSyslogWarnings(hours * 60, 250);
+
+  const known = [snap.system?.name,
+    ...(snap.docker?.containers || []).map(c => c.name),
+    ...cur.containers.map(c => c.name),
+    ...cur.disks.map(d => d.name),
+    ...[...(snap.array?.parity || []), ...(snap.array?.data || []), ...(snap.array?.cache || [])].map(d => d.name),
+    ...cur.events.map(e => e.entity)].filter(Boolean);
 
   return runSpecialistMultiModel({
     agentName: 'Vitals-Diagnostics',
-    behavior: `You are the root-cause diagnostics specialist inside Unraid Vitals. You are given a ${hours}-hour window of system metrics, open alerts, and syslog warnings, and must find CORRELATIONS ACROSS DOMAINS that single-snapshot monitoring misses — not repeat what the per-domain agents already report from the latest sample alone.`,
-    systemRole: `You are a root-cause diagnostics specialist for an Unraid NAS, looking at a ${hours}-hour rolling window (not just the current instant). Your job is specifically to connect signals across domains: does a CPU/temp spike line up with a container's activity, does memory pressure precede container restarts, does a syslog warning cluster align with a metric trend. Only report a correlation you can actually see in the provided window data — do not speculate about causes with no supporting numbers in the window.`,
-    maxTokens: 1200,
-    knownSubjects: [snap.system?.name, ...(snap.docker?.containers || []).map(c => c.name),
-      ...[...(snap.array?.parity || []), ...(snap.array?.data || []), ...(snap.array?.cache || [])].map(d => d.name)],
+    behavior: `You are the root-cause diagnostics specialist inside Unraid Vitals. You receive a pre-aggregated ${hours}-hour timeline (ranges, per-container peaks, SMART deltas, events, flapping alerts) plus a comparison against the preceding window, and must find CORRELATIONS ACROSS DOMAINS and CHANGES VERSUS THE PREVIOUS WINDOW — not restate the latest sample.`,
+    systemRole: `You are a root-cause diagnostics specialist for an Unraid NAS reviewing the last ${hours} hours. All arithmetic is already done for you — do not recompute averages. Your job: (1) connect signals across domains that line up in time (a container's CPU peak with a temperature rise; memory pressure preceding a container vanishing; a syslog warning cluster with a SMART counter moving), (2) call out what is different from the previous window (RISING/falling markers, new/vanished containers, new events, alert flapping), (3) rank by consequence. Only claim a correlation the provided numbers actually support; if nothing correlates, the single 'ok' baseline finding is the correct answer.`,
+    maxTokens: 1300,
+    knownSubjects: known,
     sections: [
-      { name: 'window_summary', priority: 5, text: summarizeWindow(window) },
-      { name: 'open_alerts', priority: 4, text: `Currently open alerts:\n${openAlerts.join('\n') || '(none open)'}` },
-      { name: 'current', priority: 3, text: `Current snapshot: CPU ${snap.cpu?.total ?? 'n/a'}%, mem ${snap.mem?.pct ?? 'n/a'}%, load ${snap.load?.l1 ?? 'n/a'}/${snap.load?.l5 ?? 'n/a'}/${snap.load?.l15 ?? 'n/a'}, docker ${snap.docker?.running ?? 0}/${snap.docker?.count ?? 0} running.` },
-      { name: 'syslog', priority: 1, text: `Syslog warnings/errors in the window (may include noise):\n${syslog.slice(-4000) || '(none captured)'}` },
-      { name: 'instructions', priority: 9, text: `Look specifically for CROSS-DOMAIN correlations within the ${hours}h window: a metric trend that lines up in time with a syslog warning or a container's known behavior, a slow degradation that would be invisible in a single snapshot, or repeated flapping (alert opening/closing repeatedly) that suggests an unstable root cause rather than a one-off blip. If nothing correlates, say so as the 'ok' baseline finding rather than inventing a link.` }
+      { name: 'timeline', priority: 5, text: describeWindow(cur) },
+      { name: 'vs_previous', priority: 4, text: `This window vs the ${hours}h before it:\n${deltaTable(cur, both)}` },
+      { name: 'syslog', priority: 1, text: `Syslog warnings/errors in the window (may include noise):\n${syslog.slice(-3500) || '(none captured)'}` },
+      { name: 'instructions', priority: 9, text: 'Report findings as: what changed or correlated, the evidence (quote the numbers/timestamps from the timeline), and the concrete next check. Use the entity names exactly as given. Prefer fewer, well-evidenced findings over many weak ones.' }
     ],
     models
   });

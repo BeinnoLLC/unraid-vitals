@@ -28,11 +28,13 @@ import { vmList } from './lib/sources.mjs';
 
 const SETTLED_STATES = new Set(['running', 'shut off']);
 
+/** kb_events.severity CHECK allows only info|warning|alert|critical — there
+ *  is deliberately no 'ok' (a resolved event is the "ok"), so a return to
+ *  running is 'info'. */
 function severityFor(from, to) {
   if (to === 'crashed' || to === 'in crash loop') return 'critical';
   if (to === 'paused') return 'warning';
   if (from === 'running' && to === 'shut off') return 'warning'; // could be intentional — worth a look, not alarming
-  if (to === 'running') return 'ok';
   return 'info';
 }
 

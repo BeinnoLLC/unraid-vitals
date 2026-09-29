@@ -31,7 +31,8 @@ export function alerts() { return readJson(`${STATE_DIR}/alerts.json`, []); }
  *  as "limited history", not an error. */
 export function historyWindow(hours = 6) {
   const cutoff = Math.floor(Date.now() / 1000) - hours * 3600;
-  return history().filter(p => (p.time ?? 0) >= cutoff);
+  // Ring points carry 't' (see store.php v_point()), not 'time'.
+  return history().filter(p => (p.t ?? p.time ?? 0) >= cutoff);
 }
 
 /** Tail N lines of a file, safely (missing file -> empty string). */

@@ -22,9 +22,10 @@
  *
  * Usage: node research.mjs <jobId>
  */
-import { getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb, listEvents } from './lib/db.mjs';
+import { getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
 import { latestSnapshot, vmList } from './lib/sources.mjs';
+import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
 const BEHAVIOR = `You are the Unraid Vitals research assistant. You answer questions about
 this specific Unraid server using ONLY the context provided (knowledge-base excerpts,
@@ -43,19 +44,37 @@ function detectVmScope(prompt, vms) {
   return vms.find(vm => lower.includes(vm.name.toLowerCase())) || null;
 }
 
-/** "in the past 2 days" / "last 48 hours" / bare "recently" style phrasing
- *  all resolve to a lookback window in hours, used to scope BOTH the
- *  kb_events pull and (via the caller) can be surfaced to the model
- *  explicitly so it does not silently assume "now" when the user asked
- *  about a range. Defaults to 48h — matches the user's stated common case
- *  ("I may ask you about things in the past 2 days") when no explicit
- *  window is stated in the question. */
+/** Lookback window in hours from natural phrasing. Handles "past/last N
+ *  days|hours|weeks", "yesterday" (→48h so the whole day is inside),
+ *  "today", "this week", and "since <weekday>". Defaults to 48h — the
+ *  user's stated common case ("I may ask about the past 2 days"). Capped
+ *  at 30 days: beyond that only hourly rollups exist and the prompt would
+ *  be all aggregates. */
 function detectWindowHours(prompt) {
-  const daysMatch = prompt.match(/(?:past|last)\s+(\d+)\s*day/i);
-  if (daysMatch) return Number(daysMatch[1]) * 24;
-  const hoursMatch = prompt.match(/(?:past|last)\s+(\d+)\s*(?:hour|hr)/i);
-  if (hoursMatch) return Number(hoursMatch[1]);
+  const p = prompt.toLowerCase();
+  let m;
+  if ((m = p.match(/(?:past|last|previous)\s+(\d+)\s*(day|hour|hr|week|h\b|d\b)/))) {
+    const n = Number(m[1]); const u = m[2];
+    return Math.min(720, u.startsWith('w') ? n * 168 : u.startsWith('d') ? n * 24 : n);
+  }
+  if (/\b(a|one)\s+week\b|this week|past week|last week/.test(p)) return 168;
+  if (/yesterday/.test(p)) return 48;
+  if (/today|since (this )?morning|last night|tonight|overnight/.test(p)) return 24;
+  if ((m = p.match(/since\s+(monday|tuesday|wednesday|thursday|friday|saturday|sunday)/))) {
+    const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const diff = (new Date().getDay() - days.indexOf(m[1]) + 7) % 7 || 7;
+    return diff * 24;
+  }
+  if (/right now|currently|at the moment/.test(p)) return 2;
   return 48;
+}
+
+/** Analytical questions (why/trend/compare/cause/diagnose) get answered by
+ *  2-3 models with the answers cross-checked; simple lookups ("is X
+ *  running", "how hot is disk3") go to one model — corroboration is worth
+ *  the 3× wait only when reasoning, not recall, is the failure mode. */
+function isAnalytical(prompt) {
+  return /\b(why|cause|caused|reason|trend|compare|diagnos|correlat|investigate|analy[sz]e|root cause|what happened|degrad|slow(er|down)?|spike|unusual|anomal)\b/i.test(prompt);
 }
 
 async function main() {
@@ -72,31 +91,26 @@ async function main() {
     const vms = vmList();
     const scopedVm = detectVmScope(job.prompt, vms);
     const windowHours = detectWindowHours(job.prompt);
-    // Recent events (alert-engine + vmwatch) in the detected window,
-    // narrowed to one VM's entity when the question names it — this is
-    // the retrieval half of "answer questions about a specific VM".
-    const recentEvents = listEvents({ sinceHours: windowHours, entity: scopedVm ? scopedVm.name : undefined, limit: 40 });
+    // The stitched timeline for the asked-about range: minute samples,
+    // hourly rollups for the older part, every event, per-container /
+    // per-disk facts, "what changed" bullets. Narrowed to one VM's events
+    // when the question names it.
+    const tl = timelineWindow(windowHours, { entity: scopedVm ? scopedVm.name : undefined });
 
     const contextParts = [];
+    contextParts.push(`Time range the question is about: last ${windowHours}h (${new Date(tl.from * 1000).toISOString()} → ${new Date(tl.to * 1000).toISOString()}). Answer about THIS range unless the question says otherwise; say explicitly when data for part of the range is hourly-only or missing.`);
+    contextParts.push('\nTimeline (pre-aggregated — quote these numbers, do not recompute):');
+    contextParts.push(describeWindow(tl));
     if (kbHits.length) {
-      contextParts.push('Knowledge base excerpts (from background health agents):');
+      contextParts.push('\nKnowledge base excerpts (agent findings, past research, study reports):');
       for (const doc of kbHits) {
-        contextParts.push(`- [doc#${doc.id}] (${doc.topic || doc.source}) ${doc.title}\n  ${doc.content.slice(0, 400)}`);
+        contextParts.push(`- [doc#${doc.id}] (${doc.topic || doc.source}, ${new Date(doc.created_at * 1000).toISOString().slice(0, 16)}) ${doc.title}\n  ${doc.content.slice(0, 400)}`);
       }
     } else {
-      contextParts.push('(No matching knowledge-base documents yet.)');
-    }
-    if (recentEvents.length) {
-      contextParts.push(`\nEvent history (last ${windowHours}h${scopedVm ? `, VM "${scopedVm.name}" only` : ''}):`);
-      for (const ev of recentEvents) {
-        contextParts.push(`- [${new Date(ev.started_at * 1000).toISOString()}] ${ev.kind}/${ev.entity || '(system)'} ` +
-          `${ev.severity} ${ev.status}: ${ev.summary}${ev.resolved_at ? ` (resolved ${new Date(ev.resolved_at * 1000).toISOString()})` : ''}`);
-      }
-    } else if (scopedVm) {
-      contextParts.push(`\n(No recorded events for VM "${scopedVm.name}" in the last ${windowHours}h — it has been in a settled state the whole window, or vmwatch has not run yet.)`);
+      contextParts.push('\n(No matching knowledge-base documents.)');
     }
     if (scopedVm) {
-      contextParts.push(`\nCurrent VM state: "${scopedVm.name}" is ${scopedVm.state}.`);
+      contextParts.push(`\nThe question is about VM "${scopedVm.name}" — current state: ${scopedVm.state}. Events above are already filtered to this VM.${tl.events.length ? '' : ` No state transitions recorded for it in the last ${windowHours}h (settled the whole time, or vmwatch has not run yet).`}`);
     } else if (vms.length) {
       contextParts.push(`\nAll VMs currently: ${vms.map(v => `${v.name}=${v.state}`).join(', ')}`);
     }
@@ -104,20 +118,50 @@ async function main() {
       contextParts.push('\nLive snapshot (abbreviated):');
       contextParts.push(JSON.stringify({
         time: snap.time, system: snap.system, load: snap.load,
-        array: snap.array && snap.array.totals, docker: snap.docker,
+        array: snap.array && snap.array.totals, docker: snap.docker && { running: snap.docker.running, count: snap.docker.count },
         vms: snap.vms && { running: snap.vms.running, count: snap.vms.count },
         shares: snap.shares && { total: snap.shares.total },
-      }).slice(0, 2000));
+      }).slice(0, 1500));
     }
 
     const userPrompt = `Question: ${job.prompt}\n\nContext:\n${contextParts.join('\n')}\n\n` +
       `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}`;
 
-    const agent = await makeAnalysisAgent('Vitals-Research', BEHAVIOR, { maxTokens: 900, temperature: 0.3 });
-    const raw = await callAnalyze(agent, BEHAVIOR, userPrompt);
-    const parsed = extractJson(raw);
-    const answer = typeof parsed?.answer === 'string' ? parsed.answer : String(raw).slice(0, 4000);
-    const usedDocs = Array.isArray(parsed?.used_docs) ? parsed.used_docs : kbHits.map(d => d.id);
+    let answer, usedDocs;
+    if (isAnalytical(job.prompt)) {
+      // Analytical: 2-3 models answer independently, then one synthesis
+      // pass reconciles them — agreements stated as fact, disagreements
+      // surfaced as such (with which model said what), never silently
+      // picking one. The user asked for exactly this kind of multi-model
+      // reading; the synthesis is what stops it being 3× the text.
+      const models = (process.env.VITALS_DIAG_MODELS || 'qwen3:14b,llama3.1:8b,gemma2:9b').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+      const drafts = [];
+      for (const model of models) {
+        try {
+          const agent = await makeAnalysisAgent(`Vitals-Research-${model}`, BEHAVIOR, { maxTokens: 900, temperature: 0.3, model });
+          const parsed = extractJson(await callAnalyze(agent, BEHAVIOR, userPrompt));
+          if (typeof parsed?.answer === 'string') drafts.push({ model, answer: parsed.answer, used: Array.isArray(parsed.used_docs) ? parsed.used_docs : [] });
+        } catch (e) { console.warn(`[research#${jobId}] ${model} failed: ${e?.message || e}`); }
+      }
+      if (!drafts.length) throw new Error('all models failed');
+      if (drafts.length === 1) { answer = drafts[0].answer; usedDocs = drafts[0].used; }
+      else {
+        const synthPrompt = `Question: ${job.prompt}\n\n${drafts.map(d => `--- Answer from ${d.model} ---\n${d.answer}`).join('\n\n')}\n\n` +
+          `Write ONE final markdown answer. Where the drafts agree, state it plainly. Where they disagree on a fact or a cause, keep BOTH positions and name which model said which — do not pick silently. Cut anything not grounded in the drafts. End with a one-line "Confidence:" note (high = all agreed, medium = mostly, low = conflicting). ` +
+          `Respond with strict JSON: {"answer": "<markdown>", "used_docs": [<ids>]}`;
+        const synth = await makeAnalysisAgent('Vitals-Research-Synthesis', BEHAVIOR, { maxTokens: 1100, temperature: 0.2 });
+        const parsed = extractJson(await callAnalyze(synth, BEHAVIOR, synthPrompt));
+        answer = typeof parsed?.answer === 'string' ? parsed.answer : drafts[0].answer;
+        answer += `\n\n<sub>Cross-checked across ${drafts.length} local models: ${drafts.map(d => d.model).join(', ')}</sub>`;
+        usedDocs = [...new Set(drafts.flatMap(d => d.used))];
+      }
+    } else {
+      const agent = await makeAnalysisAgent('Vitals-Research', BEHAVIOR, { maxTokens: 900, temperature: 0.3 });
+      const raw = await callAnalyze(agent, BEHAVIOR, userPrompt);
+      const parsed = extractJson(raw);
+      answer = typeof parsed?.answer === 'string' ? parsed.answer : String(raw).slice(0, 4000);
+      usedDocs = Array.isArray(parsed?.used_docs) ? parsed.used_docs : kbHits.map(d => d.id);
+    }
 
     finishResearchJob(jobId, answer, usedDocs);
     // Keep the Q&A itself searchable for future related questions.

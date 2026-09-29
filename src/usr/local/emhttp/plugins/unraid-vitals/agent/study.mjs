@@ -32,6 +32,7 @@ import {
 } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
 import { latestSnapshot } from './lib/sources.mjs';
+import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
 const TICK_BEHAVIOR = `You are the Unraid Vitals study assistant, mid-way through a standing
 observation task. You are given the user's original study goal, a short history of what you
@@ -61,8 +62,14 @@ async function tickOne(job) {
       flash: snap.flash,
     };
 
+    // What changed since the LAST tick, not just what the snapshot says now —
+    // the tick interval is the window, so a 5-min study reads 5 min of
+    // ring data and a 60-min study reads an hour of it.
+    const sinceTick = Math.max(1, Math.ceil((job.tick_minutes || 5) / 60 * 1.2));
+    const tl = timelineWindow(sinceTick);
     const prompt = `Study goal: ${job.prompt}\n\nPrior observations (most recent last):\n${recentObs}\n\n` +
-      `Current snapshot: ${JSON.stringify(summary).slice(0, 1500)}\n\n` +
+      `Current snapshot: ${JSON.stringify(summary).slice(0, 900)}\n\n` +
+      `Since the last check (${tl.coverage.minute_samples} samples):\n${describeWindow(tl).slice(0, 2200)}\n\n` +
       `Respond with strict JSON: {"observation": "<1-3 sentence note>"}`;
 
     const agent = await makeAnalysisAgent('Vitals-Study-Tick', TICK_BEHAVIOR, { maxTokens: 220, temperature: 0.2 });
@@ -86,8 +93,13 @@ async function finishOne(job) {
       ? obs.map(o => `- ${new Date(o.at * 1000).toISOString()}: ${o.note}`).join('\n')
       : '(no observations were recorded during the window — the study ran but nothing changed enough to note, or all ticks failed; say so honestly rather than inventing findings)';
 
+    // The whole study window's hard numbers, so the report's Timeline and
+    // Findings sections rest on aggregated data as well as the journal.
+    const hours = Math.max(1, Math.ceil((job.study_until - job.created_at) / 3600));
+    const tl = timelineWindow(hours);
     const prompt = `Study goal: ${job.prompt}\n\nStudy window: ${new Date(job.created_at * 1000).toISOString()} ` +
       `to ${new Date(job.study_until * 1000).toISOString()} (sampled every ${job.tick_minutes} min)\n\n` +
+      `Aggregated metrics for the whole window:\n${describeWindow(tl).slice(0, 3500)}\n\n` +
       `Full observation journal:\n${journal}\n\n` +
       `Respond with strict JSON: {"report": "<full markdown report per the structure you were told>", "headline": "<one-line summary>"}`;
 
