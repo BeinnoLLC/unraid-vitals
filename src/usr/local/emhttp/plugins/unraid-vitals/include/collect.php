@@ -535,6 +535,48 @@ function v_docker_layers_cached(): array {
   return $cache;
 }
 
+/**
+ * Size of each container's JSON log file (/var/lib/docker/containers/<id>/
+ * <id>-json.log — the log driver Unraid uses by default). Sampled at most
+ * hourly like v_docker_layers(): `docker inspect` per container adds up on
+ * a host with many containers, and log growth is not a per-minute concern.
+ */
+function v_docker_logs(): array {
+  $ps = v_run("docker ps -a --format '{{.Names}}\\t{{.ID}}'", 10);
+  $out = [];
+  if ($ps === '') return $out;
+  foreach (explode("\n", $ps) as $line) {
+    $c = explode("\t", $line);
+    if (count($c) < 2 || $c[1] === '') continue;
+    $name = $c[0]; $id = $c[1];
+    $logPath = v_run('docker inspect --format \'{{.LogPath}}\' ' . escapeshellarg($id), 8);
+    if ($logPath === '' || !is_file($logPath)) continue;
+    $size = @filesize($logPath);
+    if ($size === false) continue;
+    $out[$name] = ['path' => $logPath, 'bytes' => $size];
+  }
+  return $out;
+}
+
+/**
+ * v_docker_logs() sampled at most once an hour, cached in the state dir,
+ * keeping the PREVIOUS sample's bytes+ts too so a check can compute a
+ * growth rate without needing the flash rollup history (log files don't
+ * flow through the ring/rollup — only their check-time size matters).
+ */
+function v_docker_logs_cached(): array {
+  $path = v_state_dir() . '/docker_logs.json';
+  $cache = v_read_json($path);
+  if (($cache['ts'] ?? 0) > time() - 3600) return $cache;
+  $logs = v_docker_logs();
+  $cache = [
+    'ts' => time(), 'logs' => $logs,
+    'prev_ts' => $cache['ts'] ?? null, 'prev_logs' => $cache['logs'] ?? [],
+  ];
+  v_write_json($path, $cache);
+  return $cache;
+}
+
 /* ----------------------------------------------------------------------- GPU */
 
 function v_gpu(): array {
@@ -690,6 +732,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'docker'  => v_docker(),
     'docker_image' => v_docker_image(),
     'docker_layers' => v_docker_layers_cached(),
+    'docker_logs' => v_docker_logs_cached(),
     'gpu'     => v_gpu(),
     'ups'     => v_ups(),
     'shares'  => v_shares(),
