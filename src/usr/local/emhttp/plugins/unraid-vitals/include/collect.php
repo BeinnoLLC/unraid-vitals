@@ -147,6 +147,11 @@ function v_system(): array {
     'uptime'  => v_uptime(),
     'md_state'=> $var['mdState'] ?? '',
     'hostname'=> gethostname() ?: '',
+    // sbClean="no" means the array was NOT unmounted cleanly (crash, power
+    // loss, forced shutdown) — the standard Unraid webGUI shows an "Unclean
+    // shutdown detected" banner in this state; expose it directly since
+    // ArrayOperation.page's logic is buried behind an authenticated page.
+    'unclean_shutdown' => ($var['sbClean'] ?? 'yes') !== 'yes',
   ];
 }
 
@@ -623,6 +628,64 @@ function v_ups(): array {
   return $out;
 }
 
+/* ---------------------------------------------------------------- parity */
+
+/**
+ * /boot/config/parity-checks.log — Unraid's own history of every parity
+ * check, sync, rebuild and disk clear. Pipe-separated; the field count per
+ * line varies by Unraid version and whether the parity.check.tuning plugin
+ * is installed (5/6/7/8/9 fields seen in the wild), so this only reads the
+ * common prefix every format shares: date, elapsed seconds, speed, status,
+ * errors — everything after that (device list, sync size, etc.) is ignored.
+ *
+ * status: 0 = clean finish, -4 = cancelled/incomplete, otherwise an error
+ * count on some Unraid versions. errors: the corrected-sector count.
+ */
+function v_parity_history(int $limit = 20): array {
+  $path = '/boot/config/parity-checks.log';
+  if (!is_file($path)) return [];
+  $lines = @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+  $out = [];
+  foreach ($lines as $line) {
+    $c = explode('|', $line);
+    if (count($c) < 4) continue;
+    // strtotime() cannot parse Unraid's "YYYY Mon DD HH:MM:SS" field order
+    // (tested directly: returns false) — DateTime::createFromFormat can.
+    // The day-of-month is space-padded to 2 chars ("May  1" for the 1st),
+    // so collapse repeated spaces before parsing.
+    $dt = DateTime::createFromFormat('Y M j H:i:s', preg_replace('/\s+/', ' ', trim($c[0])));
+    $ts = $dt !== false ? $dt->getTimestamp() : false;
+    $elapsed = (int)$c[1];
+    // Speed is "94.6 MB/s" or "0" (when the run was too short/cancelled to
+    // have a meaningful average) or "2.7 GB/s" — normalise to MB/s.
+    $speedMbps = null;
+    if (preg_match('/([\d.]+)\s*(KB|MB|GB)\/s/i', $c[2] ?? '', $m)) {
+      $mult = ['KB' => 1 / 1024, 'MB' => 1, 'GB' => 1024][strtoupper($m[2])];
+      $speedMbps = round((float)$m[1] * $mult, 1);
+    }
+    $status = isset($c[3]) && is_numeric($c[3]) ? (int)$c[3] : null;
+    $errors = isset($c[4]) && is_numeric($c[4]) ? (int)$c[4] : null;
+    // Field 9 (0-indexed) is the human-readable action description on the
+    // newer plugin format ("Manual Correcting Parity-Check"); fall back to
+    // field 5 (the raw "check P Q" / "recon D5" / "clear" token) when the
+    // longer format isn't present.
+    $type = trim($c[9] ?? ($c[5] ?? ''));
+    $out[] = [
+      'date' => $ts !== false ? $ts : null,
+      'elapsed_sec' => $elapsed,
+      'speed_mbps' => $speedMbps,
+      'status' => $status,
+      'errors' => $errors,
+      'cancelled' => $status === -4,
+      'clean' => $status === 0 && ($errors === null || $errors === 0),
+      'type' => $type,
+    ];
+  }
+  // Log is chronological (oldest first) — take the most recent $limit,
+  // newest last (so a chart/table can read it in display order directly).
+  return array_slice($out, -$limit);
+}
+
 /* ------------------------------------------------------------------- shares */
 
 function v_shares(): array {
@@ -835,6 +898,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'mem'     => v_mem(),
     'load'    => v_load(),
     'array'   => v_array_disks(),
+    'parity_history' => v_parity_history(20),
     'rootfs'  => v_rootfs(),
     'fs_watch' => v_fs_watch(),
     'smart'   => v_smart(),

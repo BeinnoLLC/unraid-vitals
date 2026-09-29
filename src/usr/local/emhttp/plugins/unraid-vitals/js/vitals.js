@@ -971,7 +971,14 @@ function ArrayTab(P) {
       h(SmartTable, { d: d })),
     h(Panel, { title: 'Daily rollups', span2: true,
       hint: (P.daily || []).length ? 'last ' + P.daily.length + ' days' : 'building' },
-      h(DailyTable, { daily: P.daily })));
+      h(DailyTable, { daily: P.daily })),
+    d.system.unclean_shutdown ? h(Panel, { title: 'Unclean shutdown detected', span2: true },
+      h('div', { class: 'v-empty' },
+        'The array was not unmounted cleanly last time it stopped. Unraid runs a parity check on the'
+        + ' next array start to verify consistency — treat parity as unverified until one has completed.')) : null,
+    h(Panel, { title: 'Parity check history', span2: true,
+      hint: (d.parity_history || []).length ? 'last ' + d.parity_history.length + ' checks' : '' },
+      h(ParityTable, { history: d.parity_history })));
 }
 
 function DailyTable(P) {
@@ -999,6 +1006,29 @@ function DailyTable(P) {
         h('td', { class: 'num' }, r.net_tx ? bytes(r.net_tx) + '/s' : '—'),
         h('td', { class: 'num' }, r.gpu_max == null ? '—' : r.gpu_max + '%'),
         h('td', { class: 'num ' + lvl(r.fill_max, 85, 95) }, r.fill_max == null ? '—' : r.fill_max + '%'));
+    }));
+}
+
+function ParityTable(P) {
+  var hist = (P.history || []).slice().reverse();
+  if (!hist.length) {
+    return h('div', { class: 'v-empty' }, 'Parity check history appears after Unraid records its first check.');
+  }
+  return h(Table, null,
+    h('tr', null, h('th', null, 'Date'), h('th', null, 'Type'), h('th', { class: 'num' }, 'Duration'),
+      h('th', { class: 'num' }, 'Speed'), h('th', { class: 'num' }, 'Errors'), h('th', null, 'Result')),
+    hist.map(function (r, i) {
+      var hrs = r.elapsed_sec ? (r.elapsed_sec / 3600).toFixed(1) + 'h' : '—';
+      var result = r.cancelled ? { label: 'Cancelled', cls: 'v-badge-warning' }
+        : (r.errors || 0) > 0 ? { label: r.errors + ' error(s)', cls: 'v-badge-error' }
+        : { label: 'Clean', cls: '' };
+      return h('tr', { key: i },
+        h('td', { class: 'v-name' }, r.date ? new Date(r.date * 1000).toISOString().slice(0, 10) : '—'),
+        h('td', null, r.type || '—'),
+        h('td', { class: 'num' }, hrs),
+        h('td', { class: 'num' }, r.speed_mbps == null ? '—' : r.speed_mbps + ' MB/s'),
+        h('td', { class: 'num' }, r.errors == null ? '—' : String(r.errors)),
+        h('td', null, h('span', { class: 'v-badge ' + result.cls }, result.label)));
     }));
 }
 

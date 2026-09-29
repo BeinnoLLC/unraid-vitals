@@ -42,6 +42,7 @@ function v_checks_defaults(): array {
     'docker_log_large' => 'warning',
     'fs_watch_full' => 'warning',
     'share_placement' => 'warning',
+    'parity_health' => 'warning',
   ];
 }
 
