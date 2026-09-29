@@ -155,6 +155,105 @@ function v_system(): array {
   ];
 }
 
+/* -------------------------------------------------------------------- syslog signatures */
+
+/** Loads and caches the signature library (include/checks/signatures.json). */
+function v_syslog_signatures_def(): array {
+  static $sigs = null;
+  if ($sigs === null) {
+    $path = __DIR__ . '/checks/signatures.json';
+    $raw = @file_get_contents($path);
+    $sigs = $raw ? (json_decode($raw, true) ?: []) : [];
+  }
+  return $sigs;
+}
+
+/**
+ * Syslog signature scanner (P14-09). Reads only new bytes since the last
+ * run (offset tracked in state-dir JSON, keyed by log path + inode so a
+ * log rotation is detected and the scan restarts from the top of the new
+ * file rather than silently skipping it or crashing on a negative seek).
+ *
+ * One data file drives all signatures (checks/signatures.json) -- adding
+ * a new one needs no code, per the ticket's requirement. Matched lines
+ * become findings (severity/title/detail come straight from the
+ * signature definition, {1} substituted from the first capture group)
+ * and are separately appended to a small rolling "recent syslog matches"
+ * list in state-dir (capped at 200) for the AI agents (P20-05) to read as
+ * evidence later -- that's the "passed to the AI agents" requirement.
+ */
+function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
+  $offsetPath = v_state_dir() . '/syslog_offset.json';
+  $matchLogPath = v_state_dir() . '/syslog_matches.json';
+  $state = v_read_json($offsetPath);
+  if (!is_array($state)) $state = [];
+
+  if (!is_readable($logPath)) return [];
+  $inode = @fileinode($logPath) ?: 0;
+  $size = @filesize($logPath) ?: 0;
+
+  $offset = 0;
+  if (($state['path'] ?? null) === $logPath && ($state['inode'] ?? null) === $inode && ($state['offset'] ?? 0) <= $size) {
+    $offset = (int)$state['offset'];
+  }
+  // else: first run, or the file was rotated/truncated (different inode,
+  // or offset now beyond the file's current size) -- restart from the top
+  // rather than crash on a negative-length read or silently miss the
+  // whole rotated-out file's content forever.
+
+  $fh = @fopen($logPath, 'r');
+  if (!$fh) return [];
+  if ($offset > 0) fseek($fh, $offset);
+  $newContent = stream_get_contents($fh);
+  $newOffset = ftell($fh);
+  fclose($fh);
+
+  v_write_json($offsetPath, ['path' => $logPath, 'inode' => $inode, 'offset' => $newOffset]);
+
+  if ($newContent === false || $newContent === '') return [];
+
+  $sigs = v_syslog_signatures_def();
+  $findings = [];
+  $lines = explode("\n", $newContent);
+  $matchedKeysThisRun = [];
+
+  foreach ($lines as $line) {
+    if (trim($line) === '') continue;
+    foreach ($sigs as $key => $sig) {
+      if (empty($sig['pattern'])) continue;
+      if (!@preg_match($sig['pattern'], $line, $m)) continue;
+      $matchedKeysThisRun[$key] = true;
+      $title = $sig['title'] ?? $key;
+      $detail = $sig['detail'] ?? '';
+      if (!empty($m[1])) { $title = str_replace('{1}', $m[1], $title); $detail = str_replace('{1}', $m[1], $detail); }
+      $findings[] = [
+        'signature' => $key, 'severity' => $sig['severity'] ?? 'warning',
+        'title' => $title, 'detail' => $detail, 'line' => trim($line), 'time' => time(),
+      ];
+    }
+  }
+
+  // Suppress signatures that declare suppress_if_matched when the
+  // referenced signature also fired in this same batch (e.g. a bare
+  // "Call Trace:" line right after an OOM kill is just noise from the
+  // same event, not a second, separate finding).
+  $findings = array_values(array_filter($findings, function ($f) use ($sigs, $matchedKeysThisRun) {
+    $suppress = $sigs[$f['signature']]['suppress_if_matched'] ?? [];
+    foreach ($suppress as $other) if (!empty($matchedKeysThisRun[$other])) return false;
+    return true;
+  }));
+
+  if ($findings) {
+    $recent = v_read_json($matchLogPath);
+    if (!is_array($recent)) $recent = [];
+    $recent = array_merge($recent, $findings);
+    if (count($recent) > 200) $recent = array_slice($recent, -200);
+    v_write_json($matchLogPath, $recent);
+  }
+
+  return $findings;
+}
+
 /* -------------------------------------------------------------------- disks */
 
 /** Reads/writes (in sectors, 512 bytes each) for one device from /proc/diskstats. */
@@ -1095,6 +1194,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'parity_history' => v_parity_history(20),
     'rootfs'  => v_rootfs(),
     'fs_watch' => v_fs_watch(),
+    'syslog_matches' => v_syslog_scan(),
     'smart'   => v_smart_tracked(),
     'vms'     => v_vms(),
     'docker'  => v_docker(),

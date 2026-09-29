@@ -1,0 +1,65 @@
+{
+  "oom_killer": {
+    "pattern": "/Out of memory: Killed process \\d+ \\(([^)]+)\\)/i",
+    "severity": "alert",
+    "title": "OOM killer killed {1}",
+    "detail": "The kernel's out-of-memory killer terminated process \"{1}\" because the system ran out of available memory. Check what was consuming RAM around this time -- a runaway container, a large media scan, or a VM with too much allocated."
+  },
+  "macvlan_crash": {
+    "pattern": "/kernel: macvlan.+(?:BUG|call trace|panic)/i",
+    "severity": "alert",
+    "title": "macvlan-related kernel call trace",
+    "detail": "A kernel call trace was found referencing macvlan, the networking driver Docker's default bridge networking can rely on. This is a known-problematic combination on some kernels/NIC drivers -- switching custom networks to ipvlan often resolves it."
+  },
+  "mce_hardware_error": {
+    "pattern": "/mce:\\s*\\[Hardware Error\\]/i",
+    "severity": "critical",
+    "title": "Machine Check Exception -- hardware error",
+    "detail": "The CPU reported a Machine Check Exception hardware error. This is reported directly by the processor, not inferred -- it usually points to failing RAM, a CPU fault, or a power delivery problem. Worth investigating promptly."
+  },
+  "edac_uncorrectable": {
+    "pattern": "/EDAC.+\\b(?:UE|uncorrectable)\\b/i",
+    "severity": "critical",
+    "title": "EDAC uncorrectable memory error",
+    "detail": "The memory controller's error detection and correction subsystem (EDAC) reported an uncorrectable error -- data corruption that ECC could not fix. Usually a failing DIMM."
+  },
+  "btrfs_error": {
+    "pattern": "/BTRFS error \\(device ([^)]+)\\)/i",
+    "severity": "alert",
+    "title": "BTRFS error on {1}",
+    "detail": "The BTRFS filesystem driver reported an error on device \"{1}\". This can indicate filesystem corruption or an underlying disk problem -- a scrub is worth running."
+  },
+  "xfs_error": {
+    "pattern": "/XFS \\(([^)]+)\\): (?:Internal error|Corruption detected|metadata corruption)/i",
+    "severity": "alert",
+    "title": "XFS error on {1}",
+    "detail": "The XFS filesystem driver reported internal corruption on \"{1}\". This can force the filesystem read-only to protect data -- worth running xfs_repair from a maintenance/safe mode boot."
+  },
+  "ata_link_error": {
+    "pattern": "/ata\\d+(?:\\.\\d+)?: exception Emask/i",
+    "severity": "warning",
+    "title": "ATA link exception (SATA error)",
+    "detail": "An ATA/SATA link reported an exception mid-operation (not a normal boot-time link-up event). This usually points to a failing drive, cable, or backplane connector."
+  },
+  "nic_link_flap": {
+    "pattern": "/(\\w+): Link is Down/i",
+    "severity": "warning",
+    "title": "NIC {1} link down",
+    "detail": "Network interface \"{1}\" reported its link going down. A single event during boot is normal; repeated flapping points to a bad cable, switch port, or failing NIC.",
+    "require_repeats": 3,
+    "repeat_window_minutes": 60
+  },
+  "usb_disconnect": {
+    "pattern": "/usb \\S+: USB disconnect, device number \\d+/i",
+    "severity": "warning",
+    "title": "USB device disconnected",
+    "detail": "A USB device was disconnected. If this is your Unraid boot flash drive or a USB-attached disk, an unexpected disconnect can cause array or docker instability."
+  },
+  "kernel_call_trace": {
+    "pattern": "/kernel: Call Trace:/i",
+    "severity": "warning",
+    "title": "Kernel call trace",
+    "detail": "The kernel logged a call trace (a stack dump, usually from a warning, bug, or oops). Not fatal by itself, but worth reading the surrounding lines -- it's often the earliest sign of the actual problem (an OOM kill, a driver bug, or a hardware fault) before those show up as their own signatures.",
+    "suppress_if_matched": ["oom_killer"]
+  }
+}
