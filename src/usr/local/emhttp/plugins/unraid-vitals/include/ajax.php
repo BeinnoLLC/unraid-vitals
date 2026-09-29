@@ -93,6 +93,7 @@ try {
     foreach ($cfg as $k => $v) $lines[] = $k . '="' . str_replace('"', '', (string)$v) . '"';
     @mkdir(dirname(V_CFG_FILE), 0755, true);
     file_put_contents(V_CFG_FILE, implode("\n", $lines) . "\n");
+    v_flash_writes_track(); // settings save writes to flash too (P14-12)
     // Re-apply cron + start-page immediately, same as the old form's #command.
     if (is_executable(V_INSTALL_SH)) exec(escapeshellarg(V_INSTALL_SH) . ' --reapply 2>&1');
     echo json_encode(['ok' => true]);

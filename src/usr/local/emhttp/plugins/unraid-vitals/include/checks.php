@@ -48,6 +48,7 @@ function v_checks_defaults(): array {
     'signature_scan' => 'warning',
     'pool_health' => 'warning',
     'net_health' => 'warning',
+    'flash_health' => 'warning',
   ];
 }
 

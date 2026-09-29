@@ -1266,6 +1266,102 @@ function v_net_link_info(): array {
   return $out;
 }
 
+/* -------------------------------------------------------------------- flash drive health (P14-12) */
+
+/**
+ * Flash (boot) drive health. Unraid runs entirely from a USB stick, so
+ * its free space, its mount state, and how often we write to it all
+ * matter -- a full or read-only /boot takes the whole box down on the
+ * next reboot, and USB flash cells have a finite write budget.
+ *
+ * Field sources verified against Selene's real state before writing:
+ *   /proc/mounts carries the ro/rw flag for /boot directly (a read-only
+ *   remount shows as "ro" in field 4); /boot/config/plugins/
+ *   dynamix.my.servers/fb_keepalive holds a fresh ISO-8601 timestamp
+ *   written by Unraid's own flash-backup keepalive (its mtime is the
+ *   real "last flash backup" signal); and this plugin's own writes are
+ *   all funneled through v_flash_writes_track(), below.
+ */
+function v_flash_health(): array {
+  $out = [
+    'mount' => '/boot', 'total' => null, 'free' => null, 'used_pct' => null,
+    'read_only' => null, 'mount_opts' => null,
+    'last_backup' => null, 'backup_age_days' => null,
+    'our_writes_today' => null, 'our_writes_per_day' => null,
+  ];
+
+  // --- free space + read-only detection from /proc/mounts (one source
+  // for both, so they can never disagree about which mount we mean).
+  foreach (@file('/proc/mounts', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+    $f = preg_split('/\s+/', $line);
+    if (count($f) < 4 || $f[1] !== '/boot') continue;
+    $opts = $f[3];
+    $out['mount_opts'] = $opts;
+    $out['read_only'] = in_array('ro', explode(',', $opts), true);
+    break;
+  }
+  $total = @disk_total_space('/boot');
+  $free  = @disk_free_space('/boot');
+  if ($total !== false && $free !== false && $total > 0) {
+    $out['total'] = (float)$total;
+    $out['free']  = (float)$free;
+    $out['used_pct'] = round(100 * ($total - $free) / $total, 1);
+  }
+
+  // --- last flash backup: Unraid Connect's own keepalive file.
+  $keepalive = '/boot/config/plugins/dynamix.my.servers/fb_keepalive';
+  $stamp = @file_get_contents($keepalive);
+  $ts = $stamp !== false ? strtotime(trim($stamp)) : false;
+  if ($ts === false) {
+    $mt = @filemtime($keepalive);
+    $ts = $mt !== false ? $mt : false;
+  }
+  if ($ts !== false && $ts > 0) {
+    $out['last_backup'] = $ts;
+    $out['backup_age_days'] = round((time() - $ts) / 86400, 1);
+  }
+
+  // --- our own write budget (see v_flash_writes_track()).
+  $w = v_flash_writes_series();
+  $out['our_writes_today'] = $w['today'];
+  $out['our_writes_per_day'] = $w['per_day'];
+
+  return $out;
+}
+
+/**
+ * Counts how many times THIS plugin writes to the flash drive, per day,
+ * so the wear budget can be shown as a number rather than asserted.
+ *
+ * Called from the plugin's actual flash-write sites (all of them are in
+ * store.php's hourly v_rollup() -- the month jsonl append and the
+ * last_rollup_hour marker -- plus the settings save in ajax.php). The
+ * counter itself lives in the state dir, which is tmpfs, NOT flash, so
+ * counting does not add writes. A day bucket is rotated to the last 30
+ * days.
+ */
+function v_flash_writes_track(): void {
+  $path = v_state_dir() . '/flash_writes.json';
+  $hist = v_read_json($path);
+  if (!is_array($hist)) $hist = [];
+  $day = date('Y-m-d');
+  $hist[$day] = ($hist[$day] ?? 0) + 1;
+  if (count($hist) > 30) {
+    ksort($hist);
+    $hist = array_slice($hist, -30, null, true);
+  }
+  v_write_json($path, $hist);
+}
+
+/** Today's flash-write count and the 30-day average from v_flash_writes_track(). */
+function v_flash_writes_series(): array {
+  $hist = v_read_json(v_state_dir() . '/flash_writes.json');
+  if (!is_array($hist)) return ['today' => 0, 'per_day' => null];
+  $today = $hist[date('Y-m-d')] ?? 0;
+  $vals = array_values(array_filter($hist, 'is_numeric'));
+  return ['today' => $today, 'per_day' => $vals ? round(array_sum($vals) / count($vals), 1) : null];
+}
+
 /* ---------------------------------------------------------------- processes */
 
 function v_top_procs(int $n = 8): array {
@@ -1385,6 +1481,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'share_placement' => v_share_placement_cached(),
     'net'     => [],
     'net_link' => v_net_link_info(),
+    'flash'   => v_flash_health(),
     'top'     => v_top_procs(8),
   ];
 

@@ -291,6 +291,10 @@ function v_rollup(array $ring, array $snap): void {
   @file_put_contents($dir . '/' . date('Y-m', $closedHour * 3600) . '.jsonl',
                      json_encode($line, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
   @file_put_contents($markerFile, (string)$hour);
+  // Two real flash writes just happened -- count them so the plugin can
+  // report its own wear budget honestly (P14-12).
+  v_flash_writes_track();
+  v_flash_writes_track();
 }
 
 /** Daily aggregates derived from the flash rollups (for longer-range charts). */
