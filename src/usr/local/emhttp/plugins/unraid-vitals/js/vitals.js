@@ -688,28 +688,31 @@ function App() {
   var props = { d: d, pts: pts, range: range, daily: daily, findings: findings };
 
   return h('div', null,
-    h('div', { class: 'v-head' },
+    h('div', { class: 'v-hero' },
       h('div', { class: 'v-title' },
         h('h2', null, h('i', { class: 'fa fa-heartbeat' }), ' Vitals'),
         d ? h('span', { class: 'v-sub' },
               [d.system.name, d.system.version, d.system.cpu].filter(Boolean).join(' · ')) : null),
       h('div', { class: 'v-actions' },
-        h('span', { class: 'v-stamp' },
-          h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
-          status === 'error' ? 'collection error'
-            : !d ? 'loading…'
-            : 'sample ' + ts(d.time) + ' · ' + d._age + 's ago'),
-        h('select', { class: 'v-select', value: range,
-          onChange: function (e) { setRange(+e.target.value); } },
-          h('option', { value: 60 }, 'Last hour'),
-          h('option', { value: 360 }, 'Last 6 hours'),
-          h('option', { value: 1440 }, 'Last 24 hours')),
-        h('button', { class: 'v-btn', onClick: function () { load(true); } },
-          h('i', { class: 'fa fa-refresh' }), ' Refresh'),
-        h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
-        h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
-          onClick: function () { setDrawerOpen(!drawerOpen); } },
-          h('i', { class: 'fa fa-file-text-o' }), ' Logs'))),
+        h('div', { class: 'v-actions-group' },
+          h('span', { class: 'v-stamp' },
+            h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
+            status === 'error' ? 'collection error'
+              : !d ? 'loading…'
+              : 'sample ' + ts(d.time) + ' · ' + d._age + 's ago'),
+          h('select', { class: 'v-select', value: range,
+            onChange: function (e) { setRange(+e.target.value); } },
+            h('option', { value: 60 }, 'Last hour'),
+            h('option', { value: 360 }, 'Last 6 hours'),
+            h('option', { value: 1440 }, 'Last 24 hours')),
+          h('button', { class: 'v-btn', onClick: function () { load(true); } },
+            h('i', { class: 'fa fa-refresh' }), ' Refresh')),
+        h('div', { class: 'v-actions-divider' }),
+        h('div', { class: 'v-actions-group' },
+          h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
+          h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
+            onClick: function () { setDrawerOpen(!drawerOpen); } },
+            h('i', { class: 'fa fa-file-text-o' }), ' Logs')))),
 
     h('div', { class: 'v-tabs' },
       TABS.map(function (t) {

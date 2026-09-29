@@ -51,11 +51,13 @@
 
 /* Header ------------------------------------------------------------------ */
 
-.vitals .v-head {
-  display: flex; align-items: center; justify-content: space-between;
-  gap: var(--v-gap); flex-wrap: wrap; margin-bottom: var(--v-gap);
+.vitals .v-hero {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 14px; margin-bottom: var(--v-gap);
+  background: var(--v-card); border: 1px solid var(--v-border); border-radius: var(--v-radius);
+  padding: 14px 18px;
 }
-.vitals .v-title { display: flex; align-items: center; gap: 12px; }
+.vitals .v-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
 .vitals .v-title h2 {
   margin: 0; font-size: var(--v-fs-xl); font-weight: 650; letter-spacing: -.02em;
   display: flex; align-items: center; gap: 10px;
@@ -65,9 +67,15 @@
   display: flex; align-items: center; justify-content: center; font-size: 16px;
   background: color-mix(in srgb, var(--v-accent) 16%, transparent); color: var(--v-accent-fg);
 }
-.vitals .v-sub { opacity: .6; font-size: var(--v-fs-sm); display: block; margin-top: 2px; }
-.vitals .v-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.vitals .v-stamp { opacity: .55; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; }
+.vitals .v-sub { opacity: .6; font-size: var(--v-fs-sm); }
+.vitals .v-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+/* Two clusters (status+range+refresh, then alerts+logs) instead of six
+   loose elements in a row — a thin vertical divider is enough to read as
+   two groups without a heavier visual treatment. */
+.vitals .v-actions-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.vitals .v-actions-divider { width: 1px; align-self: stretch; min-height: 22px; background: var(--v-border); }
+@media (max-width: 720px) { .vitals .v-actions-divider { display: none; } }
+.vitals .v-stamp { opacity: .55; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .vitals .v-stamp .v-dot { animation: v-pulse 2s infinite; }
 
 .vitals .v-btn, .vitals .v-select {
