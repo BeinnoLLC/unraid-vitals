@@ -134,6 +134,39 @@
 .vitals .v-kb-doc-title { font-weight: 600; font-size: 13px; }
 .vitals .v-kb-doc-body { font-size: 12.5px; color: var(--v-muted); white-space: pre-wrap; line-height: 1.5; }
 
+/* ---- hwmon sensor tiles ------------------------------------------------ */
+.vitals .v-sensor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.vitals .v-sensor { padding: 8px 10px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); border-left-width: 3px; }
+.vitals .v-sensor-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-sensor-label { font-size: 11px; color: var(--v-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals .v-sensor-th { font-size: 10px; color: var(--v-muted); opacity: .75; margin-top: 1px; }
+.vitals .v-temp-ok    { border-left-color: var(--v-ok-fg, #22c55e); }
+.vitals .v-temp-warn  { border-left-color: #f59e0b; }
+.vitals .v-temp-warn .v-sensor-val { color: #f59e0b; }
+.vitals .v-temp-crit  { border-left-color: var(--v-bad, #ef4444); }
+.vitals .v-temp-crit .v-sensor-val { color: var(--v-bad, #ef4444); }
+
+/* ---- right-side log drawer --------------------------------------------- */
+.vitals { position: relative; }
+.vitals .v-drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; }
+.vitals .v-drawer {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 92vw);
+  background: var(--v-bg, #161616); border-left: 1px solid var(--v-border);
+  box-shadow: -18px 0 42px rgba(0,0,0,.5); z-index: 9999;
+  display: flex; flex-direction: column; animation: v-drawer-in .18s ease-out;
+}
+@keyframes v-drawer-in { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+.vitals .v-drawer-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--v-border); font-weight: 600; }
+.vitals .v-drawer-title { font-size: 14px; }
+.vitals .v-drawer-tools { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--v-border); flex-wrap: wrap; }
+.vitals .v-drawer-q { width: auto; flex: 1; min-width: 120px; }
+.vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; }
+.vitals .v-log-line { padding: 1.5px 14px; white-space: pre-wrap; word-break: break-word; color: var(--v-muted); }
+.vitals .v-log-line.crit { color: var(--v-bad, #ef4444); background: rgba(239,68,68,.06); }
+.vitals .v-log-ts { color: var(--v-muted); opacity: .65; margin-right: 8px; }
+.vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: 11px; color: var(--v-muted); }
+.vitals .v-ai-agent.warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+
 /* Grids --------------------------------------------------------------------*/
 
 .vitals .v-cards {

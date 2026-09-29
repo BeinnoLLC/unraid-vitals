@@ -361,6 +361,7 @@ function App() {
   var s4 = useState('loading'), status = s4[0], setStatus = s4[1];
   var s5 = useState(null), daily = s5[0], setDaily = s5[1];
   var s6 = useState([]), findings = s6[0], setFindings = s6[1];
+  var s7 = useState(false), drawerOpen = s7[0], setDrawerOpen = s7[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
@@ -417,7 +418,10 @@ function App() {
           h('option', { value: 360 }, 'Last 6 hours'),
           h('option', { value: 1440 }, 'Last 24 hours')),
         h('button', { class: 'v-btn', onClick: function () { load(true); } },
-          h('i', { class: 'fa fa-refresh' }), ' Refresh'))),
+          h('i', { class: 'fa fa-refresh' }), ' Refresh'),
+        h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
+          onClick: function () { setDrawerOpen(!drawerOpen); } },
+          h('i', { class: 'fa fa-file-text-o' }), ' Logs'))),
 
     h('div', { class: 'v-tabs' },
       TABS.map(function (t) {
@@ -440,7 +444,78 @@ function App() {
         : tab === 'settings' ? h(SettingsTab, {}) : null),
 
     h('div', { class: 'v-foot' },
-      'unraid-vitals · samples retained on flash'));
+      'unraid-vitals · samples retained on flash'),
+    h(LogDrawer, { open: drawerOpen, onClose: function () { setDrawerOpen(false); } }));
+}
+
+/* ------------------------------------------------------------ log drawer */
+
+var LOG_LEVEL_RE = /\b(panic|emerg|critical|crit|alert|error|err|fail(?:ed|ure)?|fatal|denied|refused|timeout(?:d| out)?|offline|corrupt|unrecoverable|segfault|oom|out of memory|i\/o error|reset|unhealthy|exited|killed|abort(?:ed)?)\b/i;
+
+function LogDrawer(P) {
+  var s1 = useState('syslog'); var src = s1[0], setSrc = s1[1];
+  var s2 = useState(null); var data = s2[0], setData = s2[1];
+  var s3 = useState(true); var criticalOnly = s3[0], setCriticalOnly = s3[1];
+  var s4 = useState(''); var q = s4[0], setQ = s4[1];
+  var s5 = useState(true); var autoScroll = s5[0], setAutoScroll = s5[1];
+  var bodyRef = useRef(null);
+
+  var loadLogs = function (source) {
+    fetch(ENDPOINT + '?action=logs&source=' + encodeURIComponent(source) + '&lines=500', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setData(j); })
+      .catch(function () { setData({ entries: [], error: 'fetch failed' }); });
+  };
+  useEffect(function () { loadLogs(src); }, [src]);
+  useEffect(function () {
+    if (!P.open) return;
+    var iv = setInterval(function () { loadLogs(src); }, 20000);
+    return function () { clearInterval(iv); };
+  }, [P.open, src]);
+
+  var entries = (data && data.entries) || [];
+  var filtered = entries.filter(function (e) {
+    if (criticalOnly && !LOG_LEVEL_RE.test(e.line)) return false;
+    if (q && e.line.toLowerCase().indexOf(q.toLowerCase()) === -1) return false;
+    return true;
+  });
+
+  useEffect(function () {
+    if (autoScroll && bodyRef.current) bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+  }, [filtered.length, autoScroll]);
+
+  var sources = (data && data.sources) || [{ id: 'syslog', label: 'System (syslog)' }, { id: 'dmesg', label: 'Kernel (dmesg)' }, { id: 'docker', label: 'Docker daemon' }];
+  var nCrit = entries.filter(function (e) { return LOG_LEVEL_RE.test(e.line); }).length;
+
+  return P.open ? h('div', null,
+    h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
+    h('div', { class: 'v-drawer' },
+      h('div', { class: 'v-drawer-head' },
+        h('i', { class: 'fa fa-file-text-o' }),
+        h('span', { class: 'v-drawer-title' }, 'System logs'),
+        h('span', { class: 'v-ai-agent' + (nCrit ? ' warn' : '') }, nCrit + ' critical'),
+        h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
+      h('div', { class: 'v-drawer-tools' },
+        h('select', { class: 'v-select', value: src, onChange: function (e) { setSrc(e.target.value); setData(null); } },
+          sources.map(function (s) { return h('option', { key: s.id, value: s.id }, s.label); })),
+        h('input', { class: 'v-input v-drawer-q', placeholder: 'filter…', value: q,
+          onInput: function (e) { setQ(e.target.value); } }),
+        h('button', { class: 'v-chip' + (criticalOnly ? ' on' : ''), style: 'border-radius:6px',
+          onClick: function () { setCriticalOnly(!criticalOnly); } }, 'critical only'),
+        h('button', { class: 'v-chip' + (autoScroll ? ' on' : ''), style: 'border-radius:6px',
+          onClick: function () { setAutoScroll(!autoScroll); } }, 'follow tail')),
+      h('div', { class: 'v-drawer-body', ref: bodyRef },
+        !data ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Loading log…')
+        : data.error ? h('div', { class: 'v-empty' }, data.error)
+        : !filtered.length ? h('div', { class: 'v-empty' }, criticalOnly || q ? 'No matching lines in this view.' : 'Log is empty.')
+        : filtered.map(function (e, i) {
+            var crit = LOG_LEVEL_RE.test(e.line);
+            return h('div', { key: i, class: 'v-log-line' + (crit ? ' crit' : '') },
+              e.ts ? h('span', { class: 'v-log-ts' }, e.ts) : null,
+              h('span', { class: 'v-log-msg' }, e.line));
+          })),
+      h('div', { class: 'v-drawer-foot' },
+        filtered.length + ' of ' + entries.length + ' lines · newest at the bottom · refreshes every 20 s'))) : null;
 }
 
 /* ------------------------------------------------------------ dashboard */
@@ -965,8 +1040,76 @@ function HwTab(P) {
   var gl = (!Array.isArray(gpu) && gpu.available !== false && gpu.util != null) ? gpu
          : (Array.isArray(gpu) && gpu.length ? gpu[0] : null);
 
+  /* hwmon sensors: current values + ring time-series per sensor id. */
+  var sensors = d.sensors || { temps: [], fans: [], pwms: [] };
+  var tempSeries = pts.some(function (p) { return p.sensors_t && Object.keys(p.sensors_t).length; });
+  var fanSeries = pts.some(function (p) { return p.sensors_f && Object.keys(p.sensors_f).length; });
+  var sensorMeta = {};   // id -> {label, chip, max, crit}
+  (sensors.temps || []).forEach(function (t) { sensorMeta[t.id] = t; });
+  var topTempIds = (sensors.temps || []).slice(0, 4).map(function (t) { return t.id; });
+  var topFanIds = (sensors.fans || []).slice(0, 4).map(function (f) { return f.id; });
+  var PAL_T = ['v-temp', 'v-cpu', 'v-net', 'v-gpu'];
+  var lvl = function (t) {
+    if (t.crit != null && t.value >= t.crit) return 'crit';
+    if (t.max != null && t.value >= t.max) return 'warn';
+    if (t.value >= 60) return 'warn';
+    if (t.value >= 75) return 'crit';
+    return 'ok';
+  };
+
   return h('div', null,
     h(AiFindingsPanel, { findings: P.findings, agents: ['thermal', 'general'] }),
+    h(Panel, { title: 'Temperatures', span2: true,
+      hint: (sensors.temps || []).length + ' sensors — thresholds are chip-reported where available' },
+      !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
+      : h('div', { class: 'v-sensor-grid' },
+          sensors.temps.map(function (t) {
+            return h('div', { key: t.id, class: 'v-sensor v-temp-' + lvl(t), title:
+              (t.crit != null ? 'chip crit: ' + t.crit + '°C' : '') +
+              (t.max != null ? (t.crit != null ? ' · ' : '') + 'chip max: ' + t.max + '°C' : '') },
+              h('div', { class: 'v-sensor-val' }, t.value != null ? t.value.toFixed(1) + '°' : '—'),
+              h('div', { class: 'v-sensor-label', title: t.chip }, t.label),
+              h('div', { class: 'v-sensor-th' },
+                t.max != null || t.crit != null
+                  ? (t.max != null ? 'max ' + t.max + '°' : '') + (t.crit != null ? (t.max != null ? ' · crit ' : 'crit ') + t.crit + '°' : '')
+                  : '\u00A0'));
+          }))),
+    tempSeries ? h(Panel, { title: 'Temperature history', span2: true, hint: 'hottest 4 sensors, last 24 h' },
+      h(Chart, {
+        series: topTempIds.map(function (id, i) {
+          return { name: (sensorMeta[id] || {}).label || id, color: PAL[PAL_T[i % 4]],
+            points: pts.map(function (p) { return [p.t, p.sensors_t ? p.sensors_t[id] : null]; }) };
+        }),
+        max: Math.max(90, Math.ceil(Math.max.apply(null, [60].concat(
+          topTempIds.map(function (id) {
+            var m = sensorMeta[id];
+            return m && m.max ? m.max : 0;
+          })))) ), height: 180, yFmt: function (v) { return v + '°C'; }
+      })) : null,
+    h(Panel, { title: 'Fans', span2: true,
+      hint: (sensors.fans || []).length + ' fans · PWM duty from the controller' },
+      !(sensors.fans || []).length ? h('div', { class: 'v-empty' }, 'No hwmon fan sensors found (server fans on a controller this kernel does not expose, or none present).')
+      : h('table', null,
+          h('tr', null, h('th', null, 'Fan'), h('th', null, 'RPM'), h('th', null, 'Duty'), h('th', null, 'Mode')),
+          sensors.fans.map(function (f) {
+            var pwm = (sensors.pwms || []).filter(function (p) { return p.chip === f.chip; });
+            var duty = pwm.length ? pwm[0].duty_pct : null;
+            var mode = pwm.length ? pwm[0].mode : null;
+            return h('tr', { key: f.id },
+              h('td', { class: 'v-name' }, f.label),
+              h('td', { class: 'num' },
+                f.rpm > 0 ? f.rpm + ' RPM'
+                  : h('span', { class: 'muted' }, '0 — unused or stalled')),
+              h('td', { class: 'num' }, duty != null ? duty + '%' : '—'),
+              h('td', { class: 'muted' }, mode || '—'));
+          })),
+      fanSeries ? h(Chart, {
+        series: topFanIds.map(function (id, i) {
+          return { name: id.split('/').pop(), color: PAL[PAL_T[i % 4]],
+            points: pts.map(function (p) { return [p.t, p.sensors_f ? p.sensors_f[id] : null]; }) };
+        }),
+        height: 140, yFmt: function (v) { return Math.round(v) + ' RPM'; }
+      }) : null),
     h(Panel, { title: 'Virtual machines', span2: true,
       hint: d.vms && d.vms.available ? d.vms.running + ' running / ' + d.vms.count + ' total' : '' },
       h(VmTable, { vms: d.vms })),

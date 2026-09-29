@@ -308,6 +308,140 @@ function v_cpu_topology(): array {
   return ['threads' => count($cpus), 'cores' => $cores, 'sockets' => $sockets, 'map' => $cpus];
 }
 
+/* ------------------------------------------------------------------ sensors */
+
+/**
+ * Generic hwmon reader — temps, fans, and PWM duty for every chip the kernel
+ * exposes (CPU, motherboard super-I/O, NVMe composite sensors, etc.).
+ * Deliberately reads /sys/class/hwmon directly instead of shelling out to
+ * `sensors` (lm-sensors) so this works on any Unraid box, sensors package
+ * installed or not — this plugin is generic, not tuned to one server.
+ *
+ * Per hwmon convention: raw temp values are millidegrees C (divide by 1000);
+ * pwm* is 0-255 (rescaled to a 0-100% duty); fan*_input is already RPM.
+ * _max/_min/_crit files, where the driver exposes them, become chip-reported
+ * thresholds so the UI can show "this vendor considers X the ceiling" instead
+ * of only the user's own configured alert level.
+ */
+function v_sensors(): array {
+  $base = '/sys/class/hwmon';
+  $temps = []; $fans = []; $pwms = [];
+  if (!is_dir($base)) return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms];
+
+  foreach (glob($base . '/hwmon*') ?: [] as $dir) {
+    $chip = trim((string)@file_get_contents($dir . '/name')) ?: basename($dir);
+
+    foreach (glob($dir . '/temp*_input') ?: [] as $f) {
+      if (!preg_match('#/temp(\d+)_input$#', $f, $m)) continue;
+      $n = $m[1];
+      $raw = trim((string)@file_get_contents($f));
+      if ($raw === '' || !is_numeric($raw)) continue;
+      $val = (float)$raw / 1000;
+      // Unrealistic readings: 127/-3C = classic disconnected-sensor sentinels,
+      // anything outside -20..120C is not a real temperature. Threshold files
+      // can hold driver garbage too (seen: 65261.85) — same sanity bound.
+      if ($val < -20 || $val > 120) continue;
+      $label = trim((string)@file_get_contents("$dir/temp{$n}_label")) ?: "temp$n";
+      $max  = is_file("$dir/temp{$n}_max")  ? (float)file_get_contents("$dir/temp{$n}_max") / 1000 : null;
+      $crit = is_file("$dir/temp{$n}_crit") ? (float)file_get_contents("$dir/temp{$n}_crit") / 1000 : null;
+      if ($max !== null && ($max < -20 || $max > 120))  $max = null;
+      if ($crit !== null && ($crit < -20 || $crit > 120)) $crit = null;
+      $temps[] = [
+        'id' => "$chip/temp$n", 'chip' => $chip, 'label' => $label,
+        'value' => round($val, 1),
+        'max' => $max, 'crit' => $crit,
+      ];
+    }
+
+    foreach (glob($dir . '/fan*_input') ?: [] as $f) {
+      if (!preg_match('#/fan(\d+)_input$#', $f, $m)) continue;
+      $n = $m[1];
+      $raw = trim((string)@file_get_contents($f));
+      if ($raw === '' || !is_numeric($raw)) continue;
+      $label = trim((string)@file_get_contents("$dir/fan{$n}_label")) ?: "$chip fan$n";
+      $min = is_file("$dir/fan{$n}_min") ? (int)file_get_contents("$dir/fan{$n}_min") : null;
+      $fans[] = [
+        'id' => "$chip/fan$n", 'chip' => $chip, 'label' => $label,
+        'rpm' => (int)$raw, 'min' => $min,
+        // Stalled = reads 0. Whether that is meaningful (was spinning before)
+        // is decided by the alert layer, which has history; the UI renders
+        // '0 RPM' plainly without crying wolf on unused headers.
+        'stalled' => (int)$raw === 0,
+      ];
+    }
+
+    foreach (glob($dir . '/pwm[0-9]*') ?: [] as $f) {
+      if (!preg_match('#/pwm(\d+)$#', $f, $m)) continue;
+      $n = $m[1];
+      $raw = trim((string)@file_get_contents($f));
+      if ($raw === '' || !is_numeric($raw)) continue;
+      $enable = is_file("$dir/pwm{$n}_enable") ? (int)file_get_contents("$dir/pwm{$n}_enable") : null;
+      $pwms[] = [
+        'id' => "$chip/pwm$n", 'chip' => $chip,
+        'duty_pct' => round(((float)$raw / 255) * 100, 0),
+        'mode' => $enable === 0 ? 'manual/full' : ($enable === 1 ? 'manual' : ($enable === 2 ? 'auto' : null)),
+      ];
+    }
+  }
+
+  usort($temps, fn($a, $b) => $b['value'] <=> $a['value']);
+  usort($fans, fn($a, $b) => $b['rpm'] <=> $a['rpm']);
+  return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms];
+}
+
+/* --------------------------------------------------------------------- logs */
+
+/**
+ * Curated system-log reader for the UI's critical-logs drawer.
+ *
+ * Only whitelisted sources are readable — the source parameter is a key into
+ * this list, never a file path from the client, so there is no traversal or
+ * arbitrary-read surface. Returns the newest lines last, with a best-effort
+ * syslog timestamp preserved per line when present.
+ */
+function v_log_sources(): array {
+  return [
+    'syslog' => ['label' => 'System (syslog)', 'file' => '/var/log/syslog'],
+    // NB: no shell grouping here — v_run() prefixes `timeout N`, which cannot
+    // wrap a ( subshell ). The iso→legacy fallback is handled in v_logs().
+    'dmesg'  => ['label' => 'Kernel (dmesg)',  'cmd'  => 'dmesg --time-format iso 2>/dev/null'],
+    'dmesg2' => ['label' => 'Kernel (dmesg)',  'cmd'  => 'dmesg 2>/dev/null'],
+    'docker' => ['label' => 'Docker daemon',   'file' => '/var/log/docker.log'],
+  ];
+}
+
+function v_logs(string $source, int $lines = 200): array {
+  $sources = v_log_sources();
+  $lines = max(10, min(1000, $lines));
+  if (!isset($sources[$source])) return ['source' => $source, 'entries' => [], 'error' => 'unknown source'];
+
+  $raw = '';
+  if (isset($sources[$source]['file'])) {
+    $f = $sources[$source]['file'];
+    $raw = is_file($f) ? (string)shell_exec('tail -n ' . (int)$lines . ' ' . escapeshellarg($f) . ' 2>/dev/null') : '';
+  } else {
+    $raw = v_run($sources[$source]['cmd'] . ' 2>/dev/null | tail -n ' . (int)$lines, 8);
+    // dmesg --time-format iso unsupported on old kernels → empty output, retry legacy.
+    if ($raw === '' && isset($sources[$source . '2'])) {
+      $raw = v_run($sources[$source . '2']['cmd'] . ' 2>/dev/null | tail -n ' . (int)$lines, 8);
+    }
+  }
+
+  $entries = [];
+  foreach (explode("\n", $raw) as $line) {
+    if ($line === '') continue;
+    // syslog style: "Sep 29 04:54:22 host proc[pid]: msg" — keep ts+rest.
+    $ts = null;
+    if (preg_match('/^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(.*)$/', $line, $m)) {
+      $ts = $m[1]; $line = $m[2];
+    } elseif (preg_match('/^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+(.*)$/', $line, $m)) {
+      $ts = $m[1]; $line = $m[2];
+    }
+    $entries[] = ['ts' => $ts, 'line' => $line];
+  }
+  return ['source' => $source, 'entries' => $entries];
+}
+
 /* -------------------------------------------------------------------- docker */
 
 function v_docker(): array {
@@ -464,6 +598,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'system'  => v_system(),
     'cpu'     => ['cores' => [], 'total' => null],
     'cpu_topology' => v_cpu_topology(),
+    'sensors' => v_sensors(),
     'mem'     => v_mem(),
     'load'    => v_load(),
     'array'   => v_array_disks(),

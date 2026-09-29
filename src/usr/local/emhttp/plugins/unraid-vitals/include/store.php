@@ -67,6 +67,12 @@ function v_point(array $snap): array {
   foreach ($snap['array']['data'] ?? [] as $d)   if ($d['temp'] !== null) $temps[] = $d['temp'];
   foreach ($snap['array']['parity'] ?? [] as $d) if ($d['temp'] !== null) $temps[] = $d['temp'];
 
+  // Sensor (hwmon) series — separate from disk temps above: this is
+  // CPU/motherboard/NVMe temps and fan RPMs, charted on the Hardware tab.
+  $sTemps = []; $sFans = [];
+  foreach ($snap['sensors']['temps'] ?? [] as $t) $sTemps[$t['id']] = $t['value'];
+  foreach ($snap['sensors']['fans'] ?? [] as $f)  $sFans[$f['id']]  = $f['rpm'];
+
   $netRx = $netTx = 0.0;
   $net = [];
   foreach ($snap['net'] ?? [] as $if => $n) {
@@ -115,6 +121,8 @@ function v_point(array $snap): array {
     'ctr'      => $containers,
     'smart'    => $smart,
     'gpu_hist' => $gpu,
+    'sensors_t' => $sTemps,
+    'sensors_f' => $sFans,
   ];
 }
 
@@ -280,6 +288,35 @@ function v_check_alerts(array $snap): array {
           'Disk ' . $s['name'] . ' reports ' . $s[$k] . ' ' . $label . '. Total is a lifetime counter; watch for growth.', 'alert');
       }
     }
+  }
+
+  // hwmon sensor temps — only when the chip itself exposes a threshold
+  // (temp_max/temp_crit). Using the vendor threshold rather than the global
+  // ALERT_TEMP avoids false alarms on sensors that legitimately run hot.
+  foreach ($snap['sensors']['temps'] ?? [] as $t) {
+    if ($t['value'] === null) continue;
+    foreach ([['crit', 'alert'], ['max', 'warning']] as [$k, $imp]) {
+      if ($t[$k] !== null && $t[$k] > 0 && $t['value'] >= $t[$k]) {
+        $raise('sensor_' . $k . '_' . $t['id'],
+          'Vitals: ' . $t['label'] . ' at ' . $t['value'] . '°C (' . $k . ')',
+          'Sensor ' . $t['label'] . ' on ' . $t['chip'] . ' is at ' . $t['value'] .
+          '°C, at or above the chip ' . $k . ' threshold of ' . $t[$k] . '°C.', $imp);
+      }
+    }
+  }
+
+  // Fan stalls — a fan that reported RPM before and now reads 0 usually means
+  // a dead/failing fan or a severed cable, not a deliberate stop.
+  foreach ($snap['sensors']['fans'] ?? [] as $f) {
+    $key = 'fan_stall_' . $f['id'];
+    if ($f['rpm'] > 0) { unset($state[$key]); continue; }
+    if (empty($state['fan_seen_' . $f['id']])) continue;   // never spun: header may be unused
+    $raise($key, 'Vitals: fan stalled — ' . $f['label'],
+      'Fan ' . $f['label'] . ' on ' . $f['chip'] . ' reported ' . $f['rpm'] .
+      ' RPM (was spinning earlier). Check the fan and its header/cable.', 'alert');
+  }
+  foreach ($snap['sensors']['fans'] ?? [] as $f) {
+    if ($f['rpm'] > 0) $state['fan_seen_' . $f['id']] = 1;
   }
 
   // Containers that were running and have stopped. A container that is simply

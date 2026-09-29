@@ -155,6 +155,17 @@ try {
     exit;
   }
 
+  if ($action === 'logs') {
+    $source = (string)($_GET['source'] ?? 'syslog');
+    $lines = (int)($_GET['lines'] ?? 200);
+    $data = v_logs($source, $lines);
+    $sources = array_filter(v_log_sources(), fn($k) => !str_ends_with($k, '2'), ARRAY_FILTER_USE_KEY);
+    echo json_encode(['ok' => true] + $data + ['sources' => array_map(
+      fn($k, $s) => ['id' => $k, 'label' => $s['label']], array_keys($sources), $sources)],
+      JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   $snap = v_latest();
   if (!$snap) $snap = v_tick(true);
   $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
