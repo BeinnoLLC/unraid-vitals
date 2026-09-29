@@ -138,6 +138,28 @@ function Donut(P) {
       })));
 }
 
+/* Single-value arc gauge — ring showing pct progress toward a threshold,
+   with a bold center readout. Matches the "% ring with big number" gauge
+   style from the reference dashboards, driven by real headroom-to-threshold
+   data instead of a decorative percentage. P: {pct(0-100), color, big, small,
+   size, thickness}. */
+function Gauge(P) {
+  var size = P.size || 96, th = P.thickness || 9, r = (size - th) / 2, c = 2 * Math.PI * r;
+  var pct = Math.max(0, Math.min(100, P.pct == null ? 0 : P.pct));
+  var dash = (pct / 100) * c;
+  return h('div', { class: 'v-gauge', style: 'width:' + size + 'px;height:' + size + 'px' },
+    h('svg', { width: size, height: size, viewBox: '0 0 ' + size + ' ' + size },
+      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: 'rgba(127,127,127,.15)', 'stroke-width': th }),
+      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: P.color || PAL['v-accent'],
+        'stroke-width': th, 'stroke-linecap': 'round',
+        'stroke-dasharray': dash + ' ' + (c - dash),
+        transform: 'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')',
+        style: 'transition:stroke-dasharray .4s ease' })),
+    h('div', { class: 'v-gauge-center' },
+      h('div', { class: 'v-gauge-big' }, P.big || ''),
+      P.small ? h('div', { class: 'v-gauge-small' }, P.small) : null));
+}
+
 /* Ranked horizontal bars. P: {rows:[{label,value(string),pct(0-100),color}], max} */
 function HBars(P) {
   var rows = P.rows || [];
@@ -1400,18 +1422,24 @@ function HwTab(P) {
     h(Panel, { title: 'Temperatures', span2: true,
       hint: (sensors.temps || []).length + ' sensors — headroom is distance to the chip threshold' },
       !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
-      : h('div', { class: 'v-sensor-grid' },
+      : h('div', { class: 'v-gauge-grid' },
           sensors.temps.map(function (t) {
             var hr = headroom(t);
-            return h('div', { key: t.id, class: 'v-sensor v-temp-' + lvl(t), title:
+            var ref = t.crit != null ? t.crit : (t.max != null ? t.max : null);
+            // Gauge fill = how far this reading has closed the gap toward its
+            // chip threshold (0% = cold, 100% = at/above crit or max). With
+            // no chip-reported threshold, fall back to the same 60/75 bands
+            // lvl() uses so the ring still means something.
+            var pct = ref != null ? (t.value / ref) * 100 : (t.value / 90) * 100;
+            var level = lvl(t);
+            var color = level === 'crit' ? '#f87171' : level === 'warn' ? '#f59e0b' : '#34d399';
+            return h('div', { key: t.id, class: 'v-gauge-tile v-temp-' + level, title:
               (t.crit != null ? 'chip crit: ' + t.crit + '°C' : '') +
               (t.max != null ? (t.crit != null ? ' · ' : '') + 'chip max: ' + t.max + '°C' : '') },
-              h('div', { class: 'v-sensor-val' }, t.value != null ? t.value.toFixed(1) + '°' : '—'),
-              h('div', { class: 'v-sensor-label', title: t.chip }, t.label),
-              hr != null
-                ? h('div', { class: 'v-sensor-th' }, h('b', { class: hr <= 5 ? 'crit' : hr <= 12 ? 'warn' : '' }, hr + '° headroom'),
-                    (t.crit != null ? ' · crit ' + t.crit + '°' : (t.max != null ? ' · max ' + t.max + '°' : '')))
-                : h('div', { class: 'v-sensor-th' }, '\u00A0'));
+              h(Gauge, { pct: pct, color: color, size: 92, thickness: 8,
+                big: t.value != null ? t.value.toFixed(1) + '°' : '—',
+                small: hr != null ? hr + '° left' : null }),
+              h('div', { class: 'v-sensor-label', title: t.chip }, t.label));
           }))),
     tempSeries ? h(Panel, { title: 'Temperature history', span2: true, hint: 'hottest 4 sensors, last 24 h' },
       h(Chart, {

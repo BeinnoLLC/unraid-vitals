@@ -146,6 +146,20 @@
 .vitals .v-temp-crit  { border-left-color: var(--v-bad, #ef4444); }
 .vitals .v-temp-crit .v-sensor-val { color: var(--v-bad, #ef4444); }
 
+/* gauge tiles (Temperatures tab) — arc ring with a bold center readout,
+   replaces the flat number tile so a sensor's proximity to its threshold
+   reads at a glance instead of requiring the tooltip. */
+.vitals .v-gauge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; }
+.vitals .v-gauge-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 6px 10px;
+  border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); }
+.vitals .v-gauge-tile .v-sensor-label { text-align: center; max-width: 100%; }
+.vitals .v-gauge { position: relative; flex: none; }
+.vitals .v-gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
+.vitals .v-gauge-big { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-gauge-small { font-size: 9.5px; color: var(--v-muted); margin-top: 1px; }
+.vitals .v-gauge-tile.v-temp-warn .v-gauge-big { color: #f59e0b; }
+.vitals .v-gauge-tile.v-temp-crit .v-gauge-big { color: var(--v-bad, #ef4444); }
+
 /* ---- right-side log drawer --------------------------------------------- */
 .vitals { position: relative; }
 .vitals .v-drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; }
