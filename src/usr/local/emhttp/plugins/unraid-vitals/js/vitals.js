@@ -689,37 +689,36 @@ function App() {
 
   return h('div', null,
     h('div', { class: 'v-hero' },
-      h('div', { class: 'v-title' },
-        h('h2', null, h('i', { class: 'fa fa-heartbeat' }), ' Vitals'),
-        d ? h('span', { class: 'v-sub' },
-              [d.system.name, d.system.version, d.system.cpu].filter(Boolean).join(' · ')) : null),
-      h('div', { class: 'v-actions' },
-        h('div', { class: 'v-actions-group' },
-          h('span', { class: 'v-stamp' },
-            h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
-            status === 'error' ? 'collection error'
-              : !d ? 'loading…'
-              : 'sample ' + ts(d.time) + ' · ' + d._age + 's ago'),
-          h('select', { class: 'v-select', value: range,
-            onChange: function (e) { setRange(+e.target.value); } },
-            h('option', { value: 60 }, 'Last hour'),
-            h('option', { value: 360 }, 'Last 6 hours'),
-            h('option', { value: 1440 }, 'Last 24 hours')),
-          h('button', { class: 'v-btn', onClick: function () { load(true); } },
-            h('i', { class: 'fa fa-refresh' }), ' Refresh')),
-        h('div', { class: 'v-actions-divider' }),
-        h('div', { class: 'v-actions-group' },
-          h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
-          h('button', { class: 'v-btn' + (drawerOpen ? ' primary' : ''), title: 'Critical system logs',
-            onClick: function () { setDrawerOpen(!drawerOpen); } },
-            h('i', { class: 'fa fa-file-text-o' }), ' Logs')))),
+      h('div', { class: 'v-hero-row' },
+        h('div', { class: 'v-title' },
+          h('i', { class: 'fa fa-heartbeat v-logo' }),
+          h('div', null,
+            h('h2', null, 'Vitals'),
+            h('span', { class: 'v-sub' },
+              h('span', { class: 'v-dot' + (status === 'error' || (d && d._age > 180) ? ' crit' : '') }),
+              status === 'error' ? 'collection error'
+                : !d ? 'loading…'
+                : [d.system.name, d.system.version].filter(Boolean).join(' · ') + ' · sampled ' + d._age + 's ago'))),
+        h('div', { class: 'v-toolbar' },
+          h('div', { class: 'v-seg', role: 'group', 'aria-label': 'Time range' },
+            [[60, '1h'], [360, '6h'], [1440, '24h']].map(function (o) {
+              return h('button', { key: o[0], class: 'v-seg-btn' + (range === o[0] ? ' active' : ''),
+                onClick: function () { setRange(o[0]); } }, o[1]);
+            })),
+          h('div', { class: 'v-iconbar' },
+            h('button', { class: 'v-ibtn', title: 'Refresh now', onClick: function () { load(true); } },
+              h('i', { class: 'fa fa-refresh' })),
+            h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
+            h('button', { class: 'v-ibtn' + (drawerOpen ? ' on' : ''), title: 'Critical system logs',
+              onClick: function () { setDrawerOpen(!drawerOpen); } },
+              h('i', { class: 'fa fa-file-text-o' }))))),
 
-    h('div', { class: 'v-tabs' },
-      TABS.map(function (t) {
-        return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''),
-          onClick: function () { setTab(t.id); } },
-          h('i', { class: 'fa ' + t.icon }), h('span', null, t.label));
-      })),
+      h('div', { class: 'v-tabs' },
+        TABS.map(function (t) {
+          return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''),
+            onClick: function () { setTab(t.id); } },
+            h('i', { class: 'fa ' + t.icon }), h('span', null, t.label));
+        }))),
 
     h('div', { class: 'v-body' },
       !d ? h('div', { class: 'v-panel' }, h('div', { class: 'v-empty' }, 'Loading…'))
@@ -954,9 +953,9 @@ function AiBell(P) {
   var worst = interesting.reduce(function (w, f) {
     return (SEV_ORDER[f.severity] ?? 5) < (SEV_ORDER[w] ?? 5) ? f.severity : w;
   }, 'info');
-  return h('button', { class: 'v-btn v-bell' + (P.open ? ' primary' : '') + (interesting.length ? ' has-badge' : ''),
-      title: 'AI health findings', onClick: P.onClick },
-    h('i', { class: 'fa fa-magic' }), ' Findings',
+  return h('button', { class: 'v-ibtn v-bell' + (P.open ? ' on' : '') + (interesting.length ? ' has-badge' : ''),
+      title: 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''), onClick: P.onClick },
+    h('i', { class: 'fa fa-magic' }),
     interesting.length ? h('span', { class: 'v-badge v-badge-' + worst }, interesting.length) : null);
 }
 

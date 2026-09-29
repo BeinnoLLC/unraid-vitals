@@ -50,33 +50,52 @@
 .vitals * { box-sizing: border-box; }
 
 /* Header ------------------------------------------------------------------ */
+/* One card: identity row on top, tab strip as the card's bottom edge —
+   the pattern in the reference dashboards (Grafana/Homepage-style): the
+   header IS the navigation surface, not a banner sitting above it. */
 
 .vitals .v-hero {
-  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
-  gap: 14px; margin-bottom: var(--v-gap);
+  margin-bottom: var(--v-gap);
   background: var(--v-card); border: 1px solid var(--v-border); border-radius: var(--v-radius);
-  padding: 14px 18px;
+  overflow: hidden;
 }
-.vitals .v-title { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
-.vitals .v-title h2 {
-  margin: 0; font-size: var(--v-fs-xl); font-weight: 650; letter-spacing: -.02em;
-  display: flex; align-items: center; gap: 10px;
+.vitals .v-hero-row {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 12px 18px; padding: 12px 16px;
 }
-.vitals .v-title h2 i {
-  width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: center; font-size: 16px;
+.vitals .v-title { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.vitals .v-title h2 { margin: 0; font-size: var(--v-fs-xl); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
+.vitals .v-logo {
+  width: 36px; height: 36px; border-radius: 10px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; font-size: 17px;
   background: color-mix(in srgb, var(--v-accent) 16%, transparent); color: var(--v-accent-fg);
 }
-.vitals .v-sub { opacity: .6; font-size: var(--v-fs-sm); }
-.vitals .v-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
-/* Two clusters (status+range+refresh, then alerts+logs) instead of six
-   loose elements in a row — a thin vertical divider is enough to read as
-   two groups without a heavier visual treatment. */
-.vitals .v-actions-group { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.vitals .v-actions-divider { width: 1px; align-self: stretch; min-height: 22px; background: var(--v-border); }
-@media (max-width: 720px) { .vitals .v-actions-divider { display: none; } }
-.vitals .v-stamp { opacity: .55; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.vitals .v-stamp .v-dot { animation: v-pulse 2s infinite; }
+.vitals .v-sub {
+  display: flex; align-items: center; gap: 7px; margin-top: 2px;
+  opacity: .62; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.vitals .v-sub .v-dot { animation: v-pulse 2s infinite; }
+
+.vitals .v-toolbar { display: flex; align-items: center; gap: 12px; }
+/* Icon-only actions share one bordered strip, so four controls read as a
+   single toolbar rather than four floating labeled buttons. */
+.vitals .v-iconbar { display: inline-flex; border: 1px solid var(--v-border); border-radius: var(--v-radius-sm); overflow: hidden; }
+.vitals .v-ibtn {
+  position: relative; width: 34px; height: 30px; border: none; background: var(--v-card); color: var(--v-muted);
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 13px;
+  transition: background .14s ease, color .14s ease;
+}
+.vitals .v-ibtn + .v-ibtn { border-left: 1px solid var(--v-border); }
+.vitals .v-ibtn:hover { background: var(--v-card-hover); color: inherit; }
+.vitals .v-ibtn.on { background: var(--v-accent); color: #fff; }
+.vitals .v-ibtn .v-badge { position: absolute; top: 3px; right: 3px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; }
+.vitals .v-hero .v-tabs { margin: 0; padding: 0 8px; border-top: 1px solid var(--v-border); border-bottom: none; gap: 0; }
+.vitals .v-hero .v-tab {
+  border: none; border-radius: 0; margin: 0; padding: 10px 14px; background: transparent;
+  box-shadow: inset 0 -2px 0 transparent;
+}
+.vitals .v-hero .v-tab:hover { background: var(--v-card-hover); }
+.vitals .v-hero .v-tab.on { background: transparent; box-shadow: inset 0 -2px 0 var(--v-accent); }
 
 .vitals .v-btn, .vitals .v-select {
   background: var(--v-card); border: 1px solid var(--v-border); color: inherit;
