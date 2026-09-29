@@ -251,7 +251,29 @@ function VmActions(P) {
     isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
 }
 
-function TopTable(P) {  var list = P.d.top || [];
+function VmTable(P) {
+  var vms = P.vms || {};
+  if (!vms.available) return h('div', { class: 'v-empty' },
+    h('i', { class: 'fa fa-info-circle' }), 'virsh not available on this system.');
+  var list = vms.list || [];
+  if (!list.length) return h('div', { class: 'v-empty' }, 'No virtual machines defined.');
+  return h(Table, null,
+    h('tr', null, h('th', null, 'VM'), h('th', null, 'State'), h('th', { class: 'num' }, 'vCPUs'),
+      h('th', { class: 'num' }, 'Memory'), h('th', null, 'Autostart'), h('th', null, 'Actions')),
+    list.map(function (v) {
+      var run = v.state === 'running';
+      return h('tr', { key: v.name },
+        h('td', { class: 'v-name' }, v.name),
+        h('td', null, h(Pill, { kind: run ? 'run' : 'stop' }, v.state)),
+        h('td', { class: 'num' }, v.cpus == null ? '—' : String(v.cpus)),
+        h('td', { class: 'num' }, v.mem_kib ? bytes(v.mem_kib * 1024) : '—'),
+        h('td', { class: 'muted' }, v.autostart ? 'yes' : 'no'),
+        h('td', null, h(VmActions, { name: v.name, state: v.state })));
+    }));
+}
+
+function TopTable(P) {
+  var list = P.d.top || [];
   if (!list.length) return h('div', { class: 'v-empty' }, 'No process data.');
   return h(Table, null,
     h('tr', null, h('th', null, 'Process'), h('th', { class: 'num' }, 'CPU'),

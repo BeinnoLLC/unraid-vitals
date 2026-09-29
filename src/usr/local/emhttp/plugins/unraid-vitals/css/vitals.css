@@ -88,6 +88,8 @@
   width: 90px; font-variant-numeric: tabular-nums;
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
+.vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
+.vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
 
 /* Grids --------------------------------------------------------------------*/
 
