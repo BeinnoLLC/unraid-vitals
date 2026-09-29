@@ -77,6 +77,17 @@
 }
 .vitals .v-btn:hover, .vitals .v-select:hover { border-color: var(--v-accent); background: var(--v-card-hover); }
 .vitals .v-btn:focus-visible, .vitals .v-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; }
+.vitals .v-btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: #fff; font-weight: 600; }
+.vitals .v-btn.primary:hover { filter: brightness(1.08); background: var(--v-accent); }
+.vitals .v-btn.danger { border-color: var(--v-bad); color: var(--v-bad); }
+.vitals .v-btn.danger:hover { background: color-mix(in srgb, var(--v-bad) 12%, transparent); }
+.vitals .v-btn:disabled, .vitals .v-btn[disabled] { opacity: .55; cursor: not-allowed; }
+.vitals .v-input {
+  background: var(--v-card); border: 1px solid var(--v-border); color: inherit;
+  border-radius: var(--v-radius-sm); padding: 5px 9px; font-size: var(--v-fs-sm);
+  width: 90px; font-variant-numeric: tabular-nums;
+}
+.vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 
 /* Grids --------------------------------------------------------------------*/
 

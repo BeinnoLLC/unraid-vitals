@@ -166,7 +166,8 @@ function ContainerTable(P) {
   return h(Table, null,
     h('tr', null, h('th', null, 'Container'), h('th', null, 'State'), h('th', null, 'Image'),
       h('th', { class: 'num' }, 'CPU'), h('th', { class: 'num' }, 'Memory'),
-      h('th', { class: 'num' }, 'Mem %'), h('th', null, 'Uptime')),
+      h('th', { class: 'num' }, 'Mem %'), h('th', null, 'Uptime'),
+      P.compact ? null : h('th', null, 'Actions')),
     list.map(function (c) {
       var run = c.state === 'running';
       return h('tr', { key: c.name },
@@ -176,12 +177,81 @@ function ContainerTable(P) {
         h('td', { class: 'num ' + lvl(c.cpu, 150, 300) }, c.cpu == null ? '—' : c.cpu.toFixed(1) + '%'),
         h('td', { class: 'num' }, c.mem || bytes(c.mem_bytes)),
         h('td', { class: 'num' }, c.mem_pct == null ? '—' : c.mem_pct.toFixed(2) + '%'),
-        h('td', { class: 'muted' }, (c.status || '').replace(/^Up\s*/, '') || '—'));
+        h('td', { class: 'muted' }, (c.status || '').replace(/^Up\s*/, '') || '—'),
+        P.compact ? null : h('td', null, h(DockerActions, { name: c.name, running: run })));
     }));
 }
 
-function TopTable(P) {
-  var list = P.d.top || [];
+/* --------------------------------------------------------------- actions */
+
+/** Fire a control action (docker/VM) with a confirm step for anything that
+ *  interrupts a running service, CSRF token attached, and a brief inline
+ *  status while it runs. `onDone` lets the caller trigger a data refresh. */
+function useAction() {
+  var s = useState({}); var busy = s[0], setBusy = s[1];
+  var run = function (op, target, opts) {
+    opts = opts || {};
+    if (opts.confirm && !window.confirm(opts.confirm)) return;
+    setBusy(function (b) { var n = merge(b, {}); n[target] = op; return n; });
+    var body = new URLSearchParams({ op: op, target: target, csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT.replace('/ajax.php', '/actions.php'), { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setBusy(function (b) { var n = merge(b, {}); delete n[target]; return n; });
+        if (!j || !j.ok) window.alert('Action failed: ' + ((j && j.error) || 'unknown error'));
+        if (opts.onDone) opts.onDone(j);
+      })
+      .catch(function (e) {
+        setBusy(function (b) { var n = merge(b, {}); delete n[target]; return n; });
+        window.alert('Action failed: ' + e.message);
+      });
+  };
+  return [busy, run];
+}
+
+function DockerActions(P) {
+  var s = useAction(); var busy = s[0], run = s[1];
+  var isBusy = !!busy[P.name];
+  return h('div', { class: 'v-row-actions' },
+    P.running
+      ? [
+          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Restart',
+            onClick: function () { run('docker_restart', P.name, { confirm: 'Restart ' + P.name + '?' }); } },
+            h('i', { class: 'fa fa-refresh' })),
+          h('button', { key: 'stop', class: 'v-btn xs danger', disabled: isBusy, title: 'Stop',
+            onClick: function () { run('docker_stop', P.name, { confirm: 'Stop ' + P.name + '?' }); } },
+            h('i', { class: 'fa fa-stop' }))
+        ]
+      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start',
+          onClick: function () { run('docker_start', P.name, {}); } },
+          h('i', { class: 'fa fa-play' })),
+    isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
+}
+
+function VmActions(P) {
+  var s = useAction(); var busy = s[0], run = s[1];
+  var isBusy = !!busy[P.name];
+  var running = P.state === 'running';
+  return h('div', { class: 'v-row-actions' },
+    running
+      ? [
+          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Reboot (graceful)',
+            onClick: function () { run('vm_restart', P.name, { confirm: 'Reboot VM ' + P.name + '?' }); } },
+            h('i', { class: 'fa fa-refresh' })),
+          h('button', { key: 'stop', class: 'v-btn xs', disabled: isBusy, title: 'Shutdown (graceful)',
+            onClick: function () { run('vm_stop', P.name, { confirm: 'Shut down VM ' + P.name + ' gracefully?' }); } },
+            h('i', { class: 'fa fa-power-off' })),
+          h('button', { key: 'force', class: 'v-btn xs danger', disabled: isBusy, title: 'Force off',
+            onClick: function () { run('vm_force_stop', P.name, { confirm: 'Force off VM ' + P.name + '? Unsaved data will be lost, same as pulling the power.' }); } },
+            h('i', { class: 'fa fa-bolt' }))
+        ]
+      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start',
+          onClick: function () { run('vm_start', P.name, {}); } },
+          h('i', { class: 'fa fa-play' })),
+    isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
+}
+
+function TopTable(P) {  var list = P.d.top || [];
   if (!list.length) return h('div', { class: 'v-empty' }, 'No process data.');
   return h(Table, null,
     h('tr', null, h('th', null, 'Process'), h('th', { class: 'num' }, 'CPU'),
@@ -256,7 +326,8 @@ var TABS = [
   { id: 'net',    label: 'Network',       icon: 'fa-exchange' },
   { id: 'sys',    label: 'System',        icon: 'fa-microchip' },
   { id: 'shares', label: 'Shares',        icon: 'fa-folder-open-o' },
-  { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' }
+  { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' },
+  { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
 ];
 
 function App() {
@@ -289,6 +360,7 @@ function App() {
   }, []);
 
   var d = payload && payload.data;
+  if (d && d.csrf_token) window.__V_CSRF__ = d.csrf_token;
   var ring = (payload && payload.ring) || [];
   var pts = ring.slice(-range);
   var props = { d: d, pts: pts, range: range, daily: daily };
@@ -328,11 +400,11 @@ function App() {
         : tab === 'net'    ? h(NetTab,    props)
         : tab === 'sys'    ? h(SysTab,    props)
         : tab === 'shares' ? h(SharesTab, props)
-        : tab === 'hw'     ? h(HwTab,     props) : null),
+        : tab === 'hw'     ? h(HwTab,     props)
+        : tab === 'settings' ? h(SettingsTab, {}) : null),
 
     h('div', { class: 'v-foot' },
-      'unraid-vitals · sampled every minute · ',
-      h('a', { href: '/Settings/VitalsSettings' }, 'settings')));
+      'unraid-vitals · samples retained on flash'));
 }
 
 /* ------------------------------------------------------------ dashboard */
@@ -700,6 +772,9 @@ function HwTab(P) {
          : (Array.isArray(gpu) && gpu.length ? gpu[0] : null);
 
   return h('div', null,
+    h(Panel, { title: 'Virtual machines', span2: true,
+      hint: d.vms && d.vms.available ? d.vms.running + ' running / ' + d.vms.count + ' total' : '' },
+      h(VmTable, { vms: d.vms })),
     h(Panel, { title: 'GPU', span2: true },
       gpu.available === false
         ? h('div', { class: 'v-empty' },
@@ -738,6 +813,89 @@ function HwTab(P) {
     h(Panel, { title: 'SMART detail', span2: true,
       hint: Object.keys(d.smart || {}).length + ' disks' },
       h(SmartTable, { d: d })));
+}
+
+/* ------------------------------------------------------------- settings */
+
+function SettingsTab() {
+  var s1 = useState(null), cfg = s1[0], setCfg = s1[1];
+  var s2 = useState(null), meta = s2[0], setMeta = s2[1];
+  var s3 = useState('idle'), saveState = s3[0], setSaveState = s3[1];
+
+  var reload = function () {
+    fetch(ENDPOINT + '?action=settings', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (!j || !j.ok) return;
+        setCfg({
+          INTERVAL: j.cfg.INTERVAL || '1', KEEP_DAYS: j.cfg.KEEP_DAYS || '90',
+          SET_STARTPAGE: j.cfg.SET_STARTPAGE || 'no',
+          ALERT_TEMP: j.cfg.ALERT_TEMP || '55', ALERT_FILL: j.cfg.ALERT_FILL || '90',
+          ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3'
+        });
+        setMeta(j);
+      });
+  };
+  useEffect(reload, []);
+
+  if (!cfg) return h('div', { class: 'v-panel' }, h('div', { class: 'v-empty' }, 'Loading settings…'));
+
+  var set = function (k) { return function (e) {
+    var v = e.target.value;
+    setCfg(function (c) { var n = merge(c, {}); n[k] = v; return n; });
+  }; };
+
+  var save = function () {
+    setSaveState('saving');
+    var body = new URLSearchParams(merge(cfg, { csrf_token: meta.csrf_token }));
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { setSaveState(j && j.ok ? 'saved' : 'error'); if (j && j.ok) reload();
+        setTimeout(function () { setSaveState('idle'); }, 2500); })
+      .catch(function () { setSaveState('error'); });
+  };
+
+  return h('div', null,
+    h(Panel, { title: 'Collector status' },
+      h('table', null, [
+        ['Last sample', meta.last_run ? ts(meta.last_run) : '—'],
+        ['Ring buffer', meta.ring_samples + ' samples'],
+        ['Flash rollups', meta.flash_files + ' file(s), ' + bytes(meta.flash_bytes, 1)]
+      ].map(function (r, i) {
+        return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]), h('td', { class: 'num v-name' }, r[1]));
+      }))),
+    h(Panel, { title: 'Preferences' },
+      h('table', null,
+        h('tr', null, h('td', { class: 'muted' }, 'Sample interval'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.INTERVAL, onChange: set('INTERVAL') },
+            [1, 2, 5, 10].map(function (i) { return h('option', { key: i, value: i }, i + ' minute' + (i > 1 ? 's' : '')); })))),
+        h('tr', null, h('td', { class: 'muted' }, 'Keep daily rollups'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.KEEP_DAYS, onChange: set('KEEP_DAYS') },
+            [30, 90, 180, 365].map(function (d) { return h('option', { key: d, value: d }, d + ' days'); })))),
+        h('tr', null, h('td', { class: 'muted' }, 'Start page'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.SET_STARTPAGE, onChange: set('SET_STARTPAGE') },
+            h('option', { value: 'no' }, 'Stock Unraid dashboard'),
+            h('option', { value: 'yes' }, 'Vitals')))),
+        h('tr', null, h('td', { class: 'muted' }, 'Disk temp alert'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 30, max: 80,
+            value: cfg.ALERT_TEMP, onInput: set('ALERT_TEMP') }), ' °C')),
+        h('tr', null, h('td', { class: 'muted' }, 'Array fill alert'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 50, max: 100,
+            value: cfg.ALERT_FILL, onInput: set('ALERT_FILL') }), ' %')),
+        h('tr', null, h('td', { class: 'muted' }, 'Load-average alert'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 256, step: 0.5,
+            value: cfg.ALERT_LOAD, onInput: set('ALERT_LOAD') }), ' (0 = off)')),
+        h('tr', null, h('td', { class: 'muted' }, 'Container-down samples'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 60,
+            value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)'))),
+      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
+        h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
+          h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
+        saveState === 'saved' ? h('span', { class: 'ok' }, h('i', { class: 'fa fa-check' }), ' Saved & reapplied') : null,
+        saveState === 'error' ? h('span', { class: 'crit' }, 'Save failed') : null)),
+    h(Panel, { title: 'Collector log', span2: true },
+      h('pre', { class: 'v-mono v-scroll', style: 'max-height:220px;margin:0;white-space:pre-wrap' },
+        meta.log_tail || '(no output yet)')));
 }
 
 /* ---------------------------------------------------------------- mount */

@@ -253,6 +253,33 @@ function v_smart(): array {
   return $out;
 }
 
+/* ----------------------------------------------------------------------- VMs */
+
+function v_vms(): array {
+  if (!is_executable('/usr/bin/virsh')) return ['available' => false, 'list' => []];
+  $raw = v_run("virsh list --all --name", 8);
+  $names = array_values(array_filter(array_map('trim', explode("\n", $raw))));
+  $list = [];
+  foreach ($names as $name) {
+    $info = v_run("virsh dominfo " . escapeshellarg($name), 5);
+    $row = ['name' => $name, 'state' => 'unknown', 'cpus' => null, 'mem_kib' => null,
+            'autostart' => false];
+    foreach (explode("\n", $info) as $line) {
+      if (!str_contains($line, ':')) continue;
+      [$k, $v] = array_map('trim', explode(':', $line, 2));
+      if ($k === 'State') $row['state'] = $v;
+      elseif ($k === 'CPU(s)') $row['cpus'] = (int)$v;
+      elseif ($k === 'Used memory') $row['mem_kib'] = (int)$v;
+      elseif ($k === 'Autostart') $row['autostart'] = str_starts_with($v, 'enable');
+    }
+    $list[] = $row;
+  }
+  usort($list, fn($a, $b) => strcasecmp($a['name'], $b['name']));
+  $running = count(array_filter($list, fn($r) => $r['state'] === 'running'));
+  return ['available' => true, 'count' => count($list), 'running' => $running,
+          'stopped' => count($list) - $running, 'list' => $list];
+}
+
 /* -------------------------------------------------------------------- docker */
 
 function v_docker(): array {
@@ -412,6 +439,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'load'    => v_load(),
     'array'   => v_array_disks(),
     'smart'   => v_smart(),
+    'vms'     => v_vms(),
     'docker'  => v_docker(),
     'gpu'     => v_gpu(),
     'ups'     => v_ups(),
