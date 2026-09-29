@@ -1605,7 +1605,9 @@ function SettingsTab() {
       h('table', null, [
         ['Last sample', meta.last_run ? ts(meta.last_run) : '—'],
         ['Ring buffer', meta.ring_samples + ' samples'],
-        ['Flash rollups', meta.flash_files + ' file(s), ' + bytes(meta.flash_bytes, 1)]
+        ['Flash rollups', meta.flash_files + ' file(s), ' + bytes(meta.flash_bytes, 1)],
+        ['Knowledge base', !meta.db_path ? 'unavailable — array stopped?'
+          : meta.db_path + (meta.db_bytes == null ? ' (not created yet)' : ', ' + bytes(meta.db_bytes, 1))]
       ].map(function (r, i) {
         return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]), h('td', { class: 'num v-name' }, r[1]));
       }))),

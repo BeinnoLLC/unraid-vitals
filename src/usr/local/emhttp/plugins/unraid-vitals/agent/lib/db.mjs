@@ -6,16 +6,61 @@
  * path, so the UI never blocks on inference.
  */
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
-const DB_PATH = process.env.VITALS_DB_PATH || '/var/tmp/unraid-vitals/vitals.db';
+const STATE_DIR = process.env.VITALS_STATE_DIR || '/var/tmp/unraid-vitals';
+const VITALS_CFG = process.env.VITALS_CFG || '/boot/config/plugins/unraid-vitals/vitals.cfg';
+const DOCKER_CFG = process.env.VITALS_DOCKER_CFG || '/boot/config/docker.cfg';
+
+/** One KEY="value" line from an Unraid .cfg file; '' when absent or unreadable. */
+function cfgValue(file, key) {
+  try {
+    const m = readFileSync(file, 'utf8').match(new RegExp(`^${key}="?([^"\\r\\n]*)"?\\s*$`, 'm'));
+    return m ? m[1].trim() : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Where the DB lives. Persistent by default — the knowledge base has to
+ * survive a reboot, so it cannot sit in the RAM-backed state dir. Mirrors
+ * v_db_path() in include/store.php — keep the two in step:
+ *   1. VITALS_DB_PATH env (full file path; for running outside the host layout)
+ *   2. DATA_DIR in vitals.cfg, when set
+ *   3. <Docker's appdata path>/unraid-vitals, /mnt/user/appdata by default
+ *
+ * Throws while the parent directory is missing (array stopped). Only our own
+ * leaf directory is ever created: creating /mnt/user/... on an unmounted
+ * array would silently write into RAM.
+ */
+export function resolveDbPath() {
+  if (process.env.VITALS_DB_PATH) {
+    mkdirSync(dirname(process.env.VITALS_DB_PATH), { recursive: true });
+    return process.env.VITALS_DB_PATH;
+  }
+  let dir = cfgValue(VITALS_CFG, 'DATA_DIR');
+  if (!dir) {
+    const root = cfgValue(DOCKER_CFG, 'DOCKER_APP_CONFIG_PATH') || '/mnt/user/appdata';
+    dir = `${root.replace(/\/+$/, '')}/unraid-vitals`;
+  }
+  dir = dir.replace(/\/+$/, '');
+  if (!dir || !existsSync(dirname(dir))) {
+    throw new Error(`data directory ${dir || '(unset)'} is not available — is the array started?`);
+  }
+  if (!existsSync(dir)) mkdirSync(dir, { mode: 0o755 });
+  return `${dir}/vitals.db`;
+}
 
 let db;
 export function getDb() {
   if (db) return db;
-  mkdirSync(dirname(DB_PATH), { recursive: true });
-  db = new DatabaseSync(DB_PATH);
+  const path = resolveDbPath();
+  // One-time move off RAM: versions before this kept the DB in the state dir.
+  const legacy = `${STATE_DIR}/vitals.db`;
+  if (path !== legacy && !existsSync(path) && existsSync(legacy)) copyFileSync(legacy, path);
+  db = new DatabaseSync(path);
   db.exec(`
     CREATE TABLE IF NOT EXISTS findings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -160,9 +205,9 @@ export function searchKb(query, limit = 20) {
   if (!safe) return [];
   try {
     return d.prepare(
-      `SELECT kb_documents.id, source, source_ref, topic, title, content, created_at,
+      `SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.created_at,
               bm25(kb_fts) AS rank
-       FROM kb_fts JOIN kb_documents ON kb_documents.id = kb_fts.rowid
+       FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
        WHERE kb_fts MATCH ?
        ORDER BY rank LIMIT ?`
     ).all(safe, limit);

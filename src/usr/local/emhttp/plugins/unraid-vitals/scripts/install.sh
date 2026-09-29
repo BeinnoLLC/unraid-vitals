@@ -26,6 +26,7 @@ ALERT_TEMP="55"
 ALERT_FILL="90"
 ALERT_LOAD="0"
 ALERT_RESTARTS="3"
+DATA_DIR=""
 DEFAULTS
 
 # --- collector cron ----------------------------------------------------------

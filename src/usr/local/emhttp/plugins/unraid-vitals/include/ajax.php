@@ -51,8 +51,11 @@ try {
     $lastRun = is_file('/var/tmp/unraid-vitals/latest.json')
       ? json_decode((string)file_get_contents('/var/tmp/unraid-vitals/latest.json'), true) : null;
     $log = '/var/tmp/unraid-vitals/collector.log';
+    $dbFile = v_db_path();
     echo json_encode(['ok' => true,
       'cfg' => $cfg,
+      'db_path' => $dbFile,
+      'db_bytes' => $dbFile !== '' && is_file($dbFile) ? (int)@filesize($dbFile) : null,
       'csrf_token' => @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '',
       'ring_samples' => is_array($ring) ? count($ring) : 0,
       'flash_files' => count($files), 'flash_bytes' => $flashBytes,

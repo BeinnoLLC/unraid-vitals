@@ -9,12 +9,55 @@
  *
  * Ring points carry the full per-entity series (per interface, per container,
  * per disk) so the UI can chart any one of them without a second data source.
+ *
+ * The agents' SQLite DB (findings, knowledge base, research jobs) is separate
+ * from both tiers: it lives in the Unraid appdata share — see v_db_path().
  */
 
 require_once __DIR__ . '/collect.php';
 
 if (!defined('VITALS_FLASH')) define('VITALS_FLASH', '/boot/config/plugins/unraid-vitals');
 if (!defined('VITALS_RING_MAX')) define('VITALS_RING_MAX', 1440);   // 24h @ 1/min
+if (!defined('VITALS_DOCKER_CFG')) define('VITALS_DOCKER_CFG', '/boot/config/docker.cfg');
+if (!defined('VITALS_AI_RENOTIFY')) define('VITALS_AI_RENOTIFY', 86400);   // re-raise a standing AI finding once a day
+
+/**
+ * Directory holding the agents' SQLite DB. Persistent by default — the
+ * knowledge base has to survive a reboot, so it cannot sit in the RAM-backed
+ * state dir. Resolution (agent/lib/db.mjs mirrors this — keep the two in step):
+ *   1. DATA_DIR in vitals.cfg, when set
+ *   2. <Docker's appdata path>/unraid-vitals   (docker.cfg DOCKER_APP_CONFIG_PATH,
+ *      /mnt/user/appdata when Docker has none configured)
+ *
+ * Returns '' while the parent directory is missing, i.e. the array is stopped.
+ * Only our own leaf directory is ever created: creating /mnt/user/... on an
+ * unmounted array would silently write into RAM.
+ */
+function v_data_dir(): string {
+  $cfg = @parse_ini_file(VITALS_FLASH . '/vitals.cfg') ?: [];
+  $dir = trim((string)($cfg['DATA_DIR'] ?? ''));
+  if ($dir === '') {
+    $docker = @parse_ini_file(VITALS_DOCKER_CFG) ?: [];
+    $root = trim((string)($docker['DOCKER_APP_CONFIG_PATH'] ?? ''));
+    if ($root === '') $root = '/mnt/user/appdata';
+    $dir = rtrim($root, '/') . '/unraid-vitals';
+  }
+  $dir = rtrim($dir, '/');
+  if ($dir === '' || !is_dir(dirname($dir))) return '';
+  if (!is_dir($dir) && !@mkdir($dir, 0755)) return '';
+  return $dir;
+}
+
+/** Full path of the agents' DB, or '' while v_data_dir() is unavailable. */
+function v_db_path(): string {
+  $dir = v_data_dir();
+  if ($dir === '') return '';
+  $db = $dir . '/vitals.db';
+  // One-time move off RAM: versions before this kept the DB in the state dir.
+  $legacy = v_state_dir() . '/vitals.db';
+  if (!is_file($db) && is_file($legacy)) @copy($legacy, $db);
+  return $db;
+}
 
 /** Threshold defaults, overridable from vitals.cfg. */
 function v_thresholds(): array {
@@ -352,8 +395,17 @@ function v_check_alerts(array $snap): array {
   return $fired;
 }
 
+/**
+ * Raise Unraid-native notifications for error/critical AI findings.
+ *
+ * Every agent run deletes and re-inserts its findings, so row ids change each
+ * hour and the model rewords titles between runs — neither identifies a
+ * finding. The key is what the finding is about (agent + subject + severity):
+ * a standing problem notifies once, again after VITALS_AI_RENOTIFY if it is
+ * still there, and immediately if its severity changes.
+ */
 function v_check_ai_findings(): void {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return;
   try {
     $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY);
@@ -362,11 +414,14 @@ function v_check_ai_findings(): void {
   $state = v_read_json(v_alert_path());
   $now = time();
   $notify = '/usr/local/emhttp/webGui/scripts/notify';
+  $live = [];
   $res = $db->query("SELECT id, agent, severity, title, detail, subject FROM findings WHERE severity IN ('error','critical') ORDER BY id DESC LIMIT 50");
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) {
-    $key = 'ai_finding_' . $row['id'];
+    $key = 'ai_' . sha1($row['agent'] . '|' . strtolower(trim((string)($row['subject'] ?? ''))) . '|' . $row['severity']);
+    if (isset($live[$key])) continue;
+    $live[$key] = true;
     $last = (int)($state[$key] ?? 0);
-    if ($now - $last < 3600) continue; // 1h suppression, same as the metric alerts
+    if ($now - $last < VITALS_AI_RENOTIFY) continue;
     $state[$key] = $now;
     if (is_executable($notify)) {
       @shell_exec(sprintf(
@@ -379,13 +434,22 @@ function v_check_ai_findings(): void {
     }
   }
   $db->close();
+
+  // Keep the state file bounded: drop the old per-row-id keys, and any key
+  // whose finding has been gone for a full window.
+  foreach ($state as $k => $v) {
+    if (strpos($k, 'ai_') !== 0) continue;
+    if (strpos($k, 'ai_finding_') === 0 || (!isset($live[$k]) && $now - (int)$v >= VITALS_AI_RENOTIFY)) {
+      unset($state[$k]);
+    }
+  }
   v_write_json(v_alert_path(), $state);
 }
 
 /** Read-only: latest findings from every agent, newest first. UI renders
  *  these as insight banners per tab; grouped by agent client-side. */
 function v_ai_findings(int $limit = 200): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
@@ -399,7 +463,7 @@ function v_ai_findings(int $limit = 200): array {
 /** Per-agent last-run status, so the UI can show "last checked 4m ago" /
  *  "agent X failed: <reason>" even when there are zero findings yet. */
 function v_ai_runs(): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
@@ -413,7 +477,7 @@ function v_ai_runs(): array {
 /** Read-only: latest generated comment for a share, if any (written by
  *  agent/share-comment.mjs, triggered fire-and-forget from ajax.php). */
 function v_share_comment(string $share): ?array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
   $stmt = $db->prepare("SELECT comment, generated_at, status FROM share_comments WHERE share = ?");
@@ -426,7 +490,7 @@ function v_share_comment(string $share): ?array {
 /* --------------------------------------------------------------------- KB */
 
 function v_kb_search(string $query, int $limit = 20): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $words = array_filter(preg_split('/\s+/', preg_replace('/["*^]/', ' ', $query)));
@@ -435,8 +499,8 @@ function v_kb_search(string $query, int $limit = 20): array {
   $out = [];
   try {
     $stmt = $db->prepare(
-      "SELECT kb_documents.id, source, source_ref, topic, title, content, created_at, bm25(kb_fts) AS rank
-       FROM kb_fts JOIN kb_documents ON kb_documents.id = kb_fts.rowid
+      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.created_at, bm25(kb_fts) AS rank
+       FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
        WHERE kb_fts MATCH :q ORDER BY rank LIMIT :lim");
     $stmt->bindValue(':q', $safe, SQLITE3_TEXT);
     $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
@@ -448,7 +512,7 @@ function v_kb_search(string $query, int $limit = 20): array {
 }
 
 function v_kb_recent(int $limit = 50): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
@@ -460,7 +524,7 @@ function v_kb_recent(int $limit = 50): array {
 }
 
 function v_kb_topics(): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
@@ -477,8 +541,8 @@ function v_kb_topics(): array {
  *  the detached node research.mjs process fills in the answer. Opened
  *  read-write only for the INSERT here; every other access is read-only. */
 function v_research_create(string $prompt): ?int {
-  $dbFile = v_state_dir() . '/vitals.db';
-  if (!class_exists('SQLite3')) return null;
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !class_exists('SQLite3')) return null;
   try {
     $db = new SQLite3($dbFile, SQLITE3_OPEN_READWRITE | SQLITE3_OPEN_CREATE);
     $db->exec("CREATE TABLE IF NOT EXISTS research_jobs (
@@ -496,7 +560,7 @@ function v_research_create(string $prompt): ?int {
 }
 
 function v_research_get(int $id): ?array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
   $stmt = $db->prepare("SELECT id, prompt, status, answer, sources, error, created_at, finished_at FROM research_jobs WHERE id = ?");
@@ -508,7 +572,7 @@ function v_research_get(int $id): ?array {
 }
 
 function v_research_list(int $limit = 30): array {
-  $dbFile = v_state_dir() . '/vitals.db';
+  $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
