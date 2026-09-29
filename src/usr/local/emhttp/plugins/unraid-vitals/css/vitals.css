@@ -264,7 +264,8 @@
 .vitals .v-donut-key b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--v-fg); }
 
 /* OctoPrint-style per-series stats under a chart */
-.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 6px 10px 2px; font-size: 11.5px; }
+.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 8px 10px 2px; font-size: 11.5px;
+  margin-top: 4px; border-top: 1px solid var(--v-border); }
 .vitals .v-chart-stat { display: inline-flex; align-items: center; gap: 5px; }
 .vitals .v-chart-stat i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
 .vitals .v-chart-stat .num { font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -428,6 +429,9 @@
 .vitals .v-scroll::-webkit-scrollbar { width: 7px; }
 .vitals .v-scroll::-webkit-scrollbar-thumb { background: var(--v-border); border-radius: 4px; }
 .vitals .v-scroll { scrollbar-width: thin; scrollbar-color: var(--v-border) transparent; }
+/* Explicit opt-out (All containers): render every row, no inner scrollbar —
+   the panel just grows to fit. */
+.vitals .v-scroll.v-scroll-off { max-height: none; overflow-y: visible; }
 
 .vitals .warn-badge, .vitals .v-empty .warn-badge {
   font-size: var(--v-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;

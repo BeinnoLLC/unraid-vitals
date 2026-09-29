@@ -338,7 +338,7 @@ function Chart(P) {
     var opts = {
       width: ref.current.clientWidth || 600,
       height: P.height || 150,
-      legend: { show: series.length > 1, live: false, markers: { width: 1.5 } },
+      legend: { show: P.hideLegend ? false : series.length > 1, live: false, markers: { width: 1.5 } },
       cursor: { sync: { key: 'vit' } },
       scales: {
         x: { time: false },
@@ -347,6 +347,14 @@ function Chart(P) {
       },
       axes: [
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false },
+          // Linear (non-time) x scale: uPlot's default tick spacing tracks
+          // data density, not label width, so a long history window packs
+          // in far more timestamps than fit — they end up overlapping each
+          // other and the legend row below. `space` is the minimum pixel
+          // gap uPlot must leave between ticks; `size` reserves real height
+          // for the label row instead of letting it float into whatever's
+          // rendered underneath the chart.
+          space: 70, size: 26,
           values: function (u, sp) { return sp.map(ts); } },
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
           values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } },
@@ -423,13 +431,13 @@ function topKeys(pts, field, idx, n) {
 
 /* --------------------------------------------------------------- tables */
 
-function Table(P) { return h('div', { class: 'v-scroll' }, h('table', null, P.children)); }
+function Table(P) { return h('div', { class: P.noScroll ? 'v-scroll v-scroll-off' : 'v-scroll' }, h('table', null, P.children)); }
 
 function ContainerTable(P) {
   var list = ((P.d.docker || {}).containers || []).slice();
   if (P.compact) list = list.slice(0, 9);
   if (!list.length) return h('div', { class: 'v-empty' }, 'No containers reported.');
-  return h(Table, null,
+  return h(Table, { noScroll: !P.compact },
     h('tr', null, h('th', null, 'Container'), h('th', null, 'State'), h('th', null, 'Image'),
       h('th', { class: 'num' }, 'CPU'), h('th', { class: 'num' }, 'Memory'),
       h('th', { class: 'num' }, 'Mem %'), h('th', null, 'Uptime'),
@@ -1040,7 +1048,7 @@ function ArrayTab(P) {
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Per-disk temperature', span2: true, hint: smTop.length ? 'hottest ' + smTop.length + ', alert at 55°' : '' },
         smSeries.length ? h('div', null,
-          h(Chart, { series: smSeries, height: 190, area: true,
+          h(Chart, { series: smSeries, height: 190, area: true, hideLegend: true,
             thresholds: [{ v: 55, color: '#f8717166', label: '55° alert' }],
             yFmt: function (v) { return v + '°'; },
             empty: 'Per-disk temps appear once SMART data is cached.' }),
@@ -1505,7 +1513,7 @@ function HwTab(P) {
           topTempIds.map(function (id) {
             var m = sensorMeta[id];
             return m && m.max ? m.max : 0;
-          })))) ), height: 190, area: true,
+          })))) ), height: 190, area: true, hideLegend: true,
         thresholds: topTempIds.map(function (id) {
           var m = sensorMeta[id];
           return m && m.max ? { v: m.max, color: '#f8717166', label: m.label + ' max' } : null;
