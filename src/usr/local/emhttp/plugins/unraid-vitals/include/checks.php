@@ -47,6 +47,7 @@ function v_checks_defaults(): array {
     'spin_never_down' => 'warning',
     'signature_scan' => 'warning',
     'pool_health' => 'warning',
+    'net_health' => 'warning',
   ];
 }
 

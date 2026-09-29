@@ -1186,7 +1186,13 @@ function v_net_read(): array {
     $if = trim($m[1]);
     if ($if === 'lo') continue;
     $v = preg_split('/\s+/', trim($m[2]));
-    $out[$if] = ['rx' => (int)$v[0], 'tx' => (int)$v[8]];
+    // Receive: bytes(0) packets(1) errs(2) drop(3) fifo(4) frame(5) compressed(6) multicast(7)
+    // Transmit: bytes(8) packets(9) errs(10) drop(11) fifo(12) colls(13) carrier(14) compressed(15)
+    $out[$if] = [
+      'rx' => (int)$v[0], 'tx' => (int)$v[8],
+      'rx_errs' => (int)($v[2] ?? 0), 'rx_drop' => (int)($v[3] ?? 0),
+      'tx_errs' => (int)($v[10] ?? 0), 'tx_drop' => (int)($v[11] ?? 0), 'tx_colls' => (int)($v[13] ?? 0),
+    ];
   }
   return $out;
 }
@@ -1199,8 +1205,64 @@ function v_net_delta(array $now, array $prev, float $seconds): array {
     $rx = max(0, $n['rx'] - $prev[$if]['rx']);
     $tx = max(0, $n['tx'] - $prev[$if]['tx']);
     $out[$if] = ['rx_rate' => $rx / $seconds, 'tx_rate' => $tx / $seconds,
-                 'rx_total' => $n['rx'], 'tx_total' => $n['tx']];
+                 'rx_total' => $n['rx'], 'tx_total' => $n['tx'],
+                 'rx_errs_delta' => max(0, ($n['rx_errs'] ?? 0) - ($prev[$if]['rx_errs'] ?? 0)),
+                 'rx_drop_delta' => max(0, ($n['rx_drop'] ?? 0) - ($prev[$if]['rx_drop'] ?? 0)),
+                 'tx_errs_delta' => max(0, ($n['tx_errs'] ?? 0) - ($prev[$if]['tx_errs'] ?? 0)),
+                 'tx_drop_delta' => max(0, ($n['tx_drop'] ?? 0) - ($prev[$if]['tx_drop'] ?? 0)),
+                 'tx_colls_delta' => max(0, ($n['tx_colls'] ?? 0) - ($prev[$if]['tx_colls'] ?? 0))];
   }
+  return $out;
+}
+
+/**
+ * Per-interface link state (P14-11): negotiated speed/duplex/mtu/carrier
+ * from sysfs, plus bond-member and bridge-member MTU comparisons.
+ *
+ * "Gigabit-capable port linking at 100 Mb" is detected by tracking each
+ * interface's highest-ever observed speed in state-dir JSON (updated
+ * whenever a higher speed is seen) and comparing the CURRENT speed
+ * against that history -- a real drop (not just "this NIC happens to be
+ * 100Mb-only", which would never have a higher speed on record) rather
+ * than a hardcoded "gigabit" threshold that would be wrong for 2.5G/10G
+ * NICs or genuinely-100Mb ports.
+ */
+function v_net_link_info(): array {
+  $out = [];
+  $ifaces = @glob('/sys/class/net/*') ?: [];
+  $bestPath = v_state_dir() . '/net_best_speed.json';
+  $best = v_read_json($bestPath);
+  if (!is_array($best)) $best = [];
+
+  foreach ($ifaces as $path) {
+    $if = basename($path);
+    if ($if === 'lo') continue;
+    $speedRaw = @file_get_contents($path . '/speed');
+    $speed = $speedRaw !== false ? (int)trim($speedRaw) : -1;
+    $duplex = trim(@file_get_contents($path . '/duplex') ?: '');
+    $mtu = (int)trim(@file_get_contents($path . '/mtu') ?: '0');
+    $carrier = trim(@file_get_contents($path . '/carrier') ?: '');
+    $operstate = trim(@file_get_contents($path . '/operstate') ?: '');
+
+    if ($speed > 0) {
+      if (!isset($best[$if]) || $speed > $best[$if]) $best[$if] = $speed;
+    }
+
+    $slaves = [];
+    if (is_readable($path . '/bonding/slaves')) {
+      $slaves = preg_split('/\s+/', trim(@file_get_contents($path . '/bonding/slaves') ?: ''), -1, PREG_SPLIT_NO_EMPTY);
+    } elseif (is_dir($path . '/brif')) {
+      $slaves = array_map('basename', array_filter(@glob($path . '/brif/*') ?: [], 'is_dir'));
+    }
+
+    $out[$if] = [
+      'speed_mbps' => $speed > 0 ? $speed : null, 'duplex' => $duplex ?: null,
+      'mtu' => $mtu ?: null, 'carrier' => $carrier === '1', 'operstate' => $operstate ?: null,
+      'best_speed_seen' => $best[$if] ?? null, 'members' => $slaves,
+    ];
+  }
+
+  v_write_json($bestPath, $best);
   return $out;
 }
 
@@ -1322,6 +1384,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'pool_health' => v_pool_health(),
     'share_placement' => v_share_placement_cached(),
     'net'     => [],
+    'net_link' => v_net_link_info(),
     'top'     => v_top_procs(8),
   ];
 
