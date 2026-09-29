@@ -51,6 +51,19 @@ fi
 chmod 644 "$CRON"
 cp -f "$CRON" "$FLASH/collector.cron" 2>/dev/null || true
 
+# --- checks engine cron -------------------------------------------------------
+# Every 5 minutes, independent of the collector's own cadence: most checks
+# (disk fill, temperature trends) don't need per-minute resolution, and
+# running the checks engine less often keeps its DB writes off the collector's
+# critical path.
+CHECKS_CRON=/etc/cron.d/${PLUGIN}-checks
+cat > "$CHECKS_CRON" <<CHECKSCRONEOF
+# unraid-vitals checks engine — installed by $PLUGIN.plg
+*/5 * * * * /usr/bin/php $PLUGDIR/scripts/vitals-checks.php --quiet >> $STATE/checks.log 2>&1
+CHECKSCRONEOF
+chmod 644 "$CHECKS_CRON"
+cp -f "$CHECKS_CRON" "$FLASH/checks.cron" 2>/dev/null || true
+
 # --- flash retention script --------------------------------------------------
 cat > "$FLASH/prune.php" <<'PRUNE'
 <?php

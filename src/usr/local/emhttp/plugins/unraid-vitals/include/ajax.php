@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/checks.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -66,6 +67,7 @@ try {
     $dbFile = v_db_path();
     echo json_encode(['ok' => true,
       'cfg' => $cfg,
+      'checks' => v_checks_config(),
       'db_path' => $dbFile,
       'db_bytes' => $dbFile !== '' && is_file($dbFile) ? (int)@filesize($dbFile) : null,
       'csrf_token' => @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '',
@@ -80,6 +82,10 @@ try {
   if ($action === 'save_settings') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
     $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS'];
+    foreach (array_keys(v_checks_defaults()) as $checkId) {
+      $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';
+      $allowed[] = 'CHECK_' . strtoupper($checkId) . '_SEVERITY';
+    }
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     foreach ($allowed as $k) if (isset($_POST[$k])) $cfg[$k] = $_POST[$k];
     $lines = [];
@@ -94,6 +100,11 @@ try {
 
   if ($action === 'findings') {
     echo json_encode(['ok' => true, 'findings' => v_ai_findings(), 'runs' => v_ai_runs()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'checks') {
+    echo json_encode(['ok' => true] + v_checks_latest(), JSON_UNESCAPED_SLASHES);
     exit;
   }
 

@@ -587,6 +587,26 @@ function v_top_procs(int $n = 8): array {
 /* ------------------------------------------------------------------ assemble */
 
 /**
+ * Root filesystem usage. Unraid boots into RAM (tmpfs) — `/` filling up is a
+ * different, more urgent failure than an array disk filling up (it can wedge
+ * docker, syslog, and the webGUI itself), so it gets its own snapshot field
+ * rather than being folded into 'array'.
+ */
+function v_rootfs(): array {
+  $total = @disk_total_space('/');
+  $free  = @disk_free_space('/');
+  if ($total === false || $free === false || $total <= 0) {
+    return ['total' => null, 'free' => null, 'used_pct' => null];
+  }
+  $used = $total - $free;
+  return [
+    'total' => (int)$total,
+    'free' => (int)$free,
+    'used_pct' => round(($used / $total) * 100, 1),
+  ];
+}
+
+/**
  * Collect a full snapshot. $prev is the previous snapshot (for rate deltas)
  * and $elapsed the seconds since it was taken.
  */
@@ -602,6 +622,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'mem'     => v_mem(),
     'load'    => v_load(),
     'array'   => v_array_disks(),
+    'rootfs'  => v_rootfs(),
     'smart'   => v_smart(),
     'vms'     => v_vms(),
     'docker'  => v_docker(),
