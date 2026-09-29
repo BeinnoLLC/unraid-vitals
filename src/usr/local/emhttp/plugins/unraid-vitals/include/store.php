@@ -159,6 +159,8 @@ function v_point(array $snap): array {
     'gpu'      => $gpuUtil,
     'fs_used'  => $snap['array']['totals']['fs_used'] ?? null,
     'fill_max' => v_fill_max($snap),
+    'var_log_pct' => $snap['fs_watch']['var_log']['used_pct'] ?? null,
+    'tmp_pct'  => $snap['fs_watch']['tmp']['used_pct'] ?? null,
     'docker'   => $snap['docker']['running'] ?? null,
     'docker_img_pct' => $snap['docker_image']['used_pct'] ?? null,
     'net'      => $net,

@@ -711,6 +711,54 @@ function v_rootfs(): array {
 }
 
 /**
+ * Disk usage of one mount point. Unraid runs / (and /var/log, /tmp, /run —
+ * all tmpfs/overlay mounted from RAM) so this is cheap and safe to call
+ * every minute; it is NOT walked for the array/cache disks (see
+ * v_array_disks() for those).
+ */
+function v_mount_fill(string $path): array {
+  $total = @disk_total_space($path);
+  $free  = @disk_free_space($path);
+  if ($total === false || $free === false || $total <= 0) {
+    return ['path' => $path, 'total' => null, 'free' => null, 'used_pct' => null, 'largest' => []];
+  }
+  $used = $total - $free;
+  $pct = round(($used / $total) * 100, 1);
+  // Only walk for the largest files once usage looks like a real problem —
+  // no point spending a `find` every minute on a healthy filesystem, and
+  // this keeps the collector's per-minute cost flat on a quiet system.
+  $largest = $pct >= 70 ? v_largest_files($path, 5) : [];
+  return ['path' => $path, 'total' => (int)$total, 'free' => (int)$free, 'used_pct' => $pct, 'largest' => $largest];
+}
+
+/**
+ * Top N largest files under $dir, same filesystem only (-xdev — stops the
+ * walk at a mount boundary, e.g. /var/log won't wander into a bind-mounted
+ * docker log dir sitting under it).
+ */
+function v_largest_files(string $dir, int $n = 5): array {
+  $raw = v_run('find ' . escapeshellarg($dir) . " -xdev -type f -printf '%s\\t%p\\n' 2>/dev/null | sort -rn | head -n " . (int)$n, 10);
+  $out = [];
+  if ($raw === '') return $out;
+  foreach (explode("\n", $raw) as $line) {
+    $c = explode("\t", $line, 2);
+    if (count($c) < 2 || !is_numeric($c[0])) continue;
+    $out[] = ['path' => $c[1], 'bytes' => (int)$c[0]];
+  }
+  return $out;
+}
+
+/** rootfs + /var/log + /tmp + /run, for the P14-03 fill check. */
+function v_fs_watch(): array {
+  return [
+    'rootfs'   => v_mount_fill('/'),
+    'var_log'  => v_mount_fill('/var/log'),
+    'tmp'      => v_mount_fill('/tmp'),
+    'run'      => v_mount_fill('/run'),
+  ];
+}
+
+/**
  * Collect a full snapshot. $prev is the previous snapshot (for rate deltas)
  * and $elapsed the seconds since it was taken.
  */
@@ -727,6 +775,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'load'    => v_load(),
     'array'   => v_array_disks(),
     'rootfs'  => v_rootfs(),
+    'fs_watch' => v_fs_watch(),
     'smart'   => v_smart(),
     'vms'     => v_vms(),
     'docker'  => v_docker(),

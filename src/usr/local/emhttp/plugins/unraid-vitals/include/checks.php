@@ -40,6 +40,7 @@ function v_checks_defaults(): array {
     'rootfs_full' => 'alert',
     'docker_image_full' => 'warning',
     'docker_log_large' => 'warning',
+    'fs_watch_full' => 'warning',
   ];
 }
 
