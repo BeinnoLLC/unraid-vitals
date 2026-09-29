@@ -169,6 +169,7 @@ try {
   $snap = v_latest();
   if (!$snap) $snap = v_tick(true);
   $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
+  $snap['_age'] = max(0, time() - (int)($snap['time'] ?? 0));
   echo json_encode(['ok' => true, 'data' => $snap, 'ring' => v_ring()], JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
   http_response_code(500);
