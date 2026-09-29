@@ -32,6 +32,22 @@ DIST="$ROOT/dist"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
+# ---------------------------------------------------------------- CRLF gate -
+# A Windows checkout without .gitattributes honoured (or a stray CRLF commit)
+# packages shell scripts that fail on Unraid with "bad interpreter: ^M". Fail
+# the build before staging rather than shipping a broken .txz.
+CRLF_FOUND=0
+while IFS= read -r -d '' f; do
+  if grep -qU $'\r' "$f" 2>/dev/null; then
+    echo "CRLF line endings in $f — refusing to build a payload that will fail on Unraid." >&2
+    CRLF_FOUND=1
+  fi
+done < <(git -C "$ROOT" ls-files -z -- '*.sh' '*.php' '*.page' '*.mjs')
+if [ "$CRLF_FOUND" -ne 0 ]; then
+  echo "fix: run 'git add --renormalize .' after .gitattributes forces LF, then retry." >&2
+  exit 1
+fi
+
 # ---------------------------------------------------------------- payload ---
 # Stage with the on-server layout so `upgradepkg --install-new` drops the files
 # exactly where Unraid expects them.
