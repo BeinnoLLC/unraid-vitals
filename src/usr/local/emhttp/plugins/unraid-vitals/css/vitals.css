@@ -673,11 +673,86 @@
   background: color-mix(in srgb, var(--v-bad) 18%, transparent); color: var(--v-bad-fg);
 }
 
-@media (max-width: 640px) {
-  .vitals { font-size: 13px; }
-  .vitals .v-panel, .vitals .v-card { padding: 12px 13px; }
-  .vitals .v-tab { padding: 7px 10px; }
-  .vitals .v-tab span { display: none; }
-  .vitals .v-tab i { font-size: 15px; }
+/* Responsive ---------------------------------------------------------------
+   Three tiers — phone (<640), tablet (640–1023), desktop (1024+). Rules are
+   grouped by tier, not by component, so the whole small-screen behaviour is
+   auditable in one place. Everything above is the desktop baseline. */
+
+/* Tablet + phone: single-column panel grid; spanning panels stop spanning. */
+@media (max-width: 1023px) {
+  .vitals .v-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .vitals .v-span2 { grid-column: span 1; }
+  .vitals .v-panel { padding: 14px 15px; }
+  /* Tables never widen the page: the .v-scroll wrapper pans sideways. */
+  .vitals .v-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .vitals .v-scroll table { min-width: 520px; }
+  .vitals .v-scroll.v-scroll-off { overflow-x: auto; }
 }
+
+/* Tab strip: one horizontally-scrollable row instead of wrapping into two
+   ragged lines (the pattern every mobile app uses for many tabs). Labels
+   stay visible on tablets; phones go icon-only. */
+@media (max-width: 1023px) {
+  .vitals .v-tabs {
+    flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain;
+    scrollbar-width: none; -ms-overflow-style: none; padding-bottom: 0;
+    scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch;
+  }
+  .vitals .v-tabs::-webkit-scrollbar { display: none; }
+  .vitals .v-tab { flex: 0 0 auto; scroll-snap-align: start; white-space: nowrap; }
+}
+
+/* Phone. */
+@media (max-width: 639px) {
+  .vitals { --v-gap: 12px; --v-radius: 10px; font-size: 13px; }
+  .vitals .v-hero-row { padding: 10px 12px; gap: 8px 12px; }
+  .vitals .v-title h2 { font-size: 20px; }
+  .vitals .v-logo { width: 32px; height: 32px; font-size: 15px; }
+  .vitals .v-tab { padding: 9px 12px; gap: 0; }
+  .vitals .v-tab span { display: none; }
+  .vitals .v-tab i { font-size: 16px; }
+  .vitals .v-panel, .vitals .v-card { padding: 12px 13px; }
+  .vitals .v-panel h3 { flex-wrap: wrap; }
+  .vitals .v-hint { flex-basis: 100%; margin-left: 0; }
+  /* Stat cards: 2-up, but the sparkline strip is the thing that made them
+     look squashed at 390px — it goes; the number + delta still tell the story. */
+  .vitals .v-cards.v-cards-4 { gap: 8px; }
+  .vitals .v-card { padding: 10px 11px; gap: 8px; }
+  .vitals .v-card .v-spark { display: none; }
+  /* With the sparkline gone, the delta pill has nothing to float over —
+     lay it inline under the value instead of clipping at the card edge. */
+  .vitals .v-card-spark-row { margin-top: 6px; min-height: 0; }
+  .vitals .v-card-delta { position: static; display: inline-block; }
+  .vitals .v-card-icon-wrap { width: 34px; height: 34px; }
+  .vitals .v-card-icon { width: 28px; height: 28px; font-size: 13px; }
+  .vitals .v-grid { grid-template-columns: 1fr; }
+  .vitals .v-chart { min-height: 120px; }
+  .vitals .v-scroll { max-height: 300px; }
+  .vitals .v-scroll table { min-width: 460px; }
+  .vitals .v-kb-search { flex-wrap: wrap; }
+  .vitals .v-kb-search .v-input { flex-basis: 100%; }
+  .vitals .v-kb-doc-head { flex-wrap: wrap; }
+  .vitals .v-chart-menu { max-width: calc(100vw - 48px); }
+}
+
+/* Very narrow phones (≤380): cards go 1-up so numbers never wrap mid-digit. */
+@media (max-width: 380px) {
+  .vitals .v-cards.v-cards-4 { grid-template-columns: 1fr; }
+}
+
+/* Touch devices: no hover-lift (there is no hover), larger tap targets. */
+@media (hover: none) {
+  .vitals .v-card:hover, .vitals .v-panel:hover { transform: none; box-shadow: none; }
+  .vitals .v-tab, .vitals .v-btn, .vitals .v-chip { min-height: 36px; }
+  .vitals .v-chart-menu-btn { opacity: .9; width: 30px; height: 30px; }
+}
+
+/* Vertical rhythm guard: a panel stacked directly under another panel (or
+   any element without its own bottom margin) always gets one gap — .v-grid
+   and .v-cards already carry margin-bottom, so they are excluded to avoid
+   a double gap (user: "sections are adjacent sometimes without gaps"). */
+.vitals .v-body .v-panel + .v-panel,
+.vitals .v-body .v-panel + .v-grid,
+.vitals .v-body .v-panel + .v-cards,
+.vitals .v-body .v-panel + .v-tabs-mini { margin-top: var(--v-gap); }
 
