@@ -38,6 +38,14 @@ test('new Unraid release becomes an upgrade advisory keyed by version', () => {
   assert.match(r.prompt, /upgrade to 7\.3\.2/);
 });
 
+test('error findings from any agent trigger a 12h-cooldown investigation', () => {
+  const r = ruleFor('general', { severity: 'error', title: 'Unusually High System Load', subject: null, detail: 'load 24.7' });
+  assert.equal(r.mode, 'once');
+  assert.equal(r.key, 'err:general:unusually-high-system-load');
+  assert.match(r.prompt, /root cause/);
+  assert.ok(r.cooldown === 12 * 3600);
+});
+
 test('any critical finding becomes a one-shot root-cause research', () => {
   const r = ruleFor('thermal', { severity: 'critical', title: 'CPU at 98°C', subject: 'cpu' });
   assert.equal(r.mode, 'once');

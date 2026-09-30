@@ -46,6 +46,19 @@ export function ruleFor(agent, f) {
     };
   }
 
+  // Any agent's error-severity finding (load spikes, memory pressure, a
+  // service down) is worth a one-shot root-cause research — cooldown 12h
+  // per condition so a recurring condition re-investigates twice a day at
+  // most instead of every run.
+  if (sev === 'error') {
+    return {
+      key: `err:${agent}:${(f.subject || f.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}`,
+      mode: 'once', cooldown: 12 * H,
+      prompt: `Investigate the error condition "${f.title}" flagged by the ${agent} agent. Establish the root cause from the timeline (which process, container, disk or interface drove it), how long it has been building, what it puts at risk, and the concrete remediation for this server. If the cause is transient load, say when it started and ended.`,
+      context: `Triggering finding (${sev}): ${f.title}\n${f.detail || ''}\n${f.recommendation || ''}`,
+    };
+  }
+
   if (sev === 'critical') {
     return {
       key: `${agent}:${(f.subject || f.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60)}`,
