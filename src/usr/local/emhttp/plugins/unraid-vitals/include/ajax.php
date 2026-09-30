@@ -110,6 +110,28 @@ try {
     exit;
   }
 
+  if ($action === 'export') {
+    $what = $_GET['what'] ?? 'ring';       // 'ring' or 'rollups'
+    $format = $_GET['format'] ?? 'csv';    // 'csv' or 'json'
+    $rows = $what === 'rollups' ? v_export_rollup_rows() : v_export_ring_rows();
+    $base = 'unraid-vitals-' . $what . '-' . gmdate('Ymd-His');
+    if ($format === 'json') {
+      header('Content-Type: application/json');
+      header('Content-Disposition: attachment; filename="' . $base . '.json"');
+      echo json_encode($rows, JSON_PRETTY_PRINT);
+    } else {
+      header('Content-Type: text/csv');
+      header('Content-Disposition: attachment; filename="' . $base . '.csv"');
+      echo v_rows_to_csv($rows);
+    }
+    exit;
+  }
+
+  if ($action === 'weekly_report_preview') {
+    echo json_encode(['ok' => true] + v_weekly_health_summary(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'settings') {
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $ring = is_file('/var/tmp/unraid-vitals/history.json')

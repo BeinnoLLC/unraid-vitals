@@ -1147,6 +1147,189 @@ function v_container_weekly_report(): array {
 }
 
 /**
+ * P15-10 — export ring/rollups as CSV or JSON. CSV is flattened to one row
+ * per sample with a fixed, documented column set (the ticket's acceptance
+ * criterion is literally "opens in a spreadsheet with one row per
+ * sample" — nested per-container/per-disk maps are deliberately left out
+ * of the flat CSV, since a variable-width row per sample breaks that
+ * exact guarantee; JSON export keeps the full nested structure for anyone
+ * who wants it).
+ */
+function v_export_ring_rows(): array {
+  $ring = v_ring();
+  $rows = [];
+  foreach ($ring as $p) {
+    $rows[] = [
+      'time' => $p['t'] ?? null,
+      'time_iso' => isset($p['t']) ? gmdate('c', $p['t']) : null,
+      'cpu_pct' => $p['cpu'] ?? null,
+      'mem_pct' => $p['mem'] ?? null,
+      'load' => $p['load'] ?? null,
+      'temp_max_c' => $p['temp_max'] ?? null,
+      'gpu_pct' => $p['gpu'] ?? null,
+      'fs_used_bytes' => $p['fs_used'] ?? null,
+      'fill_max_pct' => $p['fill_max'] ?? null,
+      'var_log_pct' => $p['var_log_pct'] ?? null,
+      'tmp_pct' => $p['tmp_pct'] ?? null,
+      'docker_running' => $p['docker'] ?? null,
+      'docker_img_pct' => $p['docker_img_pct'] ?? null,
+      'watts_total' => $p['watts_total'] ?? null,
+      'watts_cpu' => $p['watts_cpu'] ?? null,
+      'watts_gpu' => $p['watts_gpu'] ?? null,
+      'watts_ups' => $p['watts_ups'] ?? null,
+      'cpu_mhz_avg' => $p['cpu_mhz_avg'] ?? null,
+    ];
+  }
+  return $rows;
+}
+
+function v_export_rollup_rows(): array {
+  $rows = [];
+  foreach (v_hourly_rows() as $r) {
+    $rows[] = [
+      'hour' => $r['h'] ?? null,
+      'hour_iso' => isset($r['h']) ? gmdate('c', $r['h'] * 3600) : null,
+      'samples' => $r['n'] ?? null,
+      'cpu_avg' => $r['cpu_avg'] ?? null, 'cpu_min' => $r['cpu_min'] ?? null,
+      'cpu_max' => $r['cpu_max'] ?? null, 'cpu_p95' => $r['cpu_p95'] ?? null,
+      'mem_avg' => $r['mem_avg'] ?? null, 'mem_min' => $r['mem_min'] ?? null,
+      'mem_max' => $r['mem_max'] ?? null, 'mem_p95' => $r['mem_p95'] ?? null,
+      'load_avg' => $r['load_avg'] ?? null, 'load_max' => $r['load_max'] ?? null,
+      'temp_avg' => $r['temp_avg'] ?? null, 'temp_max' => $r['temp_max'] ?? null,
+      'gpu_avg' => $r['gpu_avg'] ?? null, 'gpu_max' => $r['gpu_max'] ?? null,
+      'net_rx_bytes' => $r['net_rx'] ?? null, 'net_tx_bytes' => $r['net_tx'] ?? null,
+      'fs_used_bytes' => $r['fs_used'] ?? null, 'fill_max_pct' => $r['fill_max'] ?? null,
+      'docker_img_pct' => $r['docker_img_pct'] ?? null,
+      'watts_avg' => $r['watts_avg'] ?? null, 'watts_max' => $r['watts_max'] ?? null,
+    ];
+  }
+  return $rows;
+}
+
+/** Renders an array-of-flat-associative-arrays as CSV text, header row first. */
+function v_rows_to_csv(array $rows): string {
+  if (!$rows) return '';
+  $fh = fopen('php://temp', 'r+');
+  fputcsv($fh, array_keys($rows[0]));
+  foreach ($rows as $r) fputcsv($fh, array_map(fn($v) => is_bool($v) ? ($v ? '1' : '0') : $v, $r));
+  rewind($fh);
+  $out = stream_get_contents($fh);
+  fclose($fh);
+  return $out;
+}
+
+/**
+ * P15-10 — weekly health summary: worst findings from the checks engine,
+ * the capacity forecast, and changes since last week (CPU/mem/temp
+ * averages, disk fleet risk, container restarts) — sent through Unraid's
+ * own notification system so it lands wherever the user already gets
+ * system alerts (bell icon, email/agent if configured), rather than
+ * inventing a separate delivery channel.
+ */
+function v_weekly_health_summary(): array {
+  $rows = v_hourly_rows();
+  $now = time();
+  $thisWeekStart = $now - 7 * 86400;
+  $lastWeekStart = $now - 14 * 86400;
+  $thisWeek = array_values(array_filter($rows, fn($r) => $r['h'] * 3600 >= $thisWeekStart));
+  $lastWeek = array_values(array_filter($rows, fn($r) => $r['h'] * 3600 >= $lastWeekStart && $r['h'] * 3600 < $thisWeekStart));
+
+  $avgOf = function (array $rows, string $key) {
+    $vals = array_values(array_filter(array_column($rows, $key), fn($v) => $v !== null));
+    return $vals ? round(array_sum($vals) / count($vals), 1) : null;
+  };
+
+  $cpuThis = $avgOf($thisWeek, 'cpu_avg'); $cpuLast = $avgOf($lastWeek, 'cpu_avg');
+  $memThis = $avgOf($thisWeek, 'mem_avg'); $memLast = $avgOf($lastWeek, 'mem_avg');
+  $tempThis = $avgOf($thisWeek, 'temp_avg'); $tempLast = $avgOf($lastWeek, 'temp_avg');
+
+  // Worst open findings from the checks engine (error/critical first).
+  $findings = [];
+  $db = v_events_db();
+  if ($db) {
+    $exists = $db->querySingle("SELECT name FROM sqlite_master WHERE type='table' AND name='check_results'");
+    if ($exists) {
+      $res = $db->query("SELECT check_id, severity, subject, title FROM check_results
+                           WHERE severity IN ('error','critical','alert') ORDER BY
+                           CASE severity WHEN 'critical' THEN 0 WHEN 'alert' THEN 1 ELSE 2 END LIMIT 10");
+      while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $findings[] = $row;
+    }
+    $db->close();
+  }
+
+  // Capacity forecast (reuses P15-01, already computed from the same daily rollups).
+  $daily = v_daily(30);
+  $snap = v_latest() ?: [];
+  $totals = [];
+  foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['cache'] ?? []) as $dk) {
+    if (($dk['fsSize'] ?? 0) > 0 && !empty($dk['name'])) $totals[$dk['name']] = [$dk['fsSize'], $dk['fsFree']];
+  }
+  $forecast = v_capacity_forecast($daily, $totals);
+  $forecastSoon = array_values(array_filter($forecast, fn($f) => ($f['days_left'] ?? 999) < 30));
+
+  // Disk fleet top risk (P15-09) and container restarts this week (P15-07).
+  $fleetTop = [];
+  try { $fleet = v_disk_fleet_report(); $fleetTop = array_slice(array_filter($fleet['disks'], fn($d) => $d['risk_score'] > 0), 0, 5); } catch (Throwable $e) {}
+  $ctrRestarts = 0;
+  try { $wk = v_container_weekly_report(); foreach ($wk['containers'] as $c) $ctrRestarts += $c['this_week']['restarts'] ?? 0; } catch (Throwable $e) {}
+
+  return [
+    'generated_at' => $now,
+    'week_start' => $thisWeekStart,
+    'cpu_avg' => $cpuThis, 'cpu_avg_last_week' => $cpuLast,
+    'mem_avg' => $memThis, 'mem_avg_last_week' => $memLast,
+    'temp_avg' => $tempThis, 'temp_avg_last_week' => $tempLast,
+    'worst_findings' => $findings,
+    'capacity_forecast_soon' => $forecastSoon,
+    'disk_fleet_top_risk' => array_values($fleetTop),
+    'container_restarts_this_week' => $ctrRestarts,
+  ];
+}
+
+/**
+ * Renders v_weekly_health_summary() as a short plain-text digest and sends
+ * it through Unraid's notify script, same channel used elsewhere in this
+ * plugin (v_check_alerts / v_check_ai_findings) so it appears alongside
+ * every other system notification rather than a bespoke delivery path.
+ */
+function v_send_weekly_health_report(): void {
+  $s = v_weekly_health_summary();
+  $lines = [];
+  $lines[] = 'CPU avg ' . ($s['cpu_avg'] ?? '—') . '%' . ($s['cpu_avg_last_week'] !== null ? ' (was ' . $s['cpu_avg_last_week'] . '%)' : '');
+  $lines[] = 'Mem avg ' . ($s['mem_avg'] ?? '—') . '%' . ($s['mem_avg_last_week'] !== null ? ' (was ' . $s['mem_avg_last_week'] . '%)' : '');
+  $lines[] = 'Temp avg ' . ($s['temp_avg'] ?? '—') . '°C' . ($s['temp_avg_last_week'] !== null ? ' (was ' . $s['temp_avg_last_week'] . '°C)' : '');
+  if ($s['worst_findings']) {
+    $lines[] = count($s['worst_findings']) . ' open finding(s), worst: ' . $s['worst_findings'][0]['title'];
+  } else {
+    $lines[] = 'No open error/critical findings.';
+  }
+  if ($s['capacity_forecast_soon']) {
+    $f = $s['capacity_forecast_soon'][0];
+    $lines[] = $f['name'] . ' projected full in ' . $f['days_left'] . ' day(s).';
+  }
+  if ($s['disk_fleet_top_risk']) {
+    $d = $s['disk_fleet_top_risk'][0];
+    $lines[] = 'Top disk risk: ' . $d['name'] . ' (score ' . $d['risk_score'] . ') — ' . implode('; ', $d['risk_reasons']);
+  }
+  if ($s['container_restarts_this_week'] > 0) {
+    $lines[] = $s['container_restarts_this_week'] . ' container restart(s) this week.';
+  }
+  $desc = implode("\n", $lines);
+
+  $notify = '/usr/local/emhttp/webGui/scripts/notify';
+  if (is_executable($notify)) {
+    $importance = ($s['worst_findings'] || $s['capacity_forecast_soon']) ? 'warning' : 'normal';
+    @shell_exec(sprintf(
+      '%s -e %s -s %s -d %s -i %s -l %s 2>/dev/null',
+      escapeshellarg($notify), escapeshellarg('unraid-vitals weekly report'),
+      escapeshellarg('Weekly health summary'), escapeshellarg($desc),
+      escapeshellarg($importance), escapeshellarg('/Vitals')
+    ));
+  }
+}
+
+
+/**
  * P15-09 — disk fleet report: per-disk model/age/power-on-hours/
  * start-stop-count/temperature-history/SMART-counter-growth, plus a risk-
  * ranked list with the reasons shown. Reads v_smart() directly for the

@@ -91,6 +91,17 @@ DUPCRONEOF
 chmod 644 "$DUP_CRON"
 cp -f "$DUP_CRON" "$FLASH/dupscan.cron" 2>/dev/null || true
 
+# --- weekly health report cron (P15-10) ----------------------------------------
+# Monday 08:00 -- after both the nightly storage scan and the weekly dup
+# scan's own slot, so the report reflects the freshest data from both.
+WEEKLY_CRON=/etc/cron.d/${PLUGIN}-weekly
+cat > "$WEEKLY_CRON" <<WEEKLYCRONEOF
+# unraid-vitals weekly health report — installed by $PLUGIN.plg
+0 8 * * 1 /usr/bin/php $PLUGDIR/scripts/vitals-weekly-report.php --quiet >> $STATE/weekly-report.log 2>&1
+WEEKLYCRONEOF
+chmod 644 "$WEEKLY_CRON"
+cp -f "$WEEKLY_CRON" "$FLASH/weekly.cron" 2>/dev/null || true
+
 # --- flash retention script --------------------------------------------------
 cat > "$FLASH/prune.php" <<'PRUNE'
 <?php

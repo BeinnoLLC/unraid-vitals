@@ -2460,6 +2460,18 @@ function SettingsTab() {
       ].map(function (r, i) {
         return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]), h('td', { class: 'num v-name' }, r[1]));
       }))),
+    h(Panel, { title: 'Export data', hint: 'CSV opens directly in a spreadsheet' },
+      h('div', { class: 'v-export-row' },
+        h('div', null,
+          h('div', { class: 'muted', style: 'margin-bottom:4px' }, 'Ring buffer (' + (meta.ring_samples || 0) + ' recent samples)'),
+          h('a', { class: 'v-btn xs', href: ENDPOINT + '?action=export&what=ring&format=csv' }, 'Download CSV'),
+          ' ',
+          h('a', { class: 'v-btn xs', href: ENDPOINT + '?action=export&what=ring&format=json' }, 'Download JSON')),
+        h('div', { style: 'margin-top:12px' },
+          h('div', { class: 'muted', style: 'margin-bottom:4px' }, 'Hourly rollups (' + (meta.flash_files || 0) + ' month file(s))'),
+          h('a', { class: 'v-btn xs', href: ENDPOINT + '?action=export&what=rollups&format=csv' }, 'Download CSV'),
+          ' ',
+          h('a', { class: 'v-btn xs', href: ENDPOINT + '?action=export&what=rollups&format=json' }, 'Download JSON')))),
     h(Panel, { title: 'Preferences' },
       h('table', null,
         h('tr', null, h('td', { class: 'muted' }, 'Sample interval'),
