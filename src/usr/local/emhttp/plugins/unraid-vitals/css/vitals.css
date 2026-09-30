@@ -333,13 +333,17 @@
 
 /* threshold overlay lines */
 .vitals .v-chart { position: relative; }
-.vitals .v-th-line { position: absolute; left: 46px; right: 12px; border-top: 1px dashed #f87171; pointer-events: none; z-index: 2; }
+/* Overlays are appended inside uPlot's .u-over (= the plot area exactly),
+   so left/right 0 spans the data region and top/bottom 0 spans its height
+   — no hard-coded axis offsets, no bleeding into the legend below. */
+.vitals .u-over { overflow: visible; }
+.vitals .v-th-line { position: absolute; left: 0; right: 0; border-top: 1px dashed #f87171; pointer-events: none; z-index: 2; }
 .vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: #f87171aa; }
 
 /* P15-04: event markers — thin vertical line + a small pointer-catching
    hit target, positioned in JS via uPlot's own x-scale so it always lines
    up with the data underneath. */
-.vitals .v-ev-marker { position: absolute; top: 8px; bottom: 22px; width: 1px; border-left: 1.5px dashed #60a5fa; cursor: pointer; z-index: 3; }
+.vitals .v-ev-marker { position: absolute; top: 0; bottom: 0; width: 1px; border-left: 1.5px dashed #60a5fa; cursor: pointer; z-index: 3; }
 .vitals .v-ev-marker .v-ev-dot { position: absolute; top: -4px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
 /* fan tiles */
@@ -484,7 +488,14 @@
 
 /* Charts ------------------------------------------------------------------ */
 
-.vitals .v-chart { width: 100%; height: 140px; display: block; }
+/* Height is content-driven, NOT fixed: uPlot sizes its canvas from the
+   `height` option (150-200px per chart) and appends the legend table
+   below it. A fixed 140px box here made every chart overflow — the
+   canvas painted over the ChartStats chips beneath it and the native
+   legend row fell off the bottom of the panel entirely (user: "legends
+   are broken for charts"). min-height keeps the empty-state box stable. */
+.vitals .v-chart { width: 100%; min-height: 140px; display: block; }
+.vitals .v-chart .uplot { width: 100%; }
 .vitals .v-chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .vitals .v-chart .v-empty { opacity: .55; font-size: var(--v-fs-sm); padding-top: 50px; text-align: center; }
 .vitals .v-legend {
@@ -499,9 +510,12 @@
    dark theme and reads as unreadable dark-on-dark or cramped default
    browser table spacing (user: "legends are broken for charts"). */
 .vitals .u-legend { font-size: 11.5px; text-align: left; margin: 8px 0 0; width: 100%; }
-.vitals .u-legend tr { display: inline-flex; align-items: center; margin: 3px 10px 3px 0; }
-.vitals .u-legend th { font-weight: 600; padding: 2px 0; color: var(--v-fg); white-space: nowrap; }
-.vitals .u-legend .u-marker { border-radius: 2px; }
+.vitals .u-legend tr { display: inline-flex; align-items: center; margin: 3px 12px 3px 0; }
+.vitals .u-legend th { font-weight: 600; padding: 2px 0; color: var(--v-fg); white-space: nowrap; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+/* uPlot draws markers as an empty box with the series colour as a thin
+   border — on a dark theme that reads as an unchecked checkbox. Fill it
+   (background from the same border colour) so it's a proper swatch. */
+.vitals .u-legend .u-marker { width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; }
 .vitals .u-legend .u-value { color: var(--v-muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
 .vitals .v-empty {
   font-size: var(--v-fs-sm); opacity: .6; padding: 22px 0; text-align: center;

@@ -30,6 +30,12 @@ function bytes(n, p) {
   return (i ? n.toFixed(p === undefined ? 1 : p) : String(Math.round(n))) + ' ' + u[i];
 }
 function pctStr(n, d) { return n == null ? '—' : Number(n).toFixed(d === undefined ? 1 : d) + '%'; }
+/* Binary tick increments for byte-valued y axes: 1,2,4,8,16,… × 1 B/KiB/MiB/GiB. */
+var BYTE_INCRS = (function () {
+  var out = [];
+  for (var e = 0; e <= 4; e++) [1, 2, 4, 8, 16, 32, 64, 128, 256, 512].forEach(function (m) { out.push(m * Math.pow(1024, e)); });
+  return out;
+})();
 function dur(s) {
   if (s == null) return '—';
   s = Math.floor(s);
@@ -420,7 +426,8 @@ function Chart(P) {
     var opts = {
       width: ref.current.clientWidth || 600,
       height: P.height || 150,
-      legend: { show: P.hideLegend ? false : series.length > 1, live: false, markers: { width: 1.5 } },
+      legend: { show: P.hideLegend ? false : series.length > 1, live: false,
+        markers: { width: 0, fill: function (u, si) { return u.series[si].stroke(u, si); } } },
       cursor: { sync: { key: 'vit' } },
       scales: {
         x: { time: false },
@@ -439,6 +446,11 @@ function Chart(P) {
           space: 70, size: 26,
           values: function (u, sp) { return sp.map(ts); } },
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
+          // Byte scales: uPlot picks decimal tick steps (9,000,000 /
+          // 9,500,000 …) which format as 8.6 / 9.1 / 9.5 MiB — legal but
+          // reads as a broken axis. Snap to binary steps when the
+          // formatter is the bytes helper so ticks land on 8 / 16 / 32 MiB.
+          incrs: P.yFmt === bytes ? BYTE_INCRS : undefined,
           values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } },
       ],
       series: [{}].concat(series.map(function (s, i) {
@@ -463,20 +475,28 @@ function Chart(P) {
     }
     // Threshold dashes are drawn as post-render DOM overlays instead of uPlot
     // series: keeps the data arrays pure and the legend free of phantom rows.
+    // Overlays live inside uPlot's own `.u-over` layer (exactly the plot
+    // area, above the canvas, below the legend) and are positioned with
+    // valToPos — anchoring them to the host with hand-derived pixel math
+    // put the 55° dash and its label on top of the legend row once the
+    // legend gained real height (user: "legends are broken for charts").
+    var overlayLayer = function () {
+      return ref.current ? ref.current.querySelector('.u-over') : null;
+    };
     var drawThresholds = function () {
-      var host = ref.current;
-      if (!host) return;
-      host.querySelectorAll('.v-th-line').forEach(function (el) { el.remove(); });
+      var over = overlayLayer();
+      if (!over || !plot.current) return;
+      over.querySelectorAll('.v-th-line').forEach(function (el) { el.remove(); });
       thresholds.forEach(function (t) {
         if (t.v == null || t.v < minV || t.v > maxV) return;
-        var y = maxV - t.v, span = maxV - minV;
-        if (span <= 0) return;
+        var y = plot.current.valToPos(t.v, 'y');
+        if (y == null || !isFinite(y)) return;
         var el = document.createElement('div');
         el.className = 'v-th-line';
-        el.style.bottom = (8 + (y / span) * (opts.height - 30)) + 'px';
+        el.style.top = y + 'px';
         el.style.borderColor = t.color || '#f87171';
         if (t.label) el.setAttribute('data-label', t.label);
-        host.appendChild(el);
+        over.appendChild(el);
       });
     };
 
@@ -488,9 +508,9 @@ function Chart(P) {
     var events = P.events || [];
     var evColor = { critical: '#f87171', alert: '#f87171', warning: '#fbbf24', info: '#60a5fa' };
     var drawEvents = function () {
-      var host = ref.current;
-      if (!host || !plot.current) return;
-      host.querySelectorAll('.v-ev-marker').forEach(function (el) { el.remove(); });
+      var over = overlayLayer();
+      if (!over || !plot.current) return;
+      over.querySelectorAll('.v-ev-marker').forEach(function (el) { el.remove(); });
       var u = plot.current;
       events.forEach(function (e) {
         if (e.t < xs[0] || e.t > xs[xs.length - 1]) return;
@@ -507,7 +527,7 @@ function Chart(P) {
         dot.className = 'v-ev-dot';
         el.appendChild(dot);
         if (P.onEventClick) el.addEventListener('click', function () { P.onEventClick(e); });
-        host.appendChild(el);
+        over.appendChild(el);
       });
     };
 
