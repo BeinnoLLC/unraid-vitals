@@ -1034,6 +1034,36 @@ function v_storage_analyzer(): array {
   return ['shares' => $out, 'scanned_at' => $latestScan];
 }
 
+/**
+ * P15-06 — reads cached duplicate-file groups written by
+ * scripts/vitals-dup-scan.php. Report-only, sorted by wasted space
+ * (largest opportunity first).
+ */
+function v_dup_report(int $limit = 100): array {
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !is_file($dbFile) || !class_exists('SQLite3')) return ['groups' => [], 'scanned_at' => null, 'total_wasted' => 0];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return ['groups' => [], 'scanned_at' => null, 'total_wasted' => 0]; }
+  $exists = $db->querySingle("SELECT name FROM sqlite_master WHERE type='table' AND name='dup_groups'");
+  if (!$exists) { $db->close(); return ['groups' => [], 'scanned_at' => null, 'total_wasted' => 0]; }
+
+  $groups = [];
+  $res = $db->query("SELECT id, size, file_count, wasted_bytes, scanned_at FROM dup_groups ORDER BY wasted_bytes DESC LIMIT " . (int)$limit);
+  $latest = null; $totalWasted = 0;
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) {
+    if ($latest === null || $row['scanned_at'] > $latest) $latest = $row['scanned_at'];
+    $totalWasted += (int)$row['wasted_bytes'];
+    $files = [];
+    $fstmt = $db->prepare("SELECT path FROM dup_files WHERE group_id = ?");
+    $fstmt->bindValue(1, $row['id'], SQLITE3_INTEGER);
+    $fres = $fstmt->execute();
+    while ($fres && ($frow = $fres->fetchArray(SQLITE3_ASSOC))) $files[] = $frow['path'];
+    $groups[] = ['size' => (int)$row['size'], 'file_count' => (int)$row['file_count'],
+      'wasted_bytes' => (int)$row['wasted_bytes'], 'files' => $files];
+  }
+  $db->close();
+  return ['groups' => $groups, 'scanned_at' => $latest, 'total_wasted' => $totalWasted];
+}
+
 function v_check_ai_findings(): void {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return;

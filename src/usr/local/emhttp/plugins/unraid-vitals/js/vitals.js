@@ -1564,6 +1564,16 @@ function SharesTab(P) {
   var saShares = (storageData && storageData.shares) || [];
   var current = saShares.filter(function (s) { return s.share === selectedShare; })[0] || saShares[0] || null;
 
+  // P15-06: duplicate file finder — report-only, deletion is out of scope
+  // for this ticket (goes through the cleanup framework in P16-01).
+  var dupState = useState(null); var dupData = dupState[0], setDupData = dupState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=dup_report', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setDupData(j); })
+      .catch(function () {});
+  }, []);
+
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
@@ -1634,6 +1644,22 @@ function SharesTab(P) {
                       h('div', { class: 'v-bar' }, h('i', { style: 'width:' + pct + '%;background:' + PAL['v-accent'] })),
                       h('span', { class: 'v-storage-type-size' }, bytes(b)));
                   })) : null)) : null))),
+    h(Panel, { title: 'Duplicate files', span2: true,
+      hint: dupData && dupData.scanned_at ? bytes(dupData.total_wasted) + ' wasted · last scan ' + ageLabel(dupData.scanned_at) : '' },
+      !dupData ? h('div', { class: 'v-empty' }, 'Loading…')
+      : !dupData.groups.length ? h('div', { class: 'v-empty' },
+          dupData.scanned_at ? 'No duplicate files found in the last scan.'
+            : 'No scan results yet — the weekly duplicate scan (Sunday 04:00) hasn\'t run. Run scripts/vitals-dup-scan.php --force to seed data now.')
+      : h(Table, null,
+          h('tr', null, h('th', null, 'Size'), h('th', { class: 'num' }, 'Copies'),
+            h('th', { class: 'num' }, 'Wasted'), h('th', null, 'Paths')),
+          dupData.groups.slice(0, 40).map(function (g, i) {
+            return h('tr', { key: i },
+              h('td', null, bytes(g.size)),
+              h('td', { class: 'num' }, String(g.file_count)),
+              h('td', { class: 'num' }, bytes(g.wasted_bytes)),
+              h('td', { class: 'muted v-dup-paths' }, g.files.join('  ·  ')));
+          }))),
     browseShare ? h(ShareBrowser, { share: browseShare, onClose: function () { setBrowseShare(null); } }) : null);
 }
 

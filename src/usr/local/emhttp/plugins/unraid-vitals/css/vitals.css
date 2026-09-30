@@ -128,6 +128,7 @@
 .vitals .v-storage-type-name { font-family: monospace; opacity: .8; }
 .vitals .v-storage-type-size { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
 @media (max-width: 860px) { .vitals .v-storage-detail { grid-template-columns: 1fr; } }
+.vitals .v-dup-paths { font-size: 11px; max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
 .vitals .v-core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }

@@ -78,6 +78,19 @@ STORAGECRONEOF
 chmod 644 "$STORAGE_CRON"
 cp -f "$STORAGE_CRON" "$FLASH/storage.cron" 2>/dev/null || true
 
+# --- duplicate file finder cron (P15-06) ---------------------------------------
+# Weekly, not nightly — hashing every file over 1 MiB across every share is
+# considerably heavier than the storage analyzer's single `du` pass, so this
+# runs once a week (Sunday 04:00) rather than competing with the nightly
+# storage scan for the same low-I/O-priority window.
+DUP_CRON=/etc/cron.d/${PLUGIN}-dupscan
+cat > "$DUP_CRON" <<DUPCRONEOF
+# unraid-vitals duplicate file finder — installed by $PLUGIN.plg
+0 4 * * 0 /usr/bin/php $PLUGDIR/scripts/vitals-dup-scan.php --quiet >> $STATE/dup-scan.log 2>&1
+DUPCRONEOF
+chmod 644 "$DUP_CRON"
+cp -f "$DUP_CRON" "$FLASH/dupscan.cron" 2>/dev/null || true
+
 # --- flash retention script --------------------------------------------------
 cat > "$FLASH/prune.php" <<'PRUNE'
 <?php
