@@ -353,11 +353,22 @@ function Pill(P) {
 }
 
 function StatCard(P) {
-  return h('div', { class: 'v-card' + (P.ring != null ? ' v-card-ring' : '') },
-    P.ring != null ? h(Gauge, { pct: P.ring, color: P.color, size: 42, thickness: 5 })
-    : P.icon ? h('div', { class: 'v-card-icon',
-      style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
-      h('i', { class: 'fa ' + P.icon })) : null,
+  // Icon badge is ALWAYS shown now (user: "we should have an icon for
+  // CPU, instead of the circle, same for memory and so on for every
+  // single card — be smart and consistent"). Cards that used to swap the
+  // icon out entirely for a plain donut gauge (CPU/Memory/Storage) now
+  // wrap the SAME icon badge in a thin conic-gradient progress ring
+  // instead, so every card reads as "icon + label + number" at a glance
+  // and the percentage is an accent around it, not a replacement.
+  return h('div', { class: 'v-card' },
+    h('div', { class: 'v-card-icon-wrap' },
+      P.ring != null ? h('div', {
+        class: 'v-card-icon-ring',
+        style: '--ring:' + P.color + ';background:conic-gradient(' + P.color + ' ' +
+          Math.round(Math.max(0, Math.min(100, P.ring)) * 3.6) + 'deg, var(--v-border) 0deg)',
+      }) : null,
+      h('div', { class: 'v-card-icon', style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
+        h('i', { class: 'fa ' + (P.icon || 'fa-circle') }))),
     h('div', { class: 'v-card-body' },
       h('div', { class: 'v-card-label' }, P.label),
       h('div', { class: 'v-card-value ' + (P.level || '') },
@@ -387,10 +398,30 @@ function StatCard(P) {
 function Chart(P) {
   var ref = useRef(null);
   var plot = useRef(null);
+  var rafRef = useRef(null);
+  var prevYsRef = useRef(null);   // last rendered y arrays, source for the next morph
+  var redrawRef = useRef(function () {});
+  var seriesRef = useRef(null); seriesRef.current = P.series || [];
   var menuState = useState(false); var menuOpen = menuState[0], setMenuOpen = menuState[1];
   var series = P.series || [];
   var n = series.reduce(function (m, s) { return Math.max(m, (s.points || []).length); }, 0);
-  var minV = P.floor || 0, maxV = P.max;
+  var minV = P.floor || 0;
+
+  // Structural signature: only things that require destroying and rebuilding
+  // the uPlot instance (series identity/count/axis, chart chrome). Anything
+  // NOT in here (the actual y-values) is handled by the data effect below
+  // via setData, which is what lets a new sample animate in smoothly
+  // instead of every tick doing a full destroy+rebuild (user: "I should
+  // see charts moving with time with animations based on adding new data
+  // points" — a rebuild every render made that impossible).
+  var structSig = JSON.stringify({
+    empty: n < 2,
+    h: P.height, area: !!P.area, stack: !!P.stack, hideLegend: !!P.hideLegend,
+    y2: !!P.y2Fmt, y2max: P.y2Max, y2floor: P.y2Floor,
+    names: series.map(function (s) { return s.name + '|' + s.color + '|' + (s.axis || 1); }),
+    thrN: (P.thresholds || []).length,
+    evN: (P.events || []).length,
+  });
 
   useEffect(function () {
     if (!ref.current) return;
@@ -400,42 +431,20 @@ function Chart(P) {
         (P.empty || 'Not enough samples yet — history builds up each minute.') + '</div>';
       return;
     }
-    var xs = series[0].points.map(function (q) { return q[0]; });
-    var ys = series.map(function (s) { return s.points.map(function (q) { return q[1]; }); });
-
-    // Stacked mode: cumulative ys so uPlot's area fills draw a stacked band
-    // per series (values themselves stay raw for the legend readout via $F).
-    if (P.stack) {
-      for (var si = 1; si < ys.length; si++) {
-        ys[si] = ys[si].map(function (v, i) {
-          var prev = ys[si - 1][i];
-          return v == null ? prev : (prev == null ? v : v + prev);
-        });
-      }
-    }
-
-    if (!maxV) {
-      maxV = 0;
-      ys.forEach(function (a) { a.forEach(function (v) { if (v != null && v > maxV) maxV = v; }); });
-      maxV = maxV * 1.15;
-    }
-    if (!maxV || maxV <= minV) maxV = minV + 1;
-    // Make room for threshold lines above the data ceiling.
-    (P.thresholds || []).forEach(function (t) {
-      if (t.v != null && t.v > maxV) maxV = t.v * 1.06;
-    });
-
-    var thresholds = P.thresholds || [];
 
     var fmt1 = function (s, v) {
       if (s.fmt) return s.fmt(v);
       if (v == null) return '';
       return Math.round(v * 10) / 10 + (s.unit || '');
     };
-    // In stacked mode the legend shows each band's own value, not the cumulative.
+    // In stacked mode the legend shows each band's own value, not the
+    // cumulative. Reads from seriesRef so it always reflects the CURRENT
+    // points even though this closure was captured at structural-build
+    // time, not on the latest data tick.
     var legendVal = function (u, si) {
-      var raw = series[si] && series[si].points[u.cursor.idx];
-      return raw && raw[1] != null ? fmt1(series[si], raw[1]) : '';
+      var s = seriesRef.current[si];
+      var raw = s && s.points[u.cursor.idx];
+      return raw && raw[1] != null ? fmt1(s, raw[1]) : '';
     };
 
     var opts = {
@@ -446,25 +455,14 @@ function Chart(P) {
       cursor: { sync: { key: 'vit' } },
       scales: {
         x: { time: false },
-        y: { range: [minV, maxV] },
+        y: { range: [minV, minV + 1] }, // real range applied by the data effect right after
         y2: P.y2Fmt ? { range: [P.y2Floor != null ? P.y2Floor : 0, P.y2Max != null ? P.y2Max : 100] } : undefined,
       },
       axes: [
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false },
-          // Linear (non-time) x scale: uPlot's default tick spacing tracks
-          // data density, not label width, so a long history window packs
-          // in far more timestamps than fit — they end up overlapping each
-          // other and the legend row below. `space` is the minimum pixel
-          // gap uPlot must leave between ticks; `size` reserves real height
-          // for the label row instead of letting it float into whatever's
-          // rendered underneath the chart.
           space: 70, size: 26,
           values: function (u, sp) { return sp.map(ts); } },
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
-          // Byte scales: uPlot picks decimal tick steps (9,000,000 /
-          // 9,500,000 …) which format as 8.6 / 9.1 / 9.5 MiB — legal but
-          // reads as a broken axis. Snap to binary steps when the
-          // formatter is the bytes helper so ticks land on 8 / 16 / 32 MiB.
           incrs: P.yFmt === bytes ? BYTE_INCRS : undefined,
           values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } },
       ],
@@ -482,19 +480,79 @@ function Chart(P) {
       })),
       padding: [8, 10, 0, P.y2Fmt ? 46 : 0],
     };
-    // Secondary axis.
     if (P.y2Fmt) {
       opts.axes.push({ stroke: '#8886', grid: { show: false }, ticks: { show: false }, side: 1, size: 44,
         scale: 'y2', values: function (u, sp) { return sp.map(function (v) { return P.y2Fmt(v); }); } });
       opts.padding[1] = 52;
     }
-    // Threshold dashes are drawn as post-render DOM overlays instead of uPlot
-    // series: keeps the data arrays pure and the legend free of phantom rows.
-    // Overlays live inside uPlot's own `.u-over` layer (exactly the plot
-    // area, above the canvas, below the legend) and are positioned with
-    // valToPos — anchoring them to the host with hand-derived pixel math
-    // put the 55° dash and its label on top of the legend row once the
-    // legend gained real height (user: "legends are broken for charts").
+
+    // Seed with whatever data is available right now — the data effect
+    // (below, runs immediately after this commit) will call setData again
+    // on the very next tick, but uPlot needs a valid initial dataset of the
+    // right shape to construct at all.
+    var xs0 = series[0].points.map(function (q) { return q[0]; });
+    var ys0 = series.map(function (s) { return s.points.map(function (q) { return q[1]; }); });
+    if (P.stack) {
+      for (var si0 = 1; si0 < ys0.length; si0++) {
+        ys0[si0] = ys0[si0].map(function (v, i) {
+          var prev = ys0[si0 - 1][i];
+          return v == null ? prev : (prev == null ? v : v + prev);
+        });
+      }
+    }
+
+    plot.current = new uPlot(opts, [xs0].concat(ys0), ref.current);
+    prevYsRef.current = null; // fresh instance — first data-effect tick paints instantly, no morph
+
+    var ro = new ResizeObserver(function () { redrawRef.current(); });
+    ro.observe(ref.current);
+    var onR = function () {
+      if (plot.current && ref.current) {
+        plot.current.setSize({ width: ref.current.clientWidth, height: opts.height });
+        redrawRef.current();
+      }
+    };
+    window.addEventListener('resize', onR);
+    return function () {
+      window.removeEventListener('resize', onR);
+      ro.disconnect();
+      if (plot.current) { plot.current.destroy(); plot.current = null; }
+    };
+  }, [structSig]);
+
+  // Data effect: runs on every render (series point arrays are new objects
+  // each poll tick). Pushes new values into the EXISTING uPlot instance via
+  // setData rather than rebuilding it — destroying/recreating uPlot every
+  // ~10s poll is what made charts "jump cut" instead of visibly moving.
+  // When the data shape matches the previous tick (same series count, same
+  // window length) the new values are eased in over a few animation
+  // frames; a shape change (window grew/shrank) just snaps in immediately
+  // since there's no meaningful point-to-point correspondence to morph.
+  useEffect(function () {
+    if (!plot.current || n < 2) return;
+    var xs = series[0].points.map(function (q) { return q[0]; });
+    var ys = series.map(function (s) { return s.points.map(function (q) { return q[1]; }); });
+    if (P.stack) {
+      for (var si = 1; si < ys.length; si++) {
+        ys[si] = ys[si].map(function (v, i) {
+          var prev = ys[si - 1][i];
+          return v == null ? prev : (prev == null ? v : v + prev);
+        });
+      }
+    }
+
+    var maxV = P.max;
+    if (!maxV) {
+      maxV = 0;
+      ys.forEach(function (a) { a.forEach(function (v) { if (v != null && v > maxV) maxV = v; }); });
+      maxV = maxV * 1.15;
+    }
+    if (!maxV || maxV <= minV) maxV = minV + 1;
+    var thresholds = P.thresholds || [];
+    thresholds.forEach(function (t) {
+      if (t.v != null && t.v > maxV) maxV = t.v * 1.06;
+    });
+
     var overlayLayer = function () {
       return ref.current ? ref.current.querySelector('.u-over') : null;
     };
@@ -515,11 +573,6 @@ function Chart(P) {
       });
     };
 
-    // P15-04: event markers — vertical lines at the x-position of each
-    // event (parity check, mover run, reboot, alert), same post-render DOM
-    // overlay approach as threshold lines above but positioned by
-    // uPlot's own x-scale mapping (valToPos) so it stays correct across
-    // resize/zoom without re-deriving the timestamp math ourselves.
     var events = P.events || [];
     var evColor = { critical: '#f87171', alert: '#f87171', warning: '#fbbf24', info: '#60a5fa' };
     var drawEvents = function () {
@@ -545,28 +598,40 @@ function Chart(P) {
         over.appendChild(el);
       });
     };
+    redrawRef.current = function () { drawThresholds(); drawEvents(); };
 
-    if (plot.current) plot.current.destroy();
-    plot.current = new uPlot(opts, [xs].concat(ys), ref.current);
-    if (thresholds.length || events.length) {
-      var redraw = function () { drawThresholds(); drawEvents(); };
-      redraw();
-      var ro = new ResizeObserver(redraw);
-      ro.observe(ref.current);
-      var _oldDestroy = plot.current.destroy.bind(plot.current);
-      plot.current.destroy = function () { ro.disconnect(); _oldDestroy(); };
+    if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    var fromYs = prevYsRef.current;
+    var canAnimate = fromYs && fromYs.length === ys.length &&
+      fromYs[0] && ys[0] && fromYs[0].length === ys[0].length;
+    if (canAnimate) {
+      var dur = 260, start = null;
+      var frame = function (ts) {
+        if (start == null) start = ts;
+        var t = Math.min(1, (ts - start) / dur);
+        var eased = 1 - Math.pow(1 - t, 3); // ease-out cubic
+        var mixed = ys.map(function (arr, si2) {
+          return arr.map(function (v, i) {
+            var f = fromYs[si2][i];
+            if (v == null || f == null) return v;
+            return f + (v - f) * eased;
+          });
+        });
+        if (plot.current) plot.current.setData([xs].concat(mixed), false);
+        if (t < 1) { rafRef.current = requestAnimationFrame(frame); }
+        else {
+          rafRef.current = null;
+          if (plot.current) plot.current.setData([xs].concat(ys), false);
+          redrawRef.current();
+        }
+      };
+      rafRef.current = requestAnimationFrame(frame);
+    } else {
+      plot.current.setData([xs].concat(ys), false);
     }
-
-    var onR = function () {
-      if (plot.current && ref.current) {
-        plot.current.setSize({ width: ref.current.clientWidth, height: opts.height });
-      }
-    };
-    window.addEventListener('resize', onR);
-    return function () {
-      window.removeEventListener('resize', onR);
-      if (plot.current) { plot.current.destroy(); plot.current = null; }
-    };
+    plot.current.setScale('y', { min: minV, max: maxV });
+    redrawRef.current();
+    prevYsRef.current = ys;
   });
 
   // Per-series current/min/max/avg for the legend popover — computed from

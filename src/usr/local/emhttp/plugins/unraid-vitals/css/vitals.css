@@ -436,6 +436,7 @@
 .vitals .v-card {
   background: var(--v-card); border: 1px solid var(--v-border);
   border-radius: var(--v-radius); padding: 11px 13px; position: relative; overflow: hidden;
+  display: flex; align-items: center; gap: 10px;
   transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s ease;
 }
 .vitals .v-card:hover {
@@ -444,12 +445,28 @@
   box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
 }
 @media (prefers-reduced-motion: reduce) { .vitals .v-card:hover { transform: none; } }
+.vitals .v-card-body { min-width: 0; flex: 1; }
+/* Every card gets an icon badge now — never a bare donut gauge in its place
+   (user: "we should have an icon for CPU, instead of the circle, same for
+   memory and so on for every single card — be smart and consistent"). A
+   card that used to be ring-only (CPU/Memory/Storage %) keeps its percent
+   as a thin conic-gradient ring WRAPPED AROUND the same icon badge, so the
+   badge is the one consistent visual anchor across all cards and the ring
+   reads as "progress accent", not a replacement for the icon. */
+.vitals .v-card-icon-wrap { position: relative; flex: none; width: 40px; height: 40px; }
+.vitals .v-card-icon-ring {
+  position: absolute; inset: 0; border-radius: 50%; padding: 3px;
+  transition: background .6s ease;
+}
 .vitals .v-card-icon {
-  width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center;
-  justify-content: center; font-size: 12px; margin-bottom: 7px;
+  width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center;
+  justify-content: center; font-size: 16px;
   /* Fallback for browsers without color-mix(); the inline tint overrides it
      only when supported, so the badge is never left unstyled. */
   background: rgba(127, 127, 127, .14);
+}
+.vitals .v-card-icon-wrap .v-card-icon-ring + .v-card-icon {
+  position: absolute; inset: 3px; width: auto; height: auto; border-radius: 50%;
 }
 .vitals .v-card-label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
@@ -478,17 +495,6 @@
   margin-top: 11px; overflow: hidden;
 }
 .vitals .v-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--v-cpu); transition: width .5s ease; }
-
-/* Ring stat card (P4-UI): CPU/Memory/Storage cards use a Gauge ring instead
-   of the flat icon badge + bottom bar, matching the reference dashboards'
-   "big ring with number in the middle" KPI style. Row layout so the ring
-   sits beside the label/value/sub text instead of stacked above it — a
-   96px card is too short to stack a 56px ring on top of three text lines. */
-.vitals .v-card-ring { display: flex; align-items: center; gap: 10px; }
-.vitals .v-card-ring .v-gauge { flex: none; }
-.vitals .v-card-ring .v-card-body { min-width: 0; flex: 1; }
-.vitals .v-card-ring .v-gauge-big { font-size: 11px; }
-.vitals .v-card-ring .v-card-label { margin-bottom: 2px; }
 
 .vitals .ok    { color: var(--v-ok-fg); }
 .vitals .warn  { color: var(--v-warn-fg); }
