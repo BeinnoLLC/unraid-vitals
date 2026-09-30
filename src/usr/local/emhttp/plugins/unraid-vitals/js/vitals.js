@@ -1178,6 +1178,15 @@ function ArrayTab(P) {
   var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
   var smTop = topKeys(pts, 'smart', 0, 8);
 
+  // P15-09: disk fleet risk report — model/age/start-stop/growth, ranked.
+  var dfState = useState(null); var fleet = dfState[0], setFleet = dfState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=disk_fleet', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setFleet(j.disks || []); })
+      .catch(function () {});
+  }, []);
+
   // P15-01: "days until full" forecast, fetched separately since it needs
   // 30 days of flash-persisted history, not just the in-memory ring.
   var fcState = useState(null); var forecast = fcState[0], setForecast = fcState[1];
@@ -1307,6 +1316,25 @@ function ArrayTab(P) {
     h(Panel, { title: 'Disks', span2: true, hint: disks.length + ' devices' }, h(DiskTable, { d: d })),
     h(Panel, { title: 'SMART detail', span2: true, hint: Object.keys(d.smart || {}).length + ' disks' },
       h(SmartTable, { d: d })),
+    h(Panel, { title: 'Disk fleet risk report', span2: true, hint: fleet ? fleet.length + ' disks ranked' : '' },
+      !fleet ? h('div', { class: 'v-empty' }, 'Loading…')
+      : !fleet.length ? h('div', { class: 'v-empty' }, 'No SMART-capable disks found.')
+      : h(Table, null,
+          h('tr', null, h('th', null, 'Disk'), h('th', null, 'Model'), h('th', { class: 'num' }, 'Age'),
+            h('th', { class: 'num' }, 'Start/stop'), h('th', { class: 'num' }, 'Temp'),
+            h('th', { class: 'num' }, 'Risk'), h('th', null, 'Reasons')),
+          fleet.map(function (dk) {
+            var ageYrs = dk.hours != null ? (dk.hours / 8760).toFixed(1) + 'y' : '—';
+            var riskCls = dk.risk_score >= 500 ? 'v-badge-error' : dk.risk_score > 0 ? 'v-badge-warning' : '';
+            return h('tr', { key: dk.dev },
+              h('td', { class: 'v-name' }, dk.name),
+              h('td', { class: 'muted' }, dk.model || '—'),
+              h('td', { class: 'num' }, ageYrs),
+              h('td', { class: 'num' }, dk.start_stop_count != null ? String(dk.start_stop_count) : '—'),
+              h('td', { class: 'num' }, dk.temp != null ? dk.temp + '°' : '—'),
+              h('td', { class: 'num' }, h('span', { class: 'v-badge ' + riskCls }, String(dk.risk_score))),
+              h('td', { class: 'muted' }, dk.risk_reasons.length ? dk.risk_reasons.join('; ') : 'nothing notable'));
+          }))),
     h(Panel, { title: 'Daily rollups', span2: true,
       hint: (P.daily || []).length ? 'last ' + P.daily.length + ' days' : 'building' },
       h(DailyTable, { daily: P.daily })),

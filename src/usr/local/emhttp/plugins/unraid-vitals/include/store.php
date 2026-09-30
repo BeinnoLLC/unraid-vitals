@@ -1147,6 +1147,116 @@ function v_container_weekly_report(): array {
 }
 
 /**
+ * P15-09 — disk fleet report: per-disk model/age/power-on-hours/
+ * start-stop-count/temperature-history/SMART-counter-growth, plus a risk-
+ * ranked list with the reasons shown. Reads v_smart() directly for the
+ * current per-disk state (already has model/hours/start_stop_count/
+ * growth_30d — collect.php's v_smart_tracked() populates growth_30d
+ * during the normal collection cycle) and the hourly rollup for
+ * temperature history.
+ *
+ * Risk score is additive and transparent (every point traces to a named
+ * reason, shown in the UI) rather than a black-box formula:
+ *   - pending sectors present at all: +100 per sector (dominates
+ *     everything else -- a growing pending-sector count is the strongest
+ *     single predictor of imminent failure, and the ticket's acceptance
+ *     criterion requires this disk to rank first)
+ *   - pending sectors GROWING in the last 30 days: +500 more (this is
+ *     what "growing" means, not just "present" -- a static old pending
+ *     count from years ago is a different risk tier than one still
+ *     climbing right now)
+ *   - reallocated sectors: +20 per sector (real but less urgent than
+ *     pending -- already relocated, not actively failing)
+ *   - reallocated GROWING: +100 more
+ *   - uncorrectable/CRC errors present: +10 each (transport/read-path
+ *     issues, often cabling rather than the disk itself, so weighted
+ *     lower)
+ *   - SMART overall health FAILED: +1000 (an outright smartctl failure
+ *     verdict outranks everything)
+ *   - high temperature (>50C): +5 per degree over 50
+ */
+function v_disk_fleet_report(): array {
+  $current = v_smart();
+  $rows = v_hourly_rows();
+  $since = time() - 30 * 86400;
+  $rows = array_values(array_filter($rows, fn($r) => $r['h'] * 3600 >= $since));
+
+  // Temperature history per disk from the hourly rollup's 'smart' field
+  // (collect.php stashes the full v_smart_tracked() snapshot there each
+  // hour) -- gives a real 30-day temp trend, not just the current reading.
+  $tempHistByDev = [];
+  foreach ($rows as $r) {
+    foreach (($r['smart'] ?? []) as $dev => $s) {
+      if (isset($s['temp']) && $s['temp'] !== null) $tempHistByDev[$dev][] = [$r['h'] * 3600, $s['temp']];
+    }
+  }
+
+  $out = [];
+  foreach ($current as $dev => $d) {
+    $reasons = [];
+    $score = 0;
+
+    $growth = $d['growth_30d'] ?? [];
+    $pending = $d['pending'] ?? 0;
+    $reallocated = $d['reallocated'] ?? 0;
+    $uncorrectable = $d['uncorrectable'] ?? 0;
+    $crc = $d['crc'] ?? 0;
+
+    if ($pending !== null && $pending > 0) {
+      $score += 100 * $pending;
+      $reasons[] = "$pending pending sector(s)";
+    }
+    if (($growth['pending'] ?? null) !== null && $growth['pending'] > 0) {
+      $score += 500;
+      $reasons[] = "pending sectors growing (+{$growth['pending']} in {$growth['days']}d)";
+    }
+    if ($reallocated !== null && $reallocated > 0) {
+      $score += 20 * $reallocated;
+      $reasons[] = "$reallocated reallocated sector(s)";
+    }
+    if (($growth['reallocated'] ?? null) !== null && $growth['reallocated'] > 0) {
+      $score += 100;
+      $reasons[] = "reallocated sectors growing (+{$growth['reallocated']} in {$growth['days']}d)";
+    }
+    if ($uncorrectable !== null && $uncorrectable > 0) {
+      $score += 10 * $uncorrectable;
+      $reasons[] = "$uncorrectable uncorrectable error(s)";
+    }
+    if ($crc !== null && $crc > 0) {
+      $score += 10 * $crc;
+      $reasons[] = "$crc CRC error(s) (often cabling)";
+    }
+    if (($d['health'] ?? null) !== null && $d['health'] !== 'PASSED' && $d['health'] !== '') {
+      $score += 1000;
+      $reasons[] = 'SMART overall health: ' . $d['health'];
+    }
+    if (($d['temp'] ?? null) !== null && $d['temp'] > 50) {
+      $over = $d['temp'] - 50;
+      $score += 5 * $over;
+      $reasons[] = "running hot ({$d['temp']}\xC2\xB0C)";
+    }
+
+    $out[] = [
+      'dev' => $dev,
+      'name' => $d['name'] ?? $dev,
+      'model' => $d['model'] ?? null,
+      'hours' => $d['hours'] ?? null,
+      'start_stop_count' => $d['start_stop_count'] ?? null,
+      'temp' => $d['temp'] ?? null,
+      'temp_history' => $tempHistByDev[$dev] ?? [],
+      'reallocated' => $reallocated, 'pending' => $pending,
+      'uncorrectable' => $uncorrectable, 'crc' => $crc,
+      'growth_30d' => $growth,
+      'health' => $d['health'] ?? null,
+      'risk_score' => $score,
+      'risk_reasons' => $reasons,
+    ];
+  }
+  usort($out, fn($a, $b) => $b['risk_score'] <=> $a['risk_score']);
+  return ['disks' => $out];
+}
+
+/**
  * P15-08 — energy use and cost report: kWh per day for the last 30 days
  * plus running cost at the configured price/kWh, from the hourly
  * rollup's watts_avg (the correct quantity to integrate over time --

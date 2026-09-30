@@ -640,7 +640,12 @@ function v_smart(): array {
   $dir = '/var/local/emhttp/smart';
   $disks = v_ini('/var/local/emhttp/disks.ini');
   $devmap = [];
-  foreach ($disks as $d) if (is_array($d) && !empty($d['device'])) $devmap[$d['device']] = $d['name'] ?? $d['device'];
+  $idmap = [];   // disk name -> disks.ini 'id' (model+serial), used as a model fallback (P15-09)
+  foreach ($disks as $d) {
+    if (!is_array($d) || empty($d['device'])) continue;
+    $devmap[$d['device']] = $d['name'] ?? $d['device'];
+    if (!empty($d['name']) && !empty($d['id'])) $idmap[$d['name']] = $d['id'];
+  }
   $out = [];
   foreach (glob($dir . '/*') ?: [] as $f) {
     $dev = basename($f);
@@ -652,6 +657,10 @@ function v_smart(): array {
       'health' => null, 'temp' => null, 'hours' => null,
       'reallocated' => null, 'pending' => null, 'uncorrectable' => null, 'crc' => null,
       'spin_retry' => null,
+      // P15-09: model/start-stop for the disk fleet report -- start_stop
+      // matters because every spin-up/spin-down cycle is mechanical wear
+      // on a spinning disk (irrelevant to SSD/NVMe, stays null there).
+      'model' => null, 'start_stop_count' => null,
       // NVMe-specific — null on ATA/SATA disks (the fields don't exist there).
       'nvme_pct_used' => null, 'nvme_spare_pct' => null, 'nvme_spare_threshold' => null,
       'nvme_media_errors' => null, 'nvme_critical_warning' => null,
@@ -660,6 +669,17 @@ function v_smart(): array {
       // e.g. on a spinning disk or a vendor using a different ID).
       'ssd_wear_pct' => null,
     ];
+    if (preg_match('/^Device Model:\\s+(.+)$/mi', $raw, $m))                     $r['model'] = trim($m[1]);
+    elseif (preg_match('/^Model Number:\\s+(.+)$/mi', $raw, $m))                 $r['model'] = trim($m[1]);   // NVMe uses this label
+    if ($r['model'] === null && isset($idmap[$dev])) {
+      // Fallback: disks.ini's 'id' is "Model_With_Underscores_SERIALNUMBER" --
+      // not every smartctl output includes a Device Model line (seen on
+      // Selene's SSDs, which report vendor-specific attributes without the
+      // standard identification block), so this beats showing nothing.
+      $id = $idmap[$dev];
+      $r['model'] = str_replace('_', ' ', preg_replace('/_[A-Za-z0-9]+$/', '', $id)) ?: $id;
+    }
+    if (preg_match('/^\\s*4\\s+Start_Stop_Count\\s+(.*)$/mi', $raw, $m))         $r['start_stop_count'] = v_ata_raw($m[1]);
     if (preg_match('/SMART overall-health self-assessment test result:\s*(\S+)/i', $raw, $m)) {
       $r['health'] = strtoupper(trim($m[1], '.'));
     }
