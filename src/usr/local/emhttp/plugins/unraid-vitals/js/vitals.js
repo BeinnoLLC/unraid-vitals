@@ -229,7 +229,11 @@ function FanIcon(P) {
   // RPM -> spin period: linear-ish mapping clamped to [0.35s, 3s] so a
   // 200 RPM case fan and a 3000 RPM CPU fan both read as "spinning" at a
   // glance without the fast one turning into a strobe.
-  var period = spinning ? Math.max(0.35, Math.min(3, 1400 / rpm)) : 0;
+  // Quantized to 0.25s steps: RPM jitters a few percent between polls and
+  // a changed animation-duration RESTARTS the CSS animation — without
+  // quantization the blades visibly snap every refresh. A 0.25s step only
+  // changes the duration when the speed genuinely shifted.
+  var period = spinning ? Math.round(Math.max(0.35, Math.min(3, 1400 / rpm)) * 4) / 4 : 0;
   var pct = duty != null ? Math.max(0, Math.min(100, duty)) : (rpm > 0 ? null : 0);
   var ringDeg = pct != null ? Math.round(pct * 3.6) : null;
   var tone = stalled ? '#f87171' : (spinning ? '#4f9cf9' : '#9ca3af');
