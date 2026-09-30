@@ -898,6 +898,38 @@ function v_cpu_topology(): array {
   return ['threads' => count($cpus), 'cores' => $cores, 'sockets' => $sockets, 'map' => $cpus];
 }
 
+/** Per-core scaling frequency in MHz (P4-33) — catches throttling events
+ *  (a core pinned at its minimum under load = thermal/power throttling,
+ *  not just "CPU busy") next to the temp chart. Reads the standard
+ *  cpufreq sysfs interface present on virtually every modern kernel
+ *  (intel_pstate, amd-pstate, acpi-cpufreq, generic cpufreq) — no vendor
+ *  tool required. Returns per-core current MHz plus each core's own
+ *  min/max so the UI can show "how close to the ceiling", and package
+ *  min/max/avg since a 32-thread box charting 32 lines is unreadable. */
+function v_cpu_freq(): array {
+  $cores = [];
+  foreach (glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq') ?: [] as $f) {
+    if (!preg_match('#/cpu(\d+)/cpufreq/#', $f, $m)) continue;
+    $khz = trim((string)@file_get_contents($f));
+    if ($khz === '' || !is_numeric($khz)) continue;
+    $dir = dirname($f);
+    $minKhz = is_file("$dir/scaling_min_freq") ? (float)file_get_contents("$dir/scaling_min_freq") : null;
+    $maxKhz = is_file("$dir/scaling_max_freq") ? (float)file_get_contents("$dir/scaling_max_freq") : null;
+    $cores[(int)$m[1]] = [
+      'mhz' => round((float)$khz / 1000, 0),
+      'min_mhz' => $minKhz !== null ? round($minKhz / 1000, 0) : null,
+      'max_mhz' => $maxKhz !== null ? round($maxKhz / 1000, 0) : null,
+    ];
+  }
+  if (!$cores) return ['available' => false, 'cores' => []];
+  $mhzVals = array_column($cores, 'mhz');
+  return [
+    'available' => true, 'cores' => $cores,
+    'avg_mhz' => round(array_sum($mhzVals) / count($mhzVals), 0),
+    'min_mhz' => min($mhzVals), 'max_mhz' => max($mhzVals),
+  ];
+}
+
 /* ------------------------------------------------------------------ sensors */
 
 /**
@@ -915,8 +947,8 @@ function v_cpu_topology(): array {
  */
 function v_sensors(): array {
   $base = '/sys/class/hwmon';
-  $temps = []; $fans = []; $pwms = [];
-  if (!is_dir($base)) return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms];
+  $temps = []; $fans = []; $pwms = []; $volts = [];
+  if (!is_dir($base)) return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms, 'volts' => $volts];
 
   foreach (glob($base . '/hwmon*') ?: [] as $dir) {
     $chip = trim((string)@file_get_contents($dir . '/name')) ?: basename($dir);
@@ -972,11 +1004,33 @@ function v_sensors(): array {
         'mode' => $enable === 0 ? 'manual/full' : ($enable === 1 ? 'manual' : ($enable === 2 ? 'auto' : null)),
       ];
     }
+
+    // Voltage rails (P4-33): in*_input is millivolts on every hwmon driver.
+    // Most Super-I/O chips don't expose in*_label at all (confirmed on a
+    // real nct6797 — 15 channels, zero labels), so this deliberately does
+    // NOT try to guess "in0 = Vcore" from chip name: that mapping is
+    // board-specific and would be wrong on a different motherboard using
+    // the same chip. Generic "in<n>" + the chip's own reported min/max is
+    // honest and portable; a labelled chip still gets its real label.
+    foreach (glob($dir . '/in*_input') ?: [] as $f) {
+      if (!preg_match('#/in(\d+)_input$#', $f, $m)) continue;
+      $n = $m[1];
+      $raw = trim((string)@file_get_contents($f));
+      if ($raw === '' || !is_numeric($raw)) continue;
+      $val = round((float)$raw / 1000, 3); // mV -> V
+      $label = trim((string)@file_get_contents("$dir/in{$n}_label")) ?: "$chip in$n";
+      $min = is_file("$dir/in{$n}_min") ? round((float)file_get_contents("$dir/in{$n}_min") / 1000, 3) : null;
+      $max = is_file("$dir/in{$n}_max") ? round((float)file_get_contents("$dir/in{$n}_max") / 1000, 3) : null;
+      $volts[] = [
+        'id' => "$chip/in$n", 'chip' => $chip, 'label' => $label,
+        'value' => $val, 'min' => $min, 'max' => $max,
+      ];
+    }
   }
 
   usort($temps, fn($a, $b) => $b['value'] <=> $a['value']);
   usort($fans, fn($a, $b) => $b['rpm'] <=> $a['rpm']);
-  return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms];
+  return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms, 'volts' => $volts];
 }
 
 /* --------------------------------------------------------------------- logs */
@@ -1738,6 +1792,7 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'system'  => v_system(),
     'cpu'     => ['cores' => [], 'total' => null],
     'cpu_topology' => v_cpu_topology(),
+    'cpu_freq' => v_cpu_freq(),
     'sensors' => v_sensors(),
     'mem'     => v_mem(),
     'load'    => v_load(),

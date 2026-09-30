@@ -309,6 +309,7 @@
 .vitals .v-fan .v-sensor-val { font-size: 20px; }
 .vitals .v-fan.idle { opacity: .45; }
 .vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad, #ef4444); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
+.vitals .v-volt-oor { border-left-color: var(--v-bad, #ef4444); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
 .vitals .v-fan-text { min-width: 0; flex: 1; }
 .vitals .v-fan-bar { height: 5px; border-radius: 3px; background: rgba(127,127,127,.15); margin-top: 6px; overflow: hidden; }
 .vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu, #4f9cf9); border-radius: 3px; }

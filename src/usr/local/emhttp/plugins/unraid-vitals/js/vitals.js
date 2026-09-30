@@ -1496,9 +1496,12 @@ function HwTab(P) {
          : (Array.isArray(gpu) && gpu.length ? gpu[0] : null);
 
   /* hwmon sensors: current values + ring time-series per sensor id. */
-  var sensors = d.sensors || { temps: [], fans: [], pwms: [] };
+  var sensors = d.sensors || { temps: [], fans: [], pwms: [], volts: [] };
   var tempSeries = pts.some(function (p) { return p.sensors_t && Object.keys(p.sensors_t).length; });
   var fanSeries = pts.some(function (p) { return p.sensors_f && Object.keys(p.sensors_f).length; });
+  var voltSeries = pts.some(function (p) { return p.sensors_v && Object.keys(p.sensors_v).length; });
+  var cpuFreq = d.cpu_freq || { available: false };
+  var cpuFreqSeries = pts.some(function (p) { return p.cpu_mhz_avg != null; });
   var sensorMeta = {};   // id -> {label, chip, max, crit}
   (sensors.temps || []).forEach(function (t) { sensorMeta[t.id] = t; });
   var topTempIds = (sensors.temps || []).slice(0, 4).map(function (t) { return t.id; });
@@ -1522,6 +1525,12 @@ function HwTab(P) {
   };
   var fanSeriesFor = function (id) {
     return pts.map(function (p) { return [p.t, p.sensors_f ? p.sensors_f[id] : null]; });
+  };
+  var voltSeriesFor = function (id) {
+    return pts.map(function (p) { return [p.t, p.sensors_v ? p.sensors_v[id] : null]; });
+  };
+  var cpuFreqSeriesFor = function () {
+    return pts.map(function (p) { return [p.t, p.cpu_mhz_avg]; });
   };
   // OctoPrint-style per-series stats under a chart.
   var hwSeriesStats = function (ids, meta, sfn) {
@@ -1631,6 +1640,46 @@ function HwTab(P) {
           return { name: id.split('/').pop(), color: PAL[PAL_T[i % 4]], points: fanSeriesFor(id),
             fmt: function (v) { return Math.round(v) + ''; } };
         }) })) : null),
+    h(Panel, { title: 'Voltage rails', span2: true,
+      hint: (sensors.volts || []).length + ' rails — generic in<N> naming: most Super-I/O chips report no per-rail label' },
+      !(sensors.volts || []).length ? h('div', { class: 'v-empty' }, 'No hwmon voltage sensors found.')
+      : h('div', null,
+          h('div', { class: 'v-gauge-grid' },
+            sensors.volts.slice(0, 8).map(function (v) {
+              // Voltage rails don't have a "hotter is worse" direction like
+              // temps — flag only when the chip's own min/max window (if it
+              // reports one) is breached; otherwise just display the value.
+              var outOfRange = (v.min != null && v.min > 0 && v.value < v.min) ||
+                                (v.max != null && v.max > 0 && v.value > v.max);
+              return h('div', { key: v.id, class: 'v-sensor' + (outOfRange ? ' v-volt-oor' : '') },
+                h('div', { class: 'v-sensor-val' }, v.value.toFixed(2) + ' V'),
+                h('div', { class: 'v-sensor-label' }, v.label),
+                h('div', { class: 'v-sensor-th' },
+                  outOfRange ? h('b', { class: 'crit' }, 'out of chip range')
+                    : (v.min || v.max) ? ('range ' + (v.min != null ? v.min.toFixed(2) : '?') + '–' +
+                        (v.max != null ? v.max.toFixed(2) : '?') + ' V') : '\u00A0'));
+            })),
+          voltSeries ? h(Chart, {
+            series: (sensors.volts || []).slice(0, 4).map(function (v, i) {
+              return { name: v.label, color: PAL[PAL_T[i % 4]], points: voltSeriesFor(v.id) };
+            }),
+            height: 150, area: true, hideLegend: true, yFmt: function (v) { return v.toFixed(2) + 'V'; }
+          }) : null)),
+    cpuFreq.available ? h(Panel, { title: 'CPU frequency', span2: true,
+      hint: cpuFreq.cores ? Object.keys(cpuFreq.cores).length + ' threads — throttling shows as freq pinned near min while load stays high' : '' },
+      h('div', null,
+        h('table', null, [
+          ['Average', cpuFreq.avg_mhz + ' MHz'],
+          ['Lowest thread', cpuFreq.min_mhz + ' MHz'],
+          ['Highest thread', cpuFreq.max_mhz + ' MHz'],
+        ].map(function (r, i) {
+          return h('tr', { key: i }, h('td', { class: 'muted' }, r[0]),
+            h('td', { class: 'num v-name' }, String(r[1])));
+        })),
+        cpuFreqSeries ? h(Chart, {
+          series: [{ name: 'Avg CPU freq (MHz)', color: PAL['v-cpu'], points: cpuFreqSeriesFor() }],
+          height: 150, area: true, hideLegend: true, yFmt: function (v) { return Math.round(v) + ' MHz'; }
+        }) : null)) : null,
     h(Panel, { title: 'Virtual machines', span2: true,
       hint: d.vms && d.vms.available ? d.vms.running + ' running / ' + d.vms.count + ' total' : '' },
       h(VmTable, { vms: d.vms })),

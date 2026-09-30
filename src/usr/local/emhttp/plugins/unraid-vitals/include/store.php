@@ -112,9 +112,10 @@ function v_point(array $snap): array {
 
   // Sensor (hwmon) series — separate from disk temps above: this is
   // CPU/motherboard/NVMe temps and fan RPMs, charted on the Hardware tab.
-  $sTemps = []; $sFans = [];
+  $sTemps = []; $sFans = []; $sVolts = [];
   foreach ($snap['sensors']['temps'] ?? [] as $t) $sTemps[$t['id']] = $t['value'];
   foreach ($snap['sensors']['fans'] ?? [] as $f)  $sFans[$f['id']]  = $f['rpm'];
+  foreach ($snap['sensors']['volts'] ?? [] as $v) $sVolts[$v['id']] = $v['value'];
 
   $netRx = $netTx = 0.0;
   $net = [];
@@ -169,6 +170,8 @@ function v_point(array $snap): array {
     'gpu_hist' => $gpu,
     'sensors_t' => $sTemps,
     'sensors_f' => $sFans,
+    'sensors_v' => $sVolts,
+    'cpu_mhz_avg' => $snap['cpu_freq']['avg_mhz'] ?? null,
   ];
 }
 
@@ -310,7 +313,8 @@ function v_daily(int $days = 90): array {
       $day = date('Y-m-d', $r['h'] * 3600);
       if (!isset($buckets[$day])) {
         $buckets[$day] = ['day' => $day, 'n' => 0, 'cpu' => 0, 'mem' => 0, 'cpu_max' => null,
-                          'mem_max' => null, 'temp' => null, 'rx' => 0, 'tx' => 0, 'fill' => null,
+                          'mem_max' => null, 'temp' => null, 'temp_avg_sum' => 0, 'temp_avg_n' => 0,
+                          'rx' => 0, 'tx' => 0, 'fill' => null,
                           'gpu' => null, 'smart' => [], 'single_sample_hours' => 0,
                           'docker_img_pct' => null, 'docker_img_pct_h' => -1];
       }
@@ -331,6 +335,7 @@ function v_daily(int $days = 90): array {
       if ($hourCpuMax !== null) $b['cpu_max'] = max($b['cpu_max'] ?? 0, $hourCpuMax);
       if ($hourMemMax !== null) $b['mem_max'] = max($b['mem_max'] ?? 0, $hourMemMax);
       if (($r['temp_max'] ?? null) !== null) $b['temp'] = max($b['temp'] ?? 0, $r['temp_max']);
+      if (($r['temp_avg'] ?? null) !== null) { $b['temp_avg_sum'] += $r['temp_avg']; $b['temp_avg_n']++; }
       if (($r['fill_max'] ?? null) !== null) $b['fill'] = max($b['fill'] ?? 0, $r['fill_max']);
       // Keep the latest hour's reading within the day (not max) — this is a
       // slow-moving gauge, not a spike metric, and growth-rate math wants the
@@ -365,6 +370,7 @@ function v_daily(int $days = 90): array {
       'mem' => $b['n'] ? round($b['mem'] / $b['n'], 1) : null,
       'mem_max' => $b['mem_max'],
       'temp_max' => $b['temp'], 'fill_max' => $b['fill'], 'gpu_max' => $b['gpu'],
+      'temp_avg' => $b['temp_avg_n'] ? round($b['temp_avg_sum'] / $b['temp_avg_n'], 1) : null,
       'net_rx' => round($b['rx'], 0), 'net_tx' => round($b['tx'], 0),
       'smart' => $b['smart'],
       'docker_img_pct' => $b['docker_img_pct'],
@@ -1002,5 +1008,9 @@ function v_tick(bool $full = true): array {
     v_check_ai_findings();
     v_events_from_findings();
   }
+  // Expose the user's configured alert thresholds so the UI can draw the
+  // SAME line it actually alerts on (P32) instead of a hardcoded 55° that
+  // silently drifted from Settings whenever the user changed ALERT_TEMP.
+  $slim['thresholds'] = v_thresholds();
   return $slim;
 }
