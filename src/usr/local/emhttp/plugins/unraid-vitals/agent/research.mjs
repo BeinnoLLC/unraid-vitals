@@ -94,7 +94,7 @@ async function main() {
       const rel = getDb().prepare(`SELECT * FROM kb_documents WHERE source = 'unraid-release' AND source_ref = ?`).get(ver);
       if (rel) {
         kbHits = kbHits.filter(d => d.id !== rel.id);
-        contextPrefix = `Official Unraid ${ver} release notes:\n${rel.content.slice(0, 12000)}\n`;
+        contextPrefix = `Official Unraid ${ver} release notes:\n${rel.content.slice(0, 7000)}\n`;
       }
     }
     const snap = latestSnapshot();
@@ -156,7 +156,7 @@ async function main() {
       { name: 'knowledge-base', priority: 30, text: kb.join('\n') },
       { name: 'snapshot', priority: 10, text: snapshot.join('\n') },
       { name: 'instructions', priority: 100, text: `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}` },
-    ], BEHAVIOR, 900);
+    ], BEHAVIOR, 1400); // 900 for the answer + ~500 slack: markdown/JSON tokenizes denser than 3.6 chars/token
     if (budgeted.trimmed.length) console.warn(`[research#${jobId}] trimmed to fit context: ${budgeted.trimmed.join(', ')} (${budgeted.tokens} tok)`);
     const userPrompt = budgeted.text;
 
