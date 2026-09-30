@@ -61,6 +61,19 @@ try {
     exit;
   }
 
+  if ($action === 'capacity_forecast') {
+    $snap = v_collect();
+    $totals = [];
+    foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['cache'] ?? []) as $d) {
+      if (($d['fsSize'] ?? 0) > 0 && !empty($d['name'])) $totals[$d['name']] = [$d['fsSize'], $d['fsFree']];
+    }
+    if (isset($snap['docker_image']['total'])) {
+      $totals['docker.img'] = [$snap['docker_image']['total'], $snap['docker_image']['free']];
+    }
+    echo json_encode(['ok' => true, 'forecast' => v_capacity_forecast(v_daily(30), $totals)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'settings') {
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $ring = is_file('/var/tmp/unraid-vitals/history.json')

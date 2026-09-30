@@ -51,6 +51,7 @@ function v_checks_defaults(): array {
     'flash_health' => 'warning',
     'docker_hygiene' => 'warning',
     'vm_storage' => 'warning',
+    'capacity_forecast' => 'warning',
   ];
 }
 

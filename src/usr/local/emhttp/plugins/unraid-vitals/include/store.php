@@ -110,6 +110,17 @@ function v_point(array $snap): array {
   foreach ($snap['array']['data'] ?? [] as $d)   if ($d['temp'] !== null) $temps[] = $d['temp'];
   foreach ($snap['array']['parity'] ?? [] as $d) if ($d['temp'] !== null) $temps[] = $d['temp'];
 
+  // Per-target used bytes for capacity forecasting (P15-01): array/cache
+  // disks by name, plus docker.img as its own target. Stored as bytes (not
+  // percent) so a linear fit over days gives a real "GB/day" growth rate —
+  // percent-of-disk alone can't be compared/summed across differently-sized
+  // disks or converted to a day-count without knowing the disk's total size.
+  $fsBytes = [];
+  foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['cache'] ?? []) as $d) {
+    if (($d['fsSize'] ?? 0) > 0 && !empty($d['name'])) $fsBytes[$d['name']] = (int)$d['fsUsed'];
+  }
+  $dockerImgUsed = $snap['docker_image']['used'] ?? null;
+
   // Sensor (hwmon) series — separate from disk temps above: this is
   // CPU/motherboard/NVMe temps and fan RPMs, charted on the Hardware tab.
   $sTemps = []; $sFans = []; $sVolts = [];
@@ -176,6 +187,8 @@ function v_point(array $snap): array {
     'watts_gpu' => $snap['power']['gpu_watts'] ?? null,
     'watts_ups' => $snap['power']['ups_watts'] ?? null,
     'watts_total' => $snap['power']['total_watts'] ?? null,
+    'fs_bytes' => $fsBytes,
+    'docker_img_used' => $dockerImgUsed,
   ];
 }
 
@@ -291,6 +304,10 @@ function v_rollup(array $ring, array $snap): void {
     'fs_used'   => $lastPoint['fs_used'] ?? ($snap['array']['totals']['fs_used'] ?? null),
     'fill_max'  => v_agg(array_column($points, 'fill_max'))['max'],
     'docker_img_pct' => $lastPoint['docker_img_pct'] ?? ($snap['docker_image']['used_pct'] ?? null),
+    // End-of-hour used-bytes snapshot per target — a slow-moving gauge like
+    // docker_img_pct above, not something to average across the hour.
+    'fs_bytes'  => $lastPoint['fs_bytes'] ?? [],
+    'docker_img_used' => $lastPoint['docker_img_used'] ?? ($snap['docker_image']['used'] ?? null),
     // SMART counters are monotonic — keep the hour's high-water mark so growth is
     // visible even when a single sample reads clean.
     'smart'     => $snap['smart'] ?? null,
@@ -320,7 +337,9 @@ function v_daily(int $days = 90): array {
                           'mem_max' => null, 'temp' => null, 'temp_avg_sum' => 0, 'temp_avg_n' => 0,
                           'rx' => 0, 'tx' => 0, 'fill' => null,
                           'gpu' => null, 'smart' => [], 'single_sample_hours' => 0,
-                          'docker_img_pct' => null, 'docker_img_pct_h' => -1];
+                          'docker_img_pct' => null, 'docker_img_pct_h' => -1,
+                          'fs_bytes' => [], 'fs_bytes_h' => -1,
+                          'docker_img_used' => null, 'docker_img_used_h' => -1];
       }
       $b = &$buckets[$day];
       $b['n']++;
@@ -347,6 +366,17 @@ function v_daily(int $days = 90): array {
       if (($r['docker_img_pct'] ?? null) !== null && $r['h'] > $b['docker_img_pct_h']) {
         $b['docker_img_pct'] = $r['docker_img_pct'];
         $b['docker_img_pct_h'] = $r['h'];
+      }
+      // Same end-of-day-not-max logic as docker_img_pct above, applied to
+      // the raw-bytes series that the capacity forecast (P15-01) fits a
+      // line against.
+      if (($r['fs_bytes'] ?? null) && $r['h'] > $b['fs_bytes_h']) {
+        $b['fs_bytes'] = $r['fs_bytes'];
+        $b['fs_bytes_h'] = $r['h'];
+      }
+      if (($r['docker_img_used'] ?? null) !== null && $r['h'] > $b['docker_img_used_h']) {
+        $b['docker_img_used'] = $r['docker_img_used'];
+        $b['docker_img_used_h'] = $r['h'];
       }
       // Legacy rows stored a single 'gpu' reading; current rows store 'gpu_max'.
       $hourGpuMax = $r['gpu_max'] ?? $r['gpu'] ?? null;
@@ -378,6 +408,8 @@ function v_daily(int $days = 90): array {
       'net_rx' => round($b['rx'], 0), 'net_tx' => round($b['tx'], 0),
       'smart' => $b['smart'],
       'docker_img_pct' => $b['docker_img_pct'],
+      'fs_bytes' => $b['fs_bytes'],
+      'docker_img_used' => $b['docker_img_used'],
       // A day is only fully "single-sample" if every hour in it predates the
       // real-aggregate rollup — a mixed day (upgraded mid-day) is not flagged,
       // since most of its hours already carry a real average.
@@ -387,7 +419,71 @@ function v_daily(int $days = 90): array {
   return $out;
 }
 
-/* ------------------------------------------------------------------ alerts */
+/**
+ * P15-01 — capacity forecast: "full in about N days" per array/cache disk
+ * and docker.img, from a linear fit over the last 30 daily fs_bytes
+ * snapshots.
+ *
+ * $totals maps target name => [total_bytes, free_bytes_now] for every
+ * target that should be considered (current v_collect() snapshot — the
+ * daily history only carries *used* bytes, not the disk's total size,
+ * since a disk's total size does not change day to day).
+ *
+ * A poor fit (R² < 0.5) or a flat/shrinking trend produces no forecast
+ * for that target — the ticket explicitly asks to "show nothing" rather
+ * than a noisy or nonsensical day-count in those cases.
+ */
+function v_capacity_forecast(array $daily, array $totals): array {
+  $series = [];
+  foreach ($daily as $d) {
+    foreach (($d['fs_bytes'] ?? []) as $name => $used) {
+      if ($used !== null) $series[$name][] = [$d['day'], $used];
+    }
+    if (($d['docker_img_used'] ?? null) !== null) $series['docker.img'][] = [$d['day'], $d['docker_img_used']];
+  }
+
+  $out = [];
+  foreach ($series as $name => $pts) {
+    if (count($pts) < 5) continue;   // not enough history for a meaningful fit
+    $t = $totals[$name] ?? null;
+    if (!$t || ($t[0] ?? 0) <= 0) continue;
+    list($totalBytes, $freeBytesNow) = $t;
+
+    $n = count($pts);
+    $x0 = strtotime($pts[0][0] . ' 00:00:00');
+    $xs = array_map(fn($p) => (strtotime($p[0] . ' 00:00:00') - $x0) / 86400.0, $pts);   // days since first sample
+    $ys = array_map(fn($p) => $p[1], $pts);
+    $mx = array_sum($xs) / $n; $my = array_sum($ys) / $n;
+    $sxx = 0.0; $sxy = 0.0; $syy = 0.0;
+    for ($i = 0; $i < $n; $i++) {
+      $dx = $xs[$i] - $mx; $dy = $ys[$i] - $my;
+      $sxx += $dx * $dx; $sxy += $dx * $dy; $syy += $dy * $dy;
+    }
+    if ($sxx <= 0) continue;
+    $slope = $sxy / $sxx;                       // bytes/day
+    $r2 = ($syy > 0) ? ($sxy * $sxy) / ($sxx * $syy) : 0.0;
+
+    if ($slope <= 0 || $r2 < 0.5) continue;      // flat/shrinking, or too noisy to trust
+
+    $gbPerDay = round($slope / 1073741824, 2);
+    $daysLeft = $freeBytesNow / $slope;
+    if ($daysLeft > 3650) continue;              // essentially "never" at this rate — not worth surfacing
+
+    $out[] = [
+      'name' => $name,
+      'gb_per_day' => $gbPerDay,
+      'days_left' => round($daysLeft, 1),
+      'r2' => round($r2, 2),
+      'free_now_gb' => round($freeBytesNow / 1073741824, 1),
+      'total_gb' => round($totalBytes / 1073741824, 1),
+      'within_14d' => $daysLeft <= 14,
+    ];
+  }
+  usort($out, fn($a, $b) => $a['days_left'] <=> $b['days_left']);
+  return $out;
+}
+
+
 
 /**
  * Raise Unraid-native notifications on threshold breaches.

@@ -1100,6 +1100,17 @@ function ArrayTab(P) {
   var d = P.d, pts = P.pts, a = d.array || {}, t = a.totals || {};
   var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
   var smTop = topKeys(pts, 'smart', 0, 8);
+
+  // P15-01: "days until full" forecast, fetched separately since it needs
+  // 30 days of flash-persisted history, not just the in-memory ring.
+  var fcState = useState(null); var forecast = fcState[0], setForecast = fcState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=capacity_forecast', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setForecast(j.forecast || []); })
+      .catch(function () { setForecast([]); });
+  }, []);
+
   var smSeries = smTop.map(function (name, i) {
     return { name: name, color: pickColor(i),
       points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][0] : null; }) };
@@ -1167,6 +1178,23 @@ function ArrayTab(P) {
           }) })) : h('div', { class: 'v-empty' }, 'Per-disk temps appear once SMART data is cached.')),
       h(Panel, { title: 'Hottest disks', hint: 'current, vs 60° scale' },
         h(HBars, { rows: hotRows, empty: 'Waiting for SMART samples.' })),
+      h(Panel, { title: 'Capacity forecast', hint: forecast && forecast.length ? '30-day linear fit' : '', span2: true },
+        forecast == null
+          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Fitting growth trend…')
+        : !forecast.length
+          ? h('div', { class: 'v-empty' }, 'No target is on track to fill within a year, or there is not yet 5+ days of history to fit a trend against.')
+        : h(Table, null,
+            h('tr', null, h('th', null, 'Target'), h('th', null, 'Growth'), h('th', null, 'Free now'),
+              h('th', null, 'Full in'), h('th', null, 'Fit')),
+            forecast.map(function (f, i) {
+              return h('tr', { key: i },
+                h('td', { class: 'v-name' }, f.name),
+                h('td', null, '+' + f.gb_per_day + ' GB/day'),
+                h('td', { class: 'muted' }, f.free_now_gb + ' / ' + f.total_gb + ' GB'),
+                h('td', null, h(Pill, { kind: f.within_14d ? (f.days_left <= 3 ? 'stop' : 'warn') : 'info' },
+                  'about ' + f.days_left + 'd')),
+                h('td', { class: 'muted' }, Math.round(f.r2 * 100) + '% fit'));
+            }))),
       h(Panel, { title: 'SMART sector counters', hint: hasGrowth ? 'lifetime totals — growth is the signal' : '' },
         hasGrowth ? h(Chart, { series: growthSeries, height: 170,
           yFmt: function (v) { return String(Math.round(v)); },
