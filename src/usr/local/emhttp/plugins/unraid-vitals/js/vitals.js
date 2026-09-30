@@ -1387,6 +1387,15 @@ function DockerTab(P) {
   var byCpu = ctr.slice().sort(function (a, b) { return (b.cpu || 0) - (a.cpu || 0); });
   var byMem = ctr.slice().sort(function (a, b) { return (b.mem_bytes || 0) - (a.mem_bytes || 0); });
 
+  // P15-07: weekly per-container resource report.
+  var wr = useState(null); var weekly = wr[0], setWeekly = wr[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=container_weekly', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setWeekly(j); })
+      .catch(function () {});
+  }, []);
+
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
@@ -1411,7 +1420,33 @@ function DockerTab(P) {
         h(Chart, { series: mk(1), height: 175,
           yFmt: function (v) { return v >= 1048576 ? (v / 1048576).toFixed(1) + 'Gi' : Math.round(v / 1024) + 'Mi'; } }))),
     h(Panel, { title: 'All containers', span2: true, hint: ctr.length + ' defined' },
-      h(ContainerTable, { d: d })));
+      h(ContainerTable, { d: d })),
+    h(Panel, { title: 'Weekly resource report', span2: true,
+      hint: weekly && weekly.this_week_hours ? weekly.this_week_hours + 'h this week' : '' },
+      !weekly ? h('div', { class: 'v-empty' }, 'Loading…')
+      : !weekly.containers.length ? h('div', { class: 'v-empty' }, 'Not enough hourly history yet — check back after a day or two of uptime.')
+      : h('div', null,
+          !weekly.have_last_week ? h('div', { class: 'v-empty', style: 'margin-bottom:10px' },
+            'Less than a week of history — week-over-week change will appear once a full prior week exists.') : null,
+          h(Table, null,
+            h('tr', null, h('th', null, 'Container'), h('th', { class: 'num' }, 'Avg CPU'),
+              h('th', { class: 'num' }, 'Peak CPU'), h('th', { class: 'num' }, 'Avg mem'),
+              h('th', { class: 'num' }, 'Peak mem'), h('th', { class: 'num' }, 'Restarts'),
+              h('th', { class: 'num' }, 'vs last week')),
+            weekly.containers.map(function (c) {
+              var tw = c.this_week || {};
+              var chg = c.cpu_change_pct;
+              return h('tr', { key: c.name },
+                h('td', { class: 'v-name' }, c.name),
+                h('td', { class: 'num' }, tw.cpu_avg != null ? tw.cpu_avg.toFixed(1) + '%' : '—'),
+                h('td', { class: 'num' }, tw.cpu_peak != null ? tw.cpu_peak.toFixed(1) + '%' : '—'),
+                h('td', { class: 'num' }, tw.mem_avg_kb != null ? bytes(tw.mem_avg_kb * 1024) : '—'),
+                h('td', { class: 'num' }, tw.mem_peak_kb != null ? bytes(tw.mem_peak_kb * 1024) : '—'),
+                h('td', { class: 'num' }, tw.restarts != null ? String(tw.restarts) : '—'),
+                h('td', { class: 'num' }, chg == null ? '—'
+                  : h('span', { class: chg > 10 ? 'v-txt-warn' : chg < -10 ? 'v-txt-ok' : 'muted' },
+                      (chg > 0 ? '+' : '') + chg.toFixed(0) + '%')));
+            })))));
 }
 
 /* -------------------------------------------------------------- network */

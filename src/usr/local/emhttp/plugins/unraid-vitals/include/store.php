@@ -152,7 +152,7 @@ function v_point(array $snap): array {
   $containers = [];
   foreach ($snap['docker']['containers'] ?? [] as $c) {
     if ($c['cpu'] === null && $c['mem_pct'] === null) continue;
-    $containers[$c['name']] = [$c['cpu'], $c['mem_bytes'] === null ? null : round($c['mem_bytes'] / 1024, 0)];
+    $containers[$c['name']] = [$c['cpu'], $c['mem_bytes'] === null ? null : round($c['mem_bytes'] / 1024, 0), $c['restart_count'] ?? 0];
   }
 
   $smart = [];
@@ -276,6 +276,32 @@ function v_hour_bytes(array $points, string $key): float {
  * bytes for network) and labels the row with that closed hour, not the one
  * that just started.
  */
+/**
+ * Per-container aggregate across an hour's worth of ring points (P15-07):
+ * avg/max CPU%, avg/max memory KB, and the hour's final restart_count.
+ * Shape [cpu_avg, cpu_max, mem_avg_kb, mem_max_kb, restart_count] per
+ * container name -- a container not present in every point (started
+ * mid-hour, or momentarily unreported) only contributes the samples it
+ * has, same tolerance as v_agg() elsewhere in this file.
+ */
+function v_ctr_hourly_agg(array $points): array {
+  $byName = [];
+  foreach ($points as $p) {
+    foreach (($p['ctr'] ?? []) as $name => $c) {
+      $byName[$name]['cpu'][] = $c[0];
+      $byName[$name]['mem'][] = $c[1];
+      $byName[$name]['restart'] = $c[2] ?? 0;   // last value wins -- monotonic counter
+    }
+  }
+  $out = [];
+  foreach ($byName as $name => $d) {
+    $cpuAgg = v_agg($d['cpu']);
+    $memAgg = v_agg($d['mem']);
+    $out[$name] = [$cpuAgg['avg'], $cpuAgg['max'], $memAgg['avg'], $memAgg['max'], $d['restart']];
+  }
+  return $out;
+}
+
 function v_rollup(array $ring, array $snap): void {
   $hour = (int)floor(((int)$snap['time']) / 3600);
   $markerFile = v_state_dir() . '/last_rollup_hour';
@@ -325,6 +351,11 @@ function v_rollup(array $ring, array $snap): void {
     // SMART counters are monotonic — keep the hour's high-water mark so growth is
     // visible even when a single sample reads clean.
     'smart'     => $snap['smart'] ?? null,
+    // Per-container CPU/mem avg+max across the hour, plus the hour's final
+    // restart_count (Docker's own monotonic lifetime counter — the weekly
+    // reporter in P15-07 diffs two of these snapshots itself rather than
+    // storing a delta here).
+    'ctr'       => v_ctr_hourly_agg($points),
   ];
   @file_put_contents($dir . '/' . date('Y-m', $closedHour * 3600) . '.jsonl',
                      json_encode($line, JSON_UNESCAPED_SLASHES) . "\n", FILE_APPEND);
@@ -1032,6 +1063,82 @@ function v_storage_analyzer(): array {
   }
   usort($out, fn($a, $b) => $b['total_bytes'] <=> $a['total_bytes']);
   return ['shares' => $out, 'scanned_at' => $latestScan];
+}
+
+/**
+ * P15-07 — weekly per-container resource report: avg/peak CPU and memory,
+ * restart count, and week-over-week change, computed from the hourly
+ * rollup's per-container aggregates (v_ctr_hourly_agg above) — the daily
+ * aggregation in v_daily() doesn't carry per-container detail, only the
+ * hourly rollup rows do, so this reads those directly.
+ */
+function v_container_weekly_report(): array {
+  $rows = v_hourly_rows();
+  $now = time();
+  $thisWeekStart = $now - 7 * 86400;
+  $lastWeekStart = $now - 14 * 86400;
+
+  $agg = function (array $rows) {
+    $byName = [];
+    foreach ($rows as $r) {
+      foreach (($r['ctr'] ?? []) as $name => $c) {
+        // c = [cpu_avg, cpu_max, mem_avg_kb, mem_max_kb, restart_count]
+        $byName[$name]['cpu'][] = $c[0];
+        $byName[$name]['cpu_peak'][] = $c[1];
+        $byName[$name]['mem'][] = $c[2];
+        $byName[$name]['mem_peak'][] = $c[3];
+        $byName[$name]['restart_first'] = $byName[$name]['restart_first'] ?? $c[4];
+        $byName[$name]['restart_last'] = $c[4];
+      }
+    }
+    $out = [];
+    foreach ($byName as $name => $d) {
+      $cpuVals = array_values(array_filter($d['cpu'], fn($v) => $v !== null));
+      $memVals = array_values(array_filter($d['mem'], fn($v) => $v !== null));
+      $cpuPeakVals = array_values(array_filter($d['cpu_peak'], fn($v) => $v !== null));
+      $memPeakVals = array_values(array_filter($d['mem_peak'], fn($v) => $v !== null));
+      $out[$name] = [
+        'cpu_avg' => $cpuVals ? round(array_sum($cpuVals) / count($cpuVals), 1) : null,
+        'cpu_peak' => $cpuPeakVals ? max($cpuPeakVals) : null,
+        'mem_avg_kb' => $memVals ? round(array_sum($memVals) / count($memVals), 0) : null,
+        'mem_peak_kb' => $memPeakVals ? max($memPeakVals) : null,
+        // Restarts observed within the window: last-seen minus first-seen
+        // lifetime counter -- correct even if the container also restarted
+        // before this window started.
+        'restarts' => max(0, ($d['restart_last'] ?? 0) - ($d['restart_first'] ?? 0)),
+      ];
+    }
+    return $out;
+  };
+
+  $thisWeekRows = array_filter($rows, fn($r) => $r['h'] * 3600 >= $thisWeekStart);
+  $lastWeekRows = array_filter($rows, fn($r) => $r['h'] * 3600 >= $lastWeekStart && $r['h'] * 3600 < $thisWeekStart);
+
+  $thisWeek = $agg($thisWeekRows);
+  $lastWeek = $agg($lastWeekRows);
+  $haveLastWeek = count($lastWeekRows) > 0;
+
+  $names = array_unique(array_merge(array_keys($thisWeek), array_keys($lastWeek)));
+  $out = [];
+  foreach ($names as $name) {
+    $tw = $thisWeek[$name] ?? null;
+    $lw = $lastWeek[$name] ?? null;
+    $pctChange = function ($a, $b) {
+      if ($a === null || $b === null || $b == 0) return null;
+      return round(100 * ($a - $b) / $b, 1);
+    };
+    $out[] = [
+      'name' => $name,
+      'this_week' => $tw,
+      'last_week' => $lw,
+      'cpu_change_pct' => $tw && $lw ? $pctChange($tw['cpu_avg'], $lw['cpu_avg']) : null,
+      'mem_change_pct' => $tw && $lw ? $pctChange($tw['mem_avg_kb'], $lw['mem_avg_kb']) : null,
+    ];
+  }
+  usort($out, fn($a, $b) => ($b['this_week']['cpu_avg'] ?? -1) <=> ($a['this_week']['cpu_avg'] ?? -1));
+
+  return ['containers' => $out, 'have_last_week' => $haveLastWeek,
+    'this_week_hours' => count($thisWeekRows), 'last_week_hours' => count($lastWeekRows)];
 }
 
 /**
