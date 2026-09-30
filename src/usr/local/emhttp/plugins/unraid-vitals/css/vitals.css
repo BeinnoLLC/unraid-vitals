@@ -456,6 +456,18 @@
 }
 .vitals .v-card-value small { font-size: var(--v-fs-md); font-weight: 500; opacity: .6; }
 .vitals .v-card-sub { font-size: var(--v-fs-xs); opacity: .62; margin-top: 5px; }
+/* Reference-card delta pill: small rounded accent chip floating over the
+   sparkline (like the "+32 New" badge), not a plain text line — a number
+   alone doesn't tell you if it moved; colour communicates direction. */
+.vitals .v-card-spark-row { position: relative; margin-top: 4px; }
+.vitals .v-card-delta {
+  position: absolute; right: 0; top: -2px; font-size: 9.5px; font-weight: 700;
+  padding: 2px 7px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--v-accent) 18%, transparent);
+  color: var(--v-accent);
+}
+.vitals .v-card-delta.up   { background: color-mix(in srgb, var(--v-ok-fg) 18%, transparent); color: var(--v-ok-fg); }
+.vitals .v-card-delta.down { background: color-mix(in srgb, #f87171 18%, transparent); color: #f87171; }
 .vitals .v-bar {
   height: 5px; border-radius: 3px; background: color-mix(in srgb, currentColor 12%, transparent);
   margin-top: 11px; overflow: hidden;

@@ -365,7 +365,12 @@ function StatCard(P) {
       P.sub ? h('div', { class: 'v-card-sub' }, P.sub) : null,
       P.ring == null && P.bar != null ? h('div', { class: 'v-bar' },
         h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null,
-      P.spark ? h(Spark, { points: P.spark, color: P.sparkColor || P.color }) : null));
+      P.spark ? h('div', { class: 'v-card-spark-row' },
+        h(Spark, { points: P.spark, color: P.sparkColor || P.color }),
+        // Reference-style floating delta pill ("+32 New") anchored beside
+        // the sparkline rather than buried in the .v-card-sub text line —
+        // the one glanceable signal on the card besides the number itself.
+        P.delta ? h('span', { class: 'v-card-delta ' + (P.deltaKind || '') }, P.delta) : null) : null));
 }
 
 /* uPlot wrapper. P: {series:[{name,color,points,fill(axis2,stack)}], max, floor,
@@ -1025,24 +1030,37 @@ function DashTab(P) {
     var pts2 = pts.map(function (p) { return [p.t, f(p)]; });
     return { spark: pts2, sparkColor: color };
   };
+  // Reference-card delta pill: first-vs-last value across the visible
+  // window, signed and rounded to whole points so it reads like "+32 New"
+  // rather than a noisy decimal. null when there's not enough history yet
+  // (never fabricate a 0 change from a single sample).
+  var deltaOf = function (f, unit) {
+    var vals = pts.map(f).filter(function (v) { return v != null; });
+    if (vals.length < 2) return { delta: null };
+    var d0 = vals[vals.length - 1] - vals[0];
+    var r = Math.round(d0 * 10) / 10;
+    return { delta: (r > 0 ? '+' : '') + r + (unit || ''), deltaKind: r > 0 ? 'up' : r < 0 ? 'down' : '' };
+  };
   var cards = [
     { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
       level: lvl(d.cpu && d.cpu.total, 80, 95),
       sub: (load.cores || '?') + ' threads · load ' +
            (load.l1 != null ? load.l1.toFixed(2) : '—'),
       ring: d.cpu && d.cpu.total },
-    merge({ label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
+    merge(merge({ label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
       level: lvl(d.mem && d.mem.pct, 80, 92),
       sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), ring: d.mem && d.mem.pct },
       sparkOf(function (p) { return p.mem; }, PAL['v-mem'])),
+      deltaOf(function (p) { return p.mem; }, 'pt')),
     { label: 'Array', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(t.data_disks || 0), unit: 'data',
       sub: d.system.md_state + ' · ' + (t.parity_disks || 0) + ' parity · ' + (t.cache_disks || 0) + ' pool' },
     { label: 'Storage', icon: 'fa-database', color: PAL['v-mem'], value: pctStr(t.used_pct),
       level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), ring: t.used_pct },
-    merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
+    merge(merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
       value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
       level: tMax == null ? '' : lvl(tMax, 45, 55), sub: temps.length + ' disks reporting' },
       sparkOf(function (p) { return p.temp_max; }, PAL['v-temp'])),
+      deltaOf(function (p) { return p.temp_max; }, '°')),
     { label: 'Containers', icon: 'fa-cubes', color: PAL['v-ok-fg'],
       value: String((d.docker || {}).running || 0), unit: '/ ' + ((d.docker || {}).count || 0),
       sub: ((d.docker || {}).stopped || 0) + ' stopped' },
