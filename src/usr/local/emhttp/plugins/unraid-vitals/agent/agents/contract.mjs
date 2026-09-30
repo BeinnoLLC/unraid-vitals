@@ -145,9 +145,23 @@ export async function runSpecialist({ agentName, behavior, systemRole, sections,
   const { text: user, trimmed, tokens } = budgetPrompt(sections, system, maxTokens);
   if (trimmed.length) console.warn(`[${agentName}] prompt over budget — trimmed: ${trimmed.join(', ')}`);
 
-  const agent = await makeAnalysisAgent(agentName, behavior, { maxTokens, format: FINDINGS_SCHEMA });
-  const raw = await callAnalyze(agent, system, user);
-  const parsed = safeParseFindings(extractJson(raw));
+  // One repair retry: local models occasionally emit truncated/unbalanced
+  // JSON (long string got cut at num_predict, or the model babbled around
+  // the object). A single re-ask with the JSON-only reminder fixes most of
+  // those; failing the whole agent run over one bad sample is worse than
+  // one extra model pass.
+  let parsed = null;
+  for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
+    const agent = await makeAnalysisAgent(agentName, behavior, { maxTokens, format: FINDINGS_SCHEMA });
+    const raw = await callAnalyze(agent, system, attempt === 0 ? user
+      : user + '\n\nREMINDER: your previous reply was not parseable JSON. Reply with ONLY the JSON object, nothing else.');
+    try {
+      parsed = safeParseFindings(extractJson(raw));
+    } catch (e) {
+      if (attempt === 1) throw e;
+      console.warn(`[${agentName}] JSON parse failed (${e?.message || e}) — retrying once`);
+    }
+  }
   const { kept, dropped } = groundFindings(parsed, knownSubjects, user);
   for (const d of dropped) console.warn(`[${agentName}] dropped ungrounded finding "${d.finding.title}": ${d.reason}`);
 
