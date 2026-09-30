@@ -197,6 +197,18 @@ try {
     exit;
   }
 
+  if ($action === 'apply_share_comment') {
+    if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
+    $share = trim((string)($_POST['share'] ?? ''));
+    $comment = (string)($_POST['comment'] ?? '');
+    if ($share === '' || !preg_match('/^[\w.\- ]+$/', $share)) {
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'invalid share name']); exit;
+    }
+    $applied = v_apply_share_comment($share, $comment);
+    echo json_encode(['ok' => $applied]);
+    exit;
+  }
+
   if ($action === 'gen_share_comment') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
     $share = trim((string)($_POST['share'] ?? ''));
@@ -301,6 +313,24 @@ try {
     $id = (int)($_GET['id'] ?? 0);
     $job = $id ? v_research_get($id) : null;
     echo json_encode(['ok' => true, 'job' => $job]);
+    exit;
+  }
+
+  if ($action === 'research_retry') {
+    if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
+    $id = (int)($_POST['id'] ?? 0);
+    if (!$id || !v_research_retry($id)) {
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'not retryable']); exit;
+    }
+    $job = v_research_get($id);
+    $node = trim((string)@shell_exec('command -v node 2>/dev/null'));
+    $script = __DIR__ . '/../agent/' . (($job['mode'] ?? 'once') === 'study' ? 'study.mjs' : 'research.mjs');
+    if ($node && is_file($script)) {
+      $args = ($job['mode'] ?? 'once') === 'study' ? sprintf('--once %d', $id) : (string)$id;
+      exec(sprintf('nohup %s %s %s > /tmp/unraid-vitals-research.log 2>&1 &',
+        escapeshellarg($node), escapeshellarg($script), $args));
+    }
+    echo json_encode(['ok' => true]);
     exit;
   }
 

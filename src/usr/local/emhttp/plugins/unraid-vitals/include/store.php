@@ -1648,6 +1648,62 @@ function v_share_comment(string $share): ?array {
   return $row ?: null;
 }
 
+/**
+ * P20-19 — apply an AI-generated share comment to the REAL Unraid share
+ * comment field, not a separate plugin-only column (user: "when we have
+ * AI comment here, it should just update comment field instead"). Goes
+ * through the exact same path Unraid's own Shares > Edit page uses
+ * (POST to /update.htm) rather than hand-editing
+ * /boot/config/shares/<name>.cfg directly — emhttp only re-reads that cfg
+ * file's live in-memory shares.ini on a share-update event, so a raw file
+ * write would silently not show up anywhere in the webGUI until the next
+ * reboot. Reuses shares.ini's current field values for everything except
+ * the comment itself, exactly like ShareEdit.page's hidden form fields do,
+ * so this can't accidentally reset any other share setting.
+ */
+function v_apply_share_comment(string $share, string $comment): bool {
+  $shares = v_ini('/var/local/emhttp/shares.ini');
+  $s = $shares[$share] ?? null;
+  if (!is_array($s)) return false;
+
+  $fields = [
+    'shareNameOrig' => $share,
+    'shareName' => $share,
+    'shareComment' => $comment,
+    'shareAllocator' => $s['allocator'] ?? 'highwater',
+    'shareSplitLevel' => $s['splitLevel'] ?? '',
+    'shareInclude' => $s['include'] ?? '',
+    'shareExclude' => $s['exclude'] ?? '',
+    'shareUseCache' => $s['useCache'] ?? 'no',
+    'shareCachePool' => $s['cachePool'] ?? '',
+    'shareCachePool2' => $s['cachePool2'] ?? '',
+    'shareCOW' => $s['cow'] ?? 'auto',
+    'shareFloor' => (string)($s['floor'] ?? ''),
+    '#file' => 'share',
+    '#arg' => 'edit',
+    'cmdEditShare' => 'Apply',
+  ];
+
+  // Forward the caller's own webGUI session cookie so /update.htm treats
+  // this as the logged-in admin doing it (same trust model as everything
+  // else the plugin does through emhttp's own CSRF-checked request path).
+  $cookieHeader = '';
+  foreach ($_COOKIE as $k => $v) $cookieHeader .= $k . '=' . urlencode($v) . '; ';
+
+  $ch = curl_init('http://127.0.0.1/update.htm');
+  curl_setopt_array($ch, [
+    CURLOPT_POST => true,
+    CURLOPT_POSTFIELDS => http_build_query($fields),
+    CURLOPT_HTTPHEADER => ['Cookie: ' . rtrim($cookieHeader, '; ')],
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_TIMEOUT => 10,
+  ]);
+  $resp = curl_exec($ch);
+  $ok = $resp !== false && curl_getinfo($ch, CURLINFO_HTTP_CODE) < 400;
+  curl_close($ch);
+  return $ok;
+}
+
 /* --------------------------------------------------------------------- KB */
 
 function v_kb_search(string $query, int $limit = 20): array {
@@ -1766,6 +1822,46 @@ function v_research_get(int $id): ?array {
   if ($row && $row['sources']) $row['sources'] = json_decode($row['sources'], true);
   if ($row && $row['observations']) $row['observations'] = json_decode($row['observations'], true);
   return $row ?: null;
+}
+
+/**
+ * Reset a failed job (status='error') back to 'pending' and clear its
+ * error/answer, so the frontend's "Retry" button can re-fire the same
+ * prompt without the user having to retype it (user: "we should be able
+ * somehow to retry study if it has error"). Refuses to touch a job that
+ * isn't actually errored — retry is for recovering a dead job, not for
+ * restarting a healthy one out from under itself.
+ */
+function v_research_retry(int $id): bool {
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !class_exists('SQLite3')) return false;
+  try {
+    $db = new SQLite3($dbFile, SQLITE3_OPEN_READWRITE);
+    $db->busyTimeout(2000);
+    $stmt = $db->prepare("SELECT mode, study_until, tick_minutes FROM research_jobs WHERE id = ? AND status = 'error'");
+    $stmt->bindValue(1, $id, SQLITE3_INTEGER);
+    $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
+    if (!$row) { $db->close(); return false; }
+    // A study job's window ("study for the next 12 hours") is anchored to
+    // wall-clock time — if the original window already elapsed while the
+    // job sat errored, extend it from now so a retry actually gets to run,
+    // rather than silently retrying into an already-expired window.
+    $now = time();
+    if ($row['mode'] === 'study' && (int)$row['study_until'] <= $now) {
+      $extendStmt = $db->prepare("UPDATE research_jobs SET status='pending', error=NULL, answer=NULL,
+                                   study_until = :until, last_tick_at = NULL WHERE id = :id");
+      $tick = max(5, (int)$row['tick_minutes'] ?: 15);
+      $extendStmt->bindValue(':until', $now + 12 * 60 * 60, SQLITE3_INTEGER);
+      $extendStmt->bindValue(':id', $id, SQLITE3_INTEGER);
+      $extendStmt->execute();
+    } else {
+      $stmt2 = $db->prepare("UPDATE research_jobs SET status='pending', error=NULL, answer=NULL WHERE id = ?");
+      $stmt2->bindValue(1, $id, SQLITE3_INTEGER);
+      $stmt2->execute();
+    }
+    $db->close();
+    return true;
+  } catch (Throwable $e) { return false; }
 }
 
 function v_research_list(int $limit = 30): array {

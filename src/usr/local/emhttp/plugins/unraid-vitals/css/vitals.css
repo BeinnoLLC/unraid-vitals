@@ -160,6 +160,7 @@
 .vitals .v-ai-error, .vitals .v-ai-critical { border-color: var(--v-bad); }
 .vitals .v-ai-error > i, .vitals .v-ai-critical > i { color: var(--v-bad); }
 .vitals .v-share-comment { max-width: 220px; }
+.vitals .v-share-comment-err { color: var(--v-bad); font-size: 11px; margin-top: 3px; }
 .vitals .v-kb-search .v-input, .vitals textarea.v-input { width: auto; }
 .vitals .v-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .vitals .v-modal { background: var(--v-panel, #1a1a1a); border: 1px solid var(--v-border); border-radius: 10px; width: min(640px, 92vw); max-height: 78vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -409,7 +410,11 @@
    real object rather than a flat divider box. */
 .vitals .v-panel {
   background: var(--v-card); border: 1px solid var(--v-border);
-  border-radius: var(--v-radius); padding: 16px 18px; overflow: hidden;
+  border-radius: var(--v-radius); padding: 16px 18px;
+  /* NOT overflow:hidden — the chart's "⋮" legend popover (v-chart-menu)
+     is an absolutely-positioned child that must be able to sit above the
+     panel's own rounded-corner box. Content that actually needs clipping
+     (scrollable tables, charts) manages its own overflow already. */
   transition: border-color .16s ease, box-shadow .16s ease;
 }
 .vitals .v-panel:hover { border-color: color-mix(in srgb, var(--v-accent) 35%, var(--v-border)); }
@@ -510,6 +515,32 @@
 .vitals .v-chart .uplot { width: 100%; }
 .vitals .v-chart svg { width: 100%; height: 100%; display: block; overflow: visible; }
 .vitals .v-chart .v-empty { opacity: .55; font-size: var(--v-fs-sm); padding-top: 50px; text-align: center; }
+/* "⋮" legend menu — the one always-available legend affordance regardless
+   of series count (user: "I should see 3 dots at the top ... open legend").
+   Positioned over the top-right corner of the chart, not the panel, so it
+   stays anchored to the thing it describes when a panel has other chrome
+   (hint text, buttons) sharing that corner. */
+.vitals .v-chart-wrap { position: relative; }
+.vitals .v-chart-menu-btn {
+  position: absolute; top: 2px; right: 2px; z-index: 4;
+  width: 22px; height: 20px; border-radius: 6px; border: 1px solid transparent;
+  background: var(--v-card); color: var(--v-muted); font-size: 14px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  opacity: .55;
+}
+.vitals .v-chart-menu-btn:hover { opacity: 1; background: var(--v-card-hover); border-color: var(--v-border); color: var(--v-fg); }
+.vitals .v-chart-menu-backdrop { position: fixed; inset: 0; z-index: 9; }
+.vitals .v-chart-menu {
+  position: absolute; top: 24px; right: 2px; z-index: 10; min-width: 220px; max-width: 320px;
+  background: var(--v-card); border: 1px solid var(--v-border); border-radius: 8px;
+  box-shadow: 0 12px 28px rgba(0,0,0,.35); padding: 6px; display: flex; flex-direction: column; gap: 2px;
+}
+.vitals .v-chart-menu-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; font-size: 11.5px; }
+.vitals .v-chart-menu-row.muted { opacity: .6; }
+.vitals .v-chart-menu-swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+.vitals .v-chart-menu-name { font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals .v-chart-menu-vals { color: var(--v-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vitals .v-chart-menu-vals b { color: var(--v-fg); font-weight: 650; }
 .vitals .v-legend {
   display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--v-fs-xs);
   opacity: .8; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--v-border);

@@ -374,10 +374,20 @@ function StatCard(P) {
 }
 
 /* uPlot wrapper. P: {series:[{name,color,points,fill(axis2,stack)}], max, floor,
-   height, yFmt, thresholds:[{v,color,label}], area, stack, y2Fmt, empty} */
+   height, yFmt, thresholds:[{v,color,label}], area, stack, y2Fmt, empty}
+
+   Every chart — single series or many — gets a "⋮" menu button (top-right)
+   that toggles a stats popover: swatch + name + current/min/max/avg per
+   series. uPlot's own hover legend only shows on multi-series charts and
+   only while the cursor is over the plot; single-series charts (CPU %,
+   Memory %) had no legend at all (user: "I can't see any legend for
+   CPU & memory ... I should see 3 dots at the top ... open legend").
+   The popover works identically regardless of series count, so it's the
+   one legend affordance the user can rely on everywhere. */
 function Chart(P) {
   var ref = useRef(null);
   var plot = useRef(null);
+  var menuState = useState(false); var menuOpen = menuState[0], setMenuOpen = menuState[1];
   var series = P.series || [];
   var n = series.reduce(function (m, s) { return Math.max(m, (s.points || []).length); }, 0);
   var minV = P.floor || 0, maxV = P.max;
@@ -559,7 +569,41 @@ function Chart(P) {
     };
   });
 
-  return h('div', { class: 'v-chart', ref: ref });
+  // Per-series current/min/max/avg for the legend popover — computed from
+  // the same points the chart renders, so the popover numbers always match
+  // what's on screen even mid-zoom/resize.
+  var seriesStats = series.map(function (s) {
+    var vals = (s.points || []).map(function (q) { return q[1]; }).filter(function (v) { return v != null; });
+    var fmt = function (v) {
+      var r = Math.round(v * 10) / 10;
+      return s.fmt ? s.fmt(r) : (P.yFmt ? P.yFmt(r) : (r + (s.unit || '')));
+    };
+    if (!vals.length) return { name: s.name, color: s.color, current: '—', min: '—', max: '—', avg: '—' };
+    return {
+      name: s.name, color: s.color,
+      current: fmt(vals[vals.length - 1]),
+      min: fmt(Math.min.apply(null, vals)),
+      max: fmt(Math.max.apply(null, vals)),
+      avg: fmt(vals.reduce(function (a, b) { return a + b; }, 0) / vals.length),
+    };
+  });
+
+  return h('div', { class: 'v-chart-wrap' },
+    series.length ? h('button', {
+      class: 'v-chart-menu-btn', title: 'Legend & stats', 'aria-label': 'Legend & stats',
+      onClick: function (e) { e.stopPropagation(); setMenuOpen(!menuOpen); },
+    }, '⋮') : null,
+    menuOpen ? h('div', { class: 'v-chart-menu-backdrop', onClick: function () { setMenuOpen(false); } }) : null,
+    menuOpen ? h('div', { class: 'v-chart-menu' },
+      seriesStats.length ? seriesStats.map(function (s, i) {
+        return h('div', { key: i, class: 'v-chart-menu-row' },
+          h('i', { class: 'v-chart-menu-swatch', style: 'background:' + s.color }),
+          h('span', { class: 'v-chart-menu-name' }, s.name),
+          h('span', { class: 'v-chart-menu-vals' },
+            h('b', null, s.current), ' · min ' + s.min + ' · max ' + s.max + ' · avg ' + s.avg));
+      }) : h('div', { class: 'v-chart-menu-row muted' }, 'No series yet.')
+    ) : null,
+    h('div', { class: 'v-chart', ref: ref }));
 }
 
 function topKeys(pts, field, idx, n) {
@@ -1690,15 +1734,14 @@ function SharesTab(P) {
     h(Panel, { title: 'All shares', span2: true, hint: list.length + ' configured' },
       list.length ? h(Table, null,
         h('tr', null, h('th', null, 'Share'), h('th', null, 'Comment'), h('th', null, 'Storage'),
-          h('th', { class: 'num' }, 'Free'), h('th', null, 'AI comment'), h('th', null, '')),
+          h('th', { class: 'num' }, 'Free'), h('th', null, '')),
         list.map(function (s) {
           return h('tr', { key: s.name },
             h('td', { class: 'v-name' }, s.name),
-            h('td', { class: 'muted' }, s.comment || '—'),
+            h('td', null, h(ShareCommentCell, { share: s.name, existing: s.comment })),
             h('td', null, h(Pill, { kind: s.pool === 'only' ? 'warn' : s.pool === 'yes' ? 'run' : 'stop' },
               s.pool === 'yes' ? 'pool + array' : s.pool === 'only' ? 'pool only' : 'array only')),
             h('td', { class: 'num' }, s.free ? bytes(s.free, 1) : '—'),
-            h('td', null, h(ShareCommentCell, { share: s.name })),
             h('td', null, h('button', { class: 'v-btn xs', onClick: function () { setBrowseShare(s.name); } },
               h('i', { class: 'fa fa-folder-open' }), ' Browse')));
         }))
@@ -1808,20 +1851,42 @@ function ShareBrowser(P) {
           }))));
 }
 
-/** "Generate" kicks off agent/share-comment.mjs fire-and-forget on the PHP
- *  side, then polls ?action=share_comment for the result. LLM latency on
- *  this hardware is real (tens of seconds to a couple minutes) — the poll
- *  interval is intentionally slow (6s) so it doesn't hammer the endpoint. */
+/** Shows the REAL Unraid share comment (from shares.ini, the same field
+ *  ShareEdit.page writes) with an AI Generate/Regenerate button beside
+ *  it. "Generate" kicks off agent/share-comment.mjs fire-and-forget on
+ *  the PHP side, polls ?action=share_comment for the result, then
+ *  immediately POSTs it to ?action=apply_share_comment — which pushes it
+ *  through Unraid's own /update.htm path — so the AI's output becomes the
+ *  actual share comment instead of living in a separate plugin-only
+ *  column (user: "when we have AI comment here, it should just update
+ *  comment field instead"). LLM latency on this hardware is real (tens of
+ *  seconds to a couple minutes) — the poll interval is intentionally slow
+ *  (6s) so it doesn't hammer the endpoint. On a failed generation (status
+ *  'error') the button becomes "Retry" so a transient LLM/agent failure
+ *  isn't a dead end (user: "we should be able somehow to retry study if
+ *  it has error" — same failure-recovery pattern applied here too). */
 function ShareCommentCell(P) {
   var s = useState(null); var result = s[0], setResult = s[1];
   var b = useState(false); var busy = b[0], setBusy = b[1];
+  var a = useState(false); var applying = a[0], setApplying = a[1];
   var timerRef = useRef(null);
+
+  var apply = function (comment) {
+    setApplying(true);
+    var body = new URLSearchParams({ share: P.share, comment: comment, csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=apply_share_comment', { method: 'POST', body: body })
+      .then(function () { setApplying(false); })
+      .catch(function () { setApplying(false); });
+  };
 
   var poll = function () {
     fetch(ENDPOINT + '?action=share_comment&share=' + encodeURIComponent(P.share))
       .then(function (r) { return r.json(); })
       .then(function (j) {
-        if (j && j.ok && j.comment) { setResult(j.comment); setBusy(false); }
+        if (j && j.ok && j.comment) {
+          setResult(j.comment); setBusy(false);
+          if (j.comment.status === 'done' && j.comment.comment) apply(j.comment.comment);
+        }
         else if (busy) { timerRef.current = setTimeout(poll, 6000); }
       })
       .catch(function () { if (busy) timerRef.current = setTimeout(poll, 6000); });
@@ -1840,15 +1905,16 @@ function ShareCommentCell(P) {
       .catch(function () { setBusy(false); });
   };
 
-  if (result && result.comment) {
-    return h('div', { class: 'v-share-comment' },
-      h('div', { class: 'muted' }, result.comment),
-      h('button', { class: 'v-btn xs', style: 'margin-top:4px', disabled: busy, onClick: generate },
-        h('i', { class: 'fa fa-refresh' }), ' Regenerate'));
-  }
-  return h('button', { class: 'v-btn xs primary', disabled: busy, onClick: generate },
-    busy ? [h('i', { key: 's', class: 'fa fa-spinner fa-spin' }), ' Generating…']
-         : [h('i', { key: 'm', class: 'fa fa-magic' }), ' Generate']);
+  var failed = result && result.status === 'error';
+  var label = busy ? 'Generating…' : applying ? 'Applying…' : failed ? 'Retry' : (P.existing ? 'Regenerate' : 'Generate');
+  var icon = busy || applying ? 'fa-spinner fa-spin' : failed ? 'fa-refresh' : 'fa-magic';
+
+  return h('div', { class: 'v-share-comment' },
+    P.existing ? h('div', { class: 'muted' }, P.existing) : h('div', { class: 'muted' }, '—'),
+    failed ? h('div', { class: 'v-share-comment-err' }, 'AI generation failed.') : null,
+    h('button', { class: 'v-btn xs' + (P.existing ? '' : ' primary'), style: 'margin-top:4px',
+      disabled: busy || applying, onClick: generate },
+      h('i', { class: 'fa ' + icon }), ' ' + label));
 }
 
 /* ------------------------------------------------------------------ power */
@@ -2134,6 +2200,7 @@ function HwTab(P) {
               var outOfRange = (v.min != null && v.min > 0 && v.value < v.min) ||
                                 (v.max != null && v.max > 0 && v.value > v.max);
               return h('div', { key: v.id, class: 'v-sensor' + (outOfRange ? ' v-volt-oor' : '') },
+                h('i', { class: 'fa fa-bolt v-sensor-icon' + (outOfRange ? ' crit' : '') }),
                 h('div', { class: 'v-sensor-val' }, v.value.toFixed(2) + ' V'),
                 h('div', { class: 'v-sensor-label' }, v.label),
                 h('div', { class: 'v-sensor-th' },
@@ -2295,6 +2362,16 @@ function ResearchTab() {
       .then(function (j) { if (j && j.ok) setActiveJob(j.job); });
   };
 
+  var retrying = useState(false); var retryBusy = retrying[0], setRetryBusy = retrying[1];
+  var retryJob = function (id) {
+    setRetryBusy(true);
+    var body = new URLSearchParams({ id: String(id), csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=research_retry', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { setRetryBusy(false); if (j && j.ok) { loadJobs(); openJob(id); } })
+      .catch(function () { setRetryBusy(false); });
+  };
+
   // A studying job's own status doesn't change tick-to-tick, so a fixed
   // 10s poll (same interval as loadJobs) is enough to show new
   // observations as they land without a dedicated fast-poll path.
@@ -2382,7 +2459,11 @@ function ResearchTab() {
                     })))
               : null)
         : activeJob.status === 'error'
-        ? h('div', { class: 'v-empty' }, 'Failed: ', activeJob.error)
+        ? h('div', { class: 'v-empty' },
+            h('div', null, 'Failed: ', activeJob.error),
+            h('button', { class: 'v-btn xs', style: 'margin-top:8px', disabled: retryBusy,
+                onClick: function () { retryJob(activeJob.id); } },
+              h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), retryBusy ? ' Retrying…' : ' Retry'))
         : h('div', { class: 'v-kb-doc-body v-kb-doc-rich' }, renderMd(activeJob.answer))) : null,
     h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
       !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
@@ -2403,7 +2484,12 @@ function ResearchTab() {
                 : (j.status === 'pending' || j.status === 'running')
                   ? h('i', { class: 'fa fa-spinner fa-spin muted' }) : h('span', { class: 'muted' }, '—')),
               h('td', { class: 'muted' }, ts(j.created_at)),
-              h('td', null, h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View')));
+              h('td', null,
+                h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View'),
+                j.status === 'error' ? h('button', {
+                  class: 'v-btn xs', style: 'margin-left:6px', disabled: retryBusy,
+                  onClick: function () { retryJob(j.id); },
+                }, h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), ' Retry') : null));
           }))));
 }
 
