@@ -1730,6 +1730,17 @@ function v_kb_search(string $query, int $limit = 20, string $severity = ''): arr
   return $out;
 }
 
+/** research_jobs.origin was added later (auto-research); older DBs that the
+ *  node agents have not migrated yet must still list cleanly. */
+function v_research_has_origin(SQLite3 $db): bool {
+  static $memo = null;
+  if ($memo !== null) return $memo;
+  $memo = false;
+  $res = $db->query("PRAGMA table_info(research_jobs)");
+  while ($res && ($r = $res->fetchArray(SQLITE3_ASSOC))) if ($r['name'] === 'origin') { $memo = true; break; }
+  return $memo;
+}
+
 function v_kb_row_decode(array $row): array {
   $row['images'] = $row['images'] ? (json_decode($row['images'], true) ?: []) : [];
   return $row;
@@ -1837,8 +1848,9 @@ function v_research_get(int $id): ?array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
+  $originCol = v_research_has_origin($db) ? 'origin, context,' : "'manual' AS origin, NULL AS context,";
   $stmt = $db->prepare("SELECT id, prompt, status, answer, sources, error, mode, study_until, tick_minutes,
-                                last_tick_at, observations, created_at, finished_at
+                                last_tick_at, observations, $originCol created_at, finished_at
                          FROM research_jobs WHERE id = ?");
   $stmt->bindValue(1, $id, SQLITE3_INTEGER);
   $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
@@ -1893,7 +1905,8 @@ function v_research_list(int $limit = 30): array {
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  $res = $db->query("SELECT id, prompt, status, mode, study_until, tick_minutes, last_tick_at, created_at, finished_at
+  $originCol = v_research_has_origin($db) ? 'origin,' : "'manual' AS origin,";
+  $res = $db->query("SELECT id, prompt, status, mode, study_until, tick_minutes, last_tick_at, $originCol created_at, finished_at
                       FROM research_jobs ORDER BY id DESC LIMIT " . (int)$limit);
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
   $db->close();

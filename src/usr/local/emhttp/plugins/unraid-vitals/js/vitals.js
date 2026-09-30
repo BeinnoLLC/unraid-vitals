@@ -349,7 +349,7 @@ function Panel(P) {
 }
 
 function Pill(P) {
-  return h('span', { class: 'v-pill ' + (P.kind || '') }, P.children);
+  return h('span', { class: 'v-pill ' + (P.kind || ''), title: P.title }, P.children);
 }
 
 function StatCard(P) {
@@ -2339,6 +2339,13 @@ function HwTab(P) {
 
 /* ------------------------------------------------------------------- kb */
 
+// 'auto:disk:disk3' → 'disk agent (disk3)'; 'auto:unraid-release:7.3.2' → 'Unraid release watcher (7.3.2)'
+function autoOriginLabel(origin) {
+  var p = String(origin || '').split(':');
+  var who = p[1] === 'unraid-release' ? 'Unraid release watcher' : (p[1] || 'system') + ' agent';
+  return who + (p[2] ? ' (' + p.slice(2).join(':') + ')' : '');
+}
+
 var SEV_KB_ICON = { finding: 'fa-heartbeat', research: 'fa-flask', manual: 'fa-pencil' };
 // Importance badge shown on every KB entry so the admin can tell "read
 // now" from "read later" at a glance (user: "give a score low, medium,
@@ -2567,7 +2574,10 @@ function ResearchTab() {
           jobs.map(function (j) {
             var pct = jobPct(j);
             return h('tr', { key: j.id },
-              h('td', { class: 'v-name' }, j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
+              h('td', { class: 'v-name' },
+                j.origin && j.origin.indexOf('auto:') === 0 ? h(Pill, { kind: 'warn', title: 'Opened automatically by the ' + autoOriginLabel(j.origin) }, h('i', { class: 'fa fa-bolt' }), ' auto') : null,
+                j.origin && j.origin.indexOf('auto:') === 0 ? ' ' : null,
+                j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
               h('td', null, j.mode === 'study' ? h(Pill, { kind: 'info' }, j.tick_minutes ? 'study/' + j.tick_minutes + 'm' : 'study') : '—'),
               h('td', null, h(Pill, { kind: j.status === 'done' ? 'run' : j.status === 'error' ? 'stop' : 'warn' }, j.status)),
               h('td', null, pct != null

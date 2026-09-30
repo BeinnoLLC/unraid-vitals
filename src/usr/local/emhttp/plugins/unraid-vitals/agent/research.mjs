@@ -22,7 +22,7 @@
  *
  * Usage: node research.mjs <jobId>
  */
-import { getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
+import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
 import { latestSnapshot, vmList } from './lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
@@ -86,7 +86,17 @@ async function main() {
 
   startResearchJob(jobId);
   try {
-    const kbHits = searchKb(job.prompt, 12);
+    let contextPrefix = '';
+    let kbHits = searchKb(job.prompt, 12);
+    if (/^auto:unraid-release:/.test(job.origin || '')) {
+      // Guarantee the official notes are in context, whole, not a 400-char FTS snippet.
+      const ver = job.origin.split(':')[2];
+      const rel = getDb().prepare(`SELECT * FROM kb_documents WHERE source = 'unraid-release' AND source_ref = ?`).get(ver);
+      if (rel) {
+        kbHits = kbHits.filter(d => d.id !== rel.id);
+        contextPrefix = `Official Unraid ${ver} release notes:\n${rel.content.slice(0, 12000)}\n`;
+      }
+    }
     const snap = latestSnapshot();
     const vms = vmList();
     const scopedVm = detectVmScope(job.prompt, vms);
@@ -98,6 +108,9 @@ async function main() {
     const tl = timelineWindow(windowHours, { entity: scopedVm ? scopedVm.name : undefined });
 
     const contextParts = [];
+    // Auto-triggered jobs carry the exact finding / notes that fired them —
+    // put that first, it is the most relevant grounding there is.
+    if (job.context) contextParts.push(`Why this research was opened (${job.origin || 'auto'}):\n${String(job.context).slice(0, 4000)}\n`);
     contextParts.push(`Time range the question is about: last ${windowHours}h (${new Date(tl.from * 1000).toISOString()} → ${new Date(tl.to * 1000).toISOString()}). Answer about THIS range unless the question says otherwise; say explicitly when data for part of the range is hourly-only or missing.`);
     contextParts.push('\nTimeline (pre-aggregated — quote these numbers, do not recompute):');
     contextParts.push(describeWindow(tl));
@@ -124,7 +137,7 @@ async function main() {
       }).slice(0, 1500));
     }
 
-    const userPrompt = `Question: ${job.prompt}\n\nContext:\n${contextParts.join('\n')}\n\n` +
+    const userPrompt = `Question: ${job.prompt}\n\nContext:\n${contextPrefix}${contextParts.join('\n')}\n\n` +
       `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}`;
 
     let answer, usedDocs;

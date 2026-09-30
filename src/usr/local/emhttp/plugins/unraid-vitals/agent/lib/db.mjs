@@ -227,7 +227,21 @@ export function getDb() {
   addCol('tick_minutes', 'INTEGER');
   addCol('last_tick_at', 'INTEGER');
   addCol('observations', 'TEXT');
+  // Auto-triggered research (disk failure → study that disk, new Unraid
+  // release → "should I upgrade?" report). `origin` tells the UI who asked
+  // ('manual' | 'auto:<trigger key>'); `context` is extra grounding text
+  // the trigger already has in hand (release notes, the finding itself)
+  // that FTS retrieval alone might miss.
+  addCol('origin', `TEXT NOT NULL DEFAULT 'manual'`);
+  addCol('context', 'TEXT');
   db.exec(`CREATE INDEX IF NOT EXISTS idx_research_study_due ON research_jobs(mode, status, study_until);`);
+  // One row per trigger key — a disk failing stays failed for days, and
+  // every hourly agent pass would otherwise re-file the same research.
+  db.exec(`CREATE TABLE IF NOT EXISTS auto_triggers (
+    trigger_key TEXT PRIMARY KEY,
+    last_fired_at INTEGER NOT NULL,
+    job_id INTEGER
+  );`);
 
   const kbCols = new Set(db.prepare(`PRAGMA table_info(kb_documents)`).all().map(c => c.name));
   const addKbCol = (name, decl) => { if (!kbCols.has(name)) db.exec(`ALTER TABLE kb_documents ADD COLUMN ${name} ${decl}`); };
@@ -396,12 +410,32 @@ export function kbTopics() {
   ).all();
 }
 
-export function createResearchJob(prompt) {
+export function createResearchJob(prompt, { origin = 'manual', context = null } = {}) {
   const now = Math.floor(Date.now() / 1000);
   const res = getDb().prepare(
-    `INSERT INTO research_jobs (prompt, status, mode, created_at) VALUES (?, 'pending', 'once', ?)`
-  ).run(prompt, now);
+    `INSERT INTO research_jobs (prompt, status, mode, origin, context, created_at) VALUES (?, 'pending', 'once', ?, ?, ?)`
+  ).run(prompt, origin, context, now);
   return res.lastInsertRowid;
+}
+
+/** Fire-once-per-cooldown guard for auto-triggered research. Returns true
+ *  if the trigger may fire now (and records it), false if it fired within
+ *  `cooldownSeconds`. Wrapped in a transaction so two overlapping agent
+ *  processes can't both pass the check. */
+export function claimAutoTrigger(triggerKey, cooldownSeconds) {
+  const d = getDb();
+  const now = Math.floor(Date.now() / 1000);
+  return d.transaction ? d.transaction(() => claimInner(d, triggerKey, cooldownSeconds, now))() : claimInner(d, triggerKey, cooldownSeconds, now);
+}
+function claimInner(d, key, cooldown, now) {
+  const row = d.prepare(`SELECT last_fired_at FROM auto_triggers WHERE trigger_key = ?`).get(key);
+  if (row && now - row.last_fired_at < cooldown) return false;
+  d.prepare(`INSERT INTO auto_triggers (trigger_key, last_fired_at) VALUES (?, ?)
+             ON CONFLICT(trigger_key) DO UPDATE SET last_fired_at = excluded.last_fired_at, job_id = NULL`).run(key, now);
+  return true;
+}
+export function recordAutoTriggerJob(triggerKey, jobId) {
+  getDb().prepare(`UPDATE auto_triggers SET job_id = ? WHERE trigger_key = ?`).run(jobId, triggerKey);
 }
 
 /**

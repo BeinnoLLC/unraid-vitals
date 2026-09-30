@@ -88,7 +88,34 @@ $headTailHash = function (string $path): ?string {
 
 $confirmed = 0; $groups = 0;
 $now = time();
-$db->exec('BEGIN');
+// Hashing multi-GB files takes hours; the DB writes take milliseconds.
+// Never hold a write transaction across the hashing -- every other writer
+// on vitals.db (agents, KB, research jobs) blocks on it. Each confirmed
+// group is committed in its own short transaction instead.
+$commitGroup = function (int $size, string $full, array $same) use ($db, $now) {
+  $wasted = $size * (count($same) - 1);
+  $db->exec('BEGIN IMMEDIATE');
+  $db->exec("DELETE FROM dup_files WHERE group_id IN (SELECT id FROM dup_groups WHERE full_hash = " . $db->escapeString($full) . ")");
+  $ins = $db->prepare("INSERT INTO dup_groups (size, full_hash, file_count, wasted_bytes, scanned_at)
+                         VALUES (?, ?, ?, ?, ?)
+                         ON CONFLICT(full_hash) DO UPDATE SET file_count=excluded.file_count,
+                           wasted_bytes=excluded.wasted_bytes, scanned_at=excluded.scanned_at");
+  $ins->bindValue(1, $size, SQLITE3_INTEGER);
+  $ins->bindValue(2, $full, SQLITE3_TEXT);
+  $ins->bindValue(3, count($same), SQLITE3_INTEGER);
+  $ins->bindValue(4, $wasted, SQLITE3_INTEGER);
+  $ins->bindValue(5, $now, SQLITE3_INTEGER);
+  $ins->execute();
+  $groupId = $db->querySingle("SELECT id FROM dup_groups WHERE full_hash = " . $db->escapeString($full));
+  $fi = $db->prepare("INSERT INTO dup_files (group_id, path) VALUES (?, ?)");
+  foreach ($same as $p) {
+    $fi->reset();
+    $fi->bindValue(1, $groupId, SQLITE3_INTEGER);
+    $fi->bindValue(2, $p, SQLITE3_TEXT);
+    $fi->execute();
+  }
+  $db->exec('COMMIT');
+};
 foreach ($candidates as $size => $paths) {
   $byHeadTail = [];
   foreach ($paths as $p) {
@@ -106,25 +133,7 @@ foreach ($candidates as $size => $paths) {
     }
     foreach ($byFull as $full => $same) {
       if (count($same) < 2) continue;
-      $wasted = $size * (count($same) - 1);
-      $db->exec("DELETE FROM dup_files WHERE group_id IN (SELECT id FROM dup_groups WHERE full_hash = " . $db->escapeString($full) . ")");
-      $ins = $db->prepare("INSERT INTO dup_groups (size, full_hash, file_count, wasted_bytes, scanned_at)
-                             VALUES (?, ?, ?, ?, ?)
-                             ON CONFLICT(full_hash) DO UPDATE SET file_count=excluded.file_count,
-                               wasted_bytes=excluded.wasted_bytes, scanned_at=excluded.scanned_at");
-      $ins->bindValue(1, $size, SQLITE3_INTEGER);
-      $ins->bindValue(2, $full, SQLITE3_TEXT);
-      $ins->bindValue(3, count($same), SQLITE3_INTEGER);
-      $ins->bindValue(4, $wasted, SQLITE3_INTEGER);
-      $ins->bindValue(5, $now, SQLITE3_INTEGER);
-      $ins->execute();
-      $groupId = $db->querySingle("SELECT id FROM dup_groups WHERE full_hash = " . $db->escapeString($full));
-      foreach ($same as $p) {
-        $fi = $db->prepare("INSERT INTO dup_files (group_id, path) VALUES (?, ?)");
-        $fi->bindValue(1, $groupId, SQLITE3_INTEGER);
-        $fi->bindValue(2, $p, SQLITE3_TEXT);
-        $fi->execute();
-      }
+      $commitGroup((int)$size, (string)$full, $same);
       $confirmed += count($same);
       $groups++;
     }
@@ -132,6 +141,7 @@ foreach ($candidates as $size => $paths) {
 }
 // Drop groups not refreshed by this run -- they no longer exist or fell
 // below the duplicate threshold.
+$db->exec('BEGIN IMMEDIATE');
 $db->exec("DELETE FROM dup_files WHERE group_id IN (SELECT id FROM dup_groups WHERE scanned_at < " . (int)$now . ")");
 $db->exec("DELETE FROM dup_groups WHERE scanned_at < " . (int)$now);
 $db->exec('COMMIT');

@@ -18,6 +18,8 @@ import * as general from './agents/general.mjs';
 import * as network from './agents/network.mjs';
 import * as updates from './agents/updates.mjs';
 import * as diagnostics from './agents/diagnostics.mjs';
+import * as unraidRelease from './agents/unraid-release.mjs';
+import { fireAutoResearch } from './lib/auto-research.mjs';
 
 // Fast per-tick agents run every cron invocation (hourly, see install.sh).
 // Slow/deep agents are gated by their own configurable interval so a user
@@ -30,6 +32,8 @@ const FAST_REGISTRY = [disks, thermal, pools, general, network];
 const GATED_REGISTRY = [
   { mod: updates, intervalMinutes: () => Number(process.env.VITALS_UPDATE_INTERVAL_MINUTES || 360) },
   { mod: diagnostics, intervalMinutes: () => Number(process.env.VITALS_DIAG_INTERVAL_MINUTES || 360) },
+  // Unraid OS release feed — daily is plenty, releases are weeks apart.
+  { mod: unraidRelease, intervalMinutes: () => Number(process.env.VITALS_RELEASE_INTERVAL_MINUTES || 1440) },
 ];
 
 async function runAgent(mod) {
@@ -45,6 +49,14 @@ async function runAgent(mod) {
     for (const f of findings) {
       if (f.severity !== 'ok') ingestFindingToKb(mod.AGENT_ID, f);
     }
+    // The most critical findings (disk failing, new Unraid release, any
+    // 'critical') become research/study jobs on their own — the admin
+    // should open the Research tab and find the investigation already
+    // underway, not have to think to ask for it.
+    try {
+      const filed = fireAutoResearch(mod.AGENT_ID, findings);
+      for (const j of filed) console.log(`[${mod.AGENT_ID}] auto-research ${j.mode} job #${j.jobId} (${j.key})`);
+    } catch (e) { console.warn(`[${mod.AGENT_ID}] auto-research failed: ${e?.message || e}`); }
     // Gated deep scans also land as ONE dated report document, so "what
     // did the last 6h scan find?" is answerable by KB search even when
     // every individual finding was routine.
