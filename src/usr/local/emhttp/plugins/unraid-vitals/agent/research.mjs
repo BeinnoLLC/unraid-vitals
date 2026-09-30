@@ -23,7 +23,7 @@
  * Usage: node research.mjs <jobId>
  */
 import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
-import { makeAnalysisAgent, callAnalyze, extractJson } from './lib/smythos-client.mjs';
+import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt } from './lib/smythos-client.mjs';
 import { latestSnapshot, vmList } from './lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
@@ -107,29 +107,38 @@ async function main() {
     // when the question names it.
     const tl = timelineWindow(windowHours, { entity: scopedVm ? scopedVm.name : undefined });
 
-    const contextParts = [];
-    // Auto-triggered jobs carry the exact finding / notes that fired them —
-    // put that first, it is the most relevant grounding there is.
-    if (job.context) contextParts.push(`Why this research was opened (${job.origin || 'auto'}):\n${String(job.context).slice(0, 4000)}\n`);
-    contextParts.push(`Time range the question is about: last ${windowHours}h (${new Date(tl.from * 1000).toISOString()} → ${new Date(tl.to * 1000).toISOString()}). Answer about THIS range unless the question says otherwise; say explicitly when data for part of the range is hourly-only or missing.`);
-    contextParts.push('\nTimeline (pre-aggregated — quote these numbers, do not recompute):');
-    contextParts.push(describeWindow(tl));
+    // Context is assembled as named sections so it can be budgeted into the
+    // model's window by priority. Without this a release-notes advisory
+    // (12 KB of notes + timeline + KB + snapshot) overflowed 8192 tokens and
+    // every model returned truncated JSON → "all models failed".
+    const trigger = [];
+    if (contextPrefix) trigger.push(contextPrefix);
+    if (job.context) trigger.push(`Why this research was opened (${job.origin || 'auto'}):\n${String(job.context).slice(0, 4000)}\n`);
+
+    const timeline = [];
+    timeline.push(`Time range the question is about: last ${windowHours}h (${new Date(tl.from * 1000).toISOString()} → ${new Date(tl.to * 1000).toISOString()}). Answer about THIS range unless the question says otherwise; say explicitly when data for part of the range is hourly-only or missing.`);
+    timeline.push('\nTimeline (pre-aggregated — quote these numbers, do not recompute):');
+    timeline.push(describeWindow(tl));
+    if (scopedVm) {
+      timeline.push(`\nThe question is about VM "${scopedVm.name}" — current state: ${scopedVm.state}. Events above are already filtered to this VM.${tl.events.length ? '' : ` No state transitions recorded for it in the last ${windowHours}h (settled the whole time, or vmwatch has not run yet).`}`);
+    } else if (vms.length) {
+      timeline.push(`\nAll VMs currently: ${vms.map(v => `${v.name}=${v.state}`).join(', ')}`);
+    }
+
+    const kb = [];
     if (kbHits.length) {
-      contextParts.push('\nKnowledge base excerpts (agent findings, past research, study reports):');
+      kb.push('\nKnowledge base excerpts (agent findings, past research, study reports):');
       for (const doc of kbHits) {
-        contextParts.push(`- [doc#${doc.id}] (${doc.topic || doc.source}, ${new Date(doc.created_at * 1000).toISOString().slice(0, 16)}) ${doc.title}\n  ${doc.content.slice(0, 400)}`);
+        kb.push(`- [doc#${doc.id}] (${doc.topic || doc.source}, ${new Date(doc.created_at * 1000).toISOString().slice(0, 16)}) ${doc.title}\n  ${doc.content.slice(0, 400)}`);
       }
     } else {
-      contextParts.push('\n(No matching knowledge-base documents.)');
+      kb.push('\n(No matching knowledge-base documents.)');
     }
-    if (scopedVm) {
-      contextParts.push(`\nThe question is about VM "${scopedVm.name}" — current state: ${scopedVm.state}. Events above are already filtered to this VM.${tl.events.length ? '' : ` No state transitions recorded for it in the last ${windowHours}h (settled the whole time, or vmwatch has not run yet).`}`);
-    } else if (vms.length) {
-      contextParts.push(`\nAll VMs currently: ${vms.map(v => `${v.name}=${v.state}`).join(', ')}`);
-    }
+
+    const snapshot = [];
     if (snap) {
-      contextParts.push('\nLive snapshot (abbreviated):');
-      contextParts.push(JSON.stringify({
+      snapshot.push('\nLive snapshot (abbreviated):');
+      snapshot.push(JSON.stringify({
         time: snap.time, system: snap.system, load: snap.load,
         array: snap.array && snap.array.totals, docker: snap.docker && { running: snap.docker.running, count: snap.docker.count },
         vms: snap.vms && { running: snap.vms.running, count: snap.vms.count },
@@ -137,8 +146,19 @@ async function main() {
       }).slice(0, 1500));
     }
 
-    const userPrompt = `Question: ${job.prompt}\n\nContext:\n${contextPrefix}${contextParts.join('\n')}\n\n` +
-      `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}`;
+    // Priorities: question + instructions never trimmed; trigger context /
+    // release notes outrank the generic timeline; KB snippets and the live
+    // snapshot are trimmed first.
+    const budgeted = budgetPrompt([
+      { name: 'question', priority: 100, text: `Question: ${job.prompt}\n\nContext:` },
+      { name: 'trigger', priority: 80, text: trigger.join('\n') },
+      { name: 'timeline', priority: 50, text: timeline.join('\n') },
+      { name: 'knowledge-base', priority: 30, text: kb.join('\n') },
+      { name: 'snapshot', priority: 10, text: snapshot.join('\n') },
+      { name: 'instructions', priority: 100, text: `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}` },
+    ], BEHAVIOR, 900);
+    if (budgeted.trimmed.length) console.warn(`[research#${jobId}] trimmed to fit context: ${budgeted.trimmed.join(', ')} (${budgeted.tokens} tok)`);
+    const userPrompt = budgeted.text;
 
     let answer, usedDocs;
     if (isAnalytical(job.prompt)) {
