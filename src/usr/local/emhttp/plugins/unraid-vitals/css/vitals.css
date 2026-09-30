@@ -317,6 +317,12 @@
 .vitals .v-th-line { position: absolute; left: 46px; right: 12px; border-top: 1px dashed #f87171; pointer-events: none; z-index: 2; }
 .vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: #f87171aa; }
 
+/* P15-04: event markers — thin vertical line + a small pointer-catching
+   hit target, positioned in JS via uPlot's own x-scale so it always lines
+   up with the data underneath. */
+.vitals .v-ev-marker { position: absolute; top: 8px; bottom: 22px; width: 1px; border-left: 1.5px dashed #60a5fa; cursor: pointer; z-index: 3; }
+.vitals .v-ev-marker .v-ev-dot { position: absolute; top: -4px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
 /* fan tiles */
 .vitals .v-fan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .vitals .v-fan { display: flex; align-items: center; gap: 10px; }

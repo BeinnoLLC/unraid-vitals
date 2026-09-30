@@ -480,11 +480,43 @@ function Chart(P) {
       });
     };
 
+    // P15-04: event markers — vertical lines at the x-position of each
+    // event (parity check, mover run, reboot, alert), same post-render DOM
+    // overlay approach as threshold lines above but positioned by
+    // uPlot's own x-scale mapping (valToPos) so it stays correct across
+    // resize/zoom without re-deriving the timestamp math ourselves.
+    var events = P.events || [];
+    var evColor = { critical: '#f87171', alert: '#f87171', warning: '#fbbf24', info: '#60a5fa' };
+    var drawEvents = function () {
+      var host = ref.current;
+      if (!host || !plot.current) return;
+      host.querySelectorAll('.v-ev-marker').forEach(function (el) { el.remove(); });
+      var u = plot.current;
+      events.forEach(function (e) {
+        if (e.t < xs[0] || e.t > xs[xs.length - 1]) return;
+        var x = u.valToPos(e.t, 'x');
+        if (x == null || x < 0 || x > u.bbox.width / devicePixelRatio) return;
+        var el = document.createElement('div');
+        el.className = 'v-ev-marker';
+        el.style.left = x + 'px';
+        var color = evColor[e.severity] || evColor.info;
+        el.style.borderColor = color;
+        el.style.color = color;
+        el.title = e.label;
+        var dot = document.createElement('div');
+        dot.className = 'v-ev-dot';
+        el.appendChild(dot);
+        if (P.onEventClick) el.addEventListener('click', function () { P.onEventClick(e); });
+        host.appendChild(el);
+      });
+    };
+
     if (plot.current) plot.current.destroy();
     plot.current = new uPlot(opts, [xs].concat(ys), ref.current);
-    if (thresholds.length) {
-      drawThresholds();
-      var ro = new ResizeObserver(drawThresholds);
+    if (thresholds.length || events.length) {
+      var redraw = function () { drawThresholds(); drawEvents(); };
+      redraw();
+      var ro = new ResizeObserver(redraw);
       ro.observe(ref.current);
       var _oldDestroy = plot.current.destroy.bind(plot.current);
       plot.current.destroy = function () { ro.disconnect(); _oldDestroy(); };
@@ -734,6 +766,7 @@ function App() {
   var s6 = useState([]), findings = s6[0], setFindings = s6[1];
   var s7 = useState(false), drawerOpen = s7[0], setDrawerOpen = s7[1];
   var s8 = useState(false), findingsOpen = s8[0], setFindingsOpen = s8[1];
+  var s9 = useState([]), chartEvents = s9[0], setChartEvents = s9[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
@@ -777,10 +810,24 @@ function App() {
       .catch(function () { setDaily([]); });
   }, []);
 
+  // P15-04: event markers, refreshed on the same cadence as findings —
+  // events are sparse and slow-changing, no need for the 10s poll cadence.
+  useEffect(function () {
+    var loadEvents = function () {
+      fetch(ENDPOINT + '?action=chart_events&hours=24', { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.ok) setChartEvents(j.events || []); })
+        .catch(function () {});
+    };
+    loadEvents();
+    var iv3 = setInterval(loadEvents, 60000);
+    return function () { clearInterval(iv3); };
+  }, []);
+
   if (d && d.csrf_token) window.__V_CSRF__ = d.csrf_token;
   var ring = (payload && payload.ring) || [];
   var pts = ring.slice(-range);
-  var props = { d: d, pts: pts, range: range, daily: daily, findings: findings };
+  var props = { d: d, pts: pts, range: range, daily: daily, findings: findings, chartEvents: chartEvents };
 
   return h('div', null,
     h('div', { class: 'v-hero' },
@@ -1003,7 +1050,8 @@ function DashTab(P) {
     })),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'CPU & Memory', span2: true, hint: pts.length + ' samples' },
-        h(Chart, { series: cpuSeries, max: 100, height: 165, area: true,
+        h(Chart, { series: cpuSeries, max: 100, height: 165, area: true, events: P.chartEvents,
+          onEventClick: function (e) { window.alert(new Date(e.t * 1000).toLocaleString() + '\n' + e.label); },
           yFmt: function (v) { return v + '%'; } })),
       h(Panel, { title: 'Network flow', hint: 'stacked RX + TX' },
         h(Chart, { series: netSeries, height: 165, stack: true, area: true, yFmt: bytes })),
@@ -1012,6 +1060,8 @@ function DashTab(P) {
             points: pick(function (p) { return p.temp_max; }) }],
           floor: tMax == null ? 0 : Math.max(0, Math.floor(tMax - 10)), height: 165,
           thresholds: [{ v: 55, color: '#f87171', label: 'alert 55°' }],
+          events: P.chartEvents,
+          onEventClick: function (e) { window.alert(new Date(e.t * 1000).toLocaleString() + '\n' + e.label); },
           yFmt: function (v) { return v + '°'; } }))),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Container CPU', hint: ctrTop.length ? 'top ' + ctrTop.length : '' },

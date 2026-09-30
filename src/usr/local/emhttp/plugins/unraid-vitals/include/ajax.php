@@ -79,6 +79,12 @@ try {
     exit;
   }
 
+  if ($action === 'chart_events') {
+    $hours = min(168, max(1, (int)($_GET['hours'] ?? 24)));
+    echo json_encode(['ok' => true, 'events' => v_chart_events($hours)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'settings') {
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $ring = is_file('/var/tmp/unraid-vitals/history.json')

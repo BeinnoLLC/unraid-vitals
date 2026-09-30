@@ -106,6 +106,8 @@ function v_latest(): array {
  *   gpu_hist   [util, mem_mib, temp, watts, fan]
  */
 function v_point(array $snap): array {
+  if (isset($snap['system']['uptime'])) v_track_reboots((int)$snap['system']['uptime']);
+
   $temps = [];
   foreach ($snap['array']['data'] ?? [] as $d)   if ($d['temp'] !== null) $temps[] = $d['temp'];
   foreach ($snap['array']['parity'] ?? [] as $d) if ($d['temp'] !== null) $temps[] = $d['temp'];
@@ -864,6 +866,92 @@ function v_event_resolve(string $alertKey): void {
   $stmt->bindValue(2, $alertKey, SQLITE3_TEXT);
   $stmt->execute();
   $db->close();
+}
+
+/** Reboot detection: this plugin's own start marker file records the boot
+ *  time (from /proc/uptime) the first time it sees a NEW boot (i.e. a
+ *  smaller uptime than what's recorded) — since there's no persistent
+ *  "last known uptime" elsewhere, every plugin start compares against its
+ *  own last-seen value and appends to a small flash-persisted reboot log
+ *  when a reboot is detected. Called once per collector tick from
+ *  v_collect(), cheap (single small file read/write).
+ */
+function v_track_reboots(int $uptimeSec): void {
+  $stateFile = v_state_dir() . '/last_uptime.json';
+  $now = time();
+  $bootedAt = $now - $uptimeSec;
+  $prev = v_read_json($stateFile);
+  $prevUptime = $prev['uptime'] ?? null;
+  $prevBootedAt = $prev['booted_at'] ?? null;
+  // A reboot happened if uptime went backwards (shrank) relative to the
+  // last tick, or we've never recorded one yet with a plausible booted_at.
+  if ($prevUptime !== null && $uptimeSec < $prevUptime - 5 && $prevBootedAt !== null) {
+    $logFile = VITALS_FLASH . '/reboots.jsonl';
+    @file_put_contents($logFile, json_encode(['t' => $bootedAt]) . "\n", FILE_APPEND | LOCK_EX);
+  }
+  v_write_json($stateFile, ['uptime' => $uptimeSec, 'booted_at' => $bootedAt]);
+}
+
+/** Reboots recorded by v_track_reboots(), most recent last. */
+function v_reboot_log(int $limit = 50): array {
+  $f = VITALS_FLASH . '/reboots.jsonl';
+  if (!is_file($f)) return [];
+  $out = [];
+  foreach (explode("\n", (string)@file_get_contents($f)) as $line) {
+    if ($line === '') continue;
+    $r = json_decode($line, true);
+    if (is_array($r) && isset($r['t'])) $out[] = $r['t'];
+  }
+  return array_slice($out, -$limit);
+}
+
+/**
+ * P15-04 — merged, chart-ready event markers: kb_events (alerts/findings/
+ * container restarts), parity checks, mover runs, and reboots, all
+ * normalized to {t, kind, label, severity} and sorted, for the frontend to
+ * draw as vertical lines on any time chart. $sinceHours bounds how far
+ * back to look (the ring only covers 24h anyway, so charts never need
+ * more than that).
+ */
+function v_chart_events(int $sinceHours = 24): array {
+  $since = time() - $sinceHours * 3600;
+  $out = [];
+
+  foreach (v_events_list(null, 200) as $e) {
+    if ((int)$e['started_at'] < $since) continue;
+    $out[] = ['t' => (int)$e['started_at'], 'kind' => 'event:' . $e['kind'],
+      'label' => $e['summary'], 'severity' => $e['severity']];
+  }
+
+  foreach (v_parity_history(30) as $p) {
+    if ($p['date'] === null || $p['date'] < $since) continue;
+    $out[] = ['t' => $p['date'], 'kind' => 'parity',
+      'label' => ($p['type'] ?: 'Parity check') . ($p['clean'] ? ' (clean)' : ($p['cancelled'] ? ' (cancelled)' : ' (' . $p['errors'] . ' errors)')),
+      'severity' => $p['clean'] ? 'info' : 'warning'];
+  }
+
+  foreach (v_reboot_log(20) as $t) {
+    if ($t < $since) continue;
+    $out[] = ['t' => $t, 'kind' => 'reboot', 'label' => 'System reboot', 'severity' => 'info'];
+  }
+
+  // Mover runs from syslog — best-effort, syslog may not be present/kept
+  // long enough on every install, so an empty result here is normal, not
+  // an error condition.
+  $syslog = @file_get_contents('/var/log/syslog');
+  if ($syslog !== false) {
+    $year = (int)date('Y');
+    if (preg_match_all('/^(\w+\s+\d+\s+\d+:\d+:\d+)\s+\S+\s+move:\s*mover:\s*finished/mi', $syslog, $m)) {
+      foreach ($m[1] as $ts) {
+        $dt = DateTime::createFromFormat('M j H:i:s Y', preg_replace('/\s+/', ' ', trim($ts)) . ' ' . $year);
+        $t = $dt !== false ? $dt->getTimestamp() : false;
+        if ($t !== false && $t >= $since) $out[] = ['t' => $t, 'kind' => 'mover', 'label' => 'Mover run finished', 'severity' => 'info'];
+      }
+    }
+  }
+
+  usort($out, fn($a, $b) => $a['t'] <=> $b['t']);
+  return $out;
 }
 
 function v_events_list(?string $status = null, int $limit = 100): array {
