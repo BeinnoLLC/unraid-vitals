@@ -10,6 +10,7 @@
  */
 
 require_once __DIR__ . '/store.php';
+require_once __DIR__ . '/research-plan.php';
 require_once __DIR__ . '/checks.php';
 
 header('Content-Type: application/json');
@@ -234,20 +235,28 @@ try {
     exit;
   }
 
+  if ($action === 'kb_tags') {
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => true, 'tags' => v_kb_tag_counts()]);
+    exit;
+  }
+
   if ($action === 'kb_search') {
     $q = trim((string)($_GET['q'] ?? ''));
     $sev = trim((string)($_GET['severity'] ?? ''));
     if (!in_array($sev, ['', 'low', 'medium', 'high', 'critical'], true)) $sev = '';
-    echo json_encode(['ok' => true, 'results' => $q === '' ? [] : v_kb_search($q, 20, $sev),
-      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts()], JSON_UNESCAPED_SLASHES);
+    $tag = preg_replace('/[^a-z0-9-]/', '', strtolower(trim((string)($_GET['tag'] ?? ''))));
+    echo json_encode(['ok' => true, 'results' => $q === '' ? [] : v_kb_search($q, 20, $sev, $tag),
+      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts(), 'tag_counts' => v_kb_tag_counts()], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'kb_recent') {
     $sev = trim((string)($_GET['severity'] ?? ''));
     if (!in_array($sev, ['', 'low', 'medium', 'high', 'critical'], true)) $sev = '';
-    echo json_encode(['ok' => true, 'docs' => v_kb_recent(50, $sev),
-      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts()], JSON_UNESCAPED_SLASHES);
+    $tag = preg_replace('/[^a-z0-9-]/', '', strtolower(trim((string)($_GET['tag'] ?? ''))));
+    echo json_encode(['ok' => true, 'docs' => v_kb_recent(50, $sev, $tag),
+      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts(), 'tag_counts' => v_kb_tag_counts()], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
@@ -281,20 +290,30 @@ try {
     exit;
   }
 
+  if ($action === 'research_plan') {
+    $prompt = trim((string)($_GET['prompt'] ?? ''));
+    header('Content-Type: application/json');
+    echo json_encode(['ok' => true, 'plan' => $prompt === '' ? null : v_plan_research($prompt)]);
+    exit;
+  }
+
   if ($action === 'research_ask') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
     $prompt = trim((string)($_POST['prompt'] ?? ''));
     if ($prompt === '' || mb_strlen($prompt) > 2000) {
       http_response_code(400); echo json_encode(['ok' => false, 'error' => 'prompt required (max 2000 chars)']); exit;
     }
-    // Study mode: "study the system for the next 12 hours and let me know
-    // what's going on" — a standing observation task, not a one-shot
-    // question. hours: 1-72; tick_minutes: how often study.mjs samples
-    // (default 15, clamped so a short study can't spam sub-minute ticks
-    // and a long one can't go below a useful cadence).
-    $mode = ($_POST['mode'] ?? 'once') === 'study' ? 'study' : 'once';
-    $hours = max(1, min(72, (int)($_POST['hours'] ?? 12)));
-    $tickMinutes = max(5, min(180, (int)($_POST['tick_minutes'] ?? 15)));
+    // Ask-once: the UI sends ONLY free text; the planner detects study
+    // intent, window and cadence from the prompt itself ("monitor CPU
+    // spikes for the next 6 hours" → study 6h/5min ticks). Explicit POST
+    // values still win when present so auto-research (which already knows
+    // what it wants) can bypass detection.
+    $plan = v_plan_research($prompt);
+    $mode = ($_POST['mode'] ?? null) !== null
+      ? (($_POST['mode'] ?? 'once') === 'study' ? 'study' : 'once')
+      : ($plan['study'] ? 'study' : 'once');
+    $hours = max(1, min(72, (int)($_POST['hours'] ?? $plan['hours'])));
+    $tickMinutes = max(5, min(180, (int)($_POST['tick_minutes'] ?? $plan['tick'])));
     $id = $mode === 'study'
       ? v_research_create($prompt, 'study', $hours * 60, $tickMinutes)
       : v_research_create($prompt);
@@ -311,7 +330,8 @@ try {
       exec(sprintf('nohup %s %s %s > /tmp/unraid-vitals-research.log 2>&1 &',
         escapeshellarg($node), escapeshellarg($script), $args));
     }
-    echo json_encode(['ok' => true, 'job_id' => $id, 'mode' => $mode]);
+    echo json_encode(['ok' => true, 'job_id' => $id, 'mode' => $mode,
+                      'eta_seconds' => $plan['eta_seconds'], 'eta_label' => $plan['eta_label']]);
     exit;
   }
 

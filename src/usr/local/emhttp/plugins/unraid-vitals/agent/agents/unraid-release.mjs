@@ -94,6 +94,7 @@ export async function run() {
         summary: `${latest.name}${latest.date ? ` (${latest.date})` : ''} — official release notes`,
         content: md.slice(0, 60000) + (latest.changelogPretty ? `\n\n[Formatted release notes](${latest.changelogPretty})` : ''),
         severity: installed && compareVersions(latest.version, installed) > 0 ? 'high' : 'low',
+        tags: ['updates', 'release-notes'],
       });
     } catch (e) { console.warn(`[${AGENT_ID}] release notes fetch failed: ${e?.message || e}`); }
   }

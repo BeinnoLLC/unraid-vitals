@@ -102,7 +102,7 @@ async function finishOne(job) {
       `Aggregated metrics for the whole window:\n${describeWindow(tl).slice(0, 3500)}\n\n` +
       `Full observation journal:\n${journal}\n\n` +
       `Respond with strict JSON: {"report": "<full markdown report per the structure you were told>", ` +
-      `"headline": "<one-line summary>", "severity": "<one of: low, medium, high, critical — how urgently should the admin read this?>"}`;
+      `"headline": "<one-line summary>", "severity": "<one of: low, medium, high, critical — how urgently should the admin read this?>", "tags": ["<1-4 lowercase categories like: storage, docker, network, security, thermal, memory, updates>"]}`;
 
     const agent = await makeAnalysisAgent('Vitals-Study-Summary', SUMMARY_BEHAVIOR, { maxTokens: 1400, temperature: 0.3 });
     const raw = await callAnalyze(agent, SUMMARY_BEHAVIOR, prompt);
@@ -111,6 +111,9 @@ async function finishOne(job) {
     const headline = typeof parsed?.headline === 'string' ? parsed.headline : job.prompt;
     const SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
     const severity = SEVERITIES.has(parsed?.severity) ? parsed.severity : 'medium';
+    // LLM-proposed categories go through the same normalize + vocabulary
+    // scoring funnel in db.insertKbDocument (no new one-off tags on a whim).
+    const llmTags = Array.isArray(parsed?.tags) ? parsed.tags.map(String) : [];
 
     finishResearchJob(job.id, report, []);
     insertKbDocument({
@@ -119,6 +122,7 @@ async function finishOne(job) {
       summary: headline,
       content: report,
       severity,
+      tags: llmTags,
     });
     console.log(`[study#${job.id}] finished — ${obs.length} observations over ${job.tick_minutes ? Math.round((job.study_until - job.created_at) / 60) : '?'} min`);
   } catch (e) {

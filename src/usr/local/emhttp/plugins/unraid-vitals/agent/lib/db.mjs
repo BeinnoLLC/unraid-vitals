@@ -6,6 +6,7 @@
  * path, so the UI never blocks on inference.
  */
 import { DatabaseSync } from 'node:sqlite';
+import { suggestTags } from './kb-tags.mjs';
 import { mkdirSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -256,6 +257,11 @@ export function getDb() {
   // ingested before this column existed or with no clearer signal.
   addKbCol('severity', `TEXT NOT NULL DEFAULT 'medium'`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_severity ON kb_documents(severity, created_at DESC);`);
+  // KB categories: comma-separated lowercase tags ('docker', 'network',
+  // 'security', …) assigned by the tagger agent, which always sees the
+  // existing tag set first so the vocabulary stays small and reusable.
+  addKbCol('tags', "TEXT NOT NULL DEFAULT ''");
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_tags ON kb_documents(tags);`);
 
   return db;
 }
@@ -339,9 +345,11 @@ export function ingestFindingToKb(agent, finding) {
   const content = [finding.detail, finding.recommendation, finding.subject ? `Subject: ${finding.subject}` : '']
     .filter(Boolean).join('\n');
   const severity = FINDING_TO_KB_SEVERITY[finding.severity] || 'medium';
+  // Category tags: heuristic + vocabulary-aware (see lib/kb-tags.mjs).
+  const tags = suggestTags(`${finding.title} ${content}`, kbTagCounts(), finding.tags);
   d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, severity, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?, ?)`
-  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, severity, Math.floor(Date.now() / 1000));
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, severity, tags, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?, ?, ?)`
+  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, severity, tags.join(','), Math.floor(Date.now() / 1000));
 }
 
 /** Push a full-length report into the KB — a multi-paragraph analysis or
@@ -351,14 +359,37 @@ export function ingestFindingToKb(agent, finding) {
  *  `severity`: admin-facing importance badge — defaults to 'medium' when
  *  the caller (an LLM synthesis step) doesn't have a clear signal either
  *  way, so "unclassified" never silently reads as "safe to ignore". */
-export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images, severity = 'medium' }) {
+export function normalizeTags(tags) {
+  const seen = [];
+  for (const t of Array.isArray(tags) ? tags : []) {
+    const k = String(t).toLowerCase().replace(/[^a-z0-9- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 24);
+    if (k && !seen.includes(k)) seen.push(k);
+    if (seen.length >= 6) break;
+  }
+  return seen;
+}
+
+export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images, severity = 'medium', tags }) {
   const d = getDb();
+  // No explicit tags → tag heuristically (vocabulary-aware). Callers that
+  // know better (release watcher pins 'updates') pass tags and win.
+  const tagList = tags ? normalizeTags(tags) : suggestTags(`${title} ${summary || ''} ${String(content || '').slice(0, 400)}`, kbTagCounts());
   const res = d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, severity, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, severity, tags, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(source, sourceRef != null ? String(sourceRef) : null, topic || null, title, content, kind,
-        summary || null, images && images.length ? JSON.stringify(images) : null, severity, Math.floor(Date.now() / 1000));
+        summary || null, images && images.length ? JSON.stringify(images) : null, severity,
+        tagList.join(','), Math.floor(Date.now() / 1000));
   return res.lastInsertRowid;
+}
+
+/** The full existing tag vocabulary with counts — the tagger agent must
+ *  prefer these over inventing new categories. */
+export function kbTagCounts() {
+  const rows = getDb().prepare(`SELECT tags FROM kb_documents WHERE tags != ''`).all();
+  const counts = {};
+  for (const r of rows) for (const t of String(r.tags).split(',')) if (t) counts[t] = (counts[t] || 0) + 1;
+  return counts;
 }
 
 /** FTS5 keyword search over the knowledge base, newest match first within
@@ -371,7 +402,7 @@ export function searchKb(query, limit = 20) {
   if (!safe) return [];
   try {
     return d.prepare(
-      `SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.created_at,
+      `SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.tags, d.created_at,
               bm25(kb_fts) AS rank
        FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
        WHERE kb_fts MATCH ?

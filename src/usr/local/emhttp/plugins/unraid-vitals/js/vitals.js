@@ -178,6 +178,41 @@ function StatTile(P) {
     P.spark ? h(Spark, { points: P.spark, color: tone }) : null);
 }
 
+/* SVG radar/spider chart. axes: [{label, value(0..100), color?}]. Value is
+ * a normalized 0-100 "how close to the concerning threshold" score — the
+ * polygon touching the rim means that dimension is at its limit. Grid rings
+ * at 25/50/75/100. */
+function RadarChart(P) {
+  var axes = P.axes || [];
+  var n = Math.max(3, axes.length);
+  var size = P.size || 220, cx = size / 2, cy = size / 2, R = size / 2 - 34;
+  var pt = function (i, frac) {
+    var ang = (Math.PI * 2 * i) / n - Math.PI / 2;
+    return [cx + Math.cos(ang) * R * frac, cy + Math.sin(ang) * R * frac];
+  };
+  var ring = function (frac) {
+    var s = [];
+    for (var i = 0; i < n; i++) { var p = pt(i, frac); s.push(p[0].toFixed(1) + ',' + p[1].toFixed(1)); }
+    return s.join(' ');
+  };
+  var poly = axes.map(function (a, i) { var p = pt(i, Math.max(0.04, Math.min(1, a.value / 100))); return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' ');
+  return h('svg', { viewBox: '0 0 ' + size + ' ' + size, class: 'v-radar', width: size, height: size },
+    [0.25, 0.5, 0.75, 1].map(function (f, i) {
+      return h('polygon', { key: 'r' + i, points: ring(f), class: 'v-radar-ring' + (i === 3 ? ' rim' : '') });
+    }),
+    axes.map(function (a, i) {
+      var p = pt(i, 1);
+      return h('line', { key: 's' + i, x1: cx, y1: cy, x2: p[0], y2: p[1], class: 'v-radar-spoke' });
+    }),
+    h('polygon', { points: poly, class: 'v-radar-poly' }),
+    axes.map(function (a, i) {
+      var p = pt(i, 1.22);
+      var anchor = p[0] > cx + 4 ? 'start' : p[0] < cx - 4 ? 'end' : 'middle';
+      return h('text', { key: 'l' + i, x: p[0], y: p[1], class: 'v-radar-label', 'text-anchor': anchor,
+        'dominant-baseline': 'middle' }, a.label);
+    }));
+}
+
 /* Animated PWM fan icon: CSS-spun blade whose rotation duration scales with
    RPM (faster fan = faster spin, capped so it stays readable rather than a
    blur), plus a duty-% progress ring around it. Pure CSS animation (no JS
@@ -2165,7 +2200,78 @@ function HwTab(P) {
     }) });
   };
 
+  // Thermal map: every temperature the box exposes — chip sensors AND disk
+  // temps — as one heat-colored tile field. Color scale: green <45, amber
+  // 45-60, orange 60-75, red >=75 (or within 90% of the chip threshold).
+  var arr = d.array || {};
+  var diskTemps = [];
+  (arr.data || []).concat(arr.parity || [], arr.cache || []).forEach(function (x) {
+    if (x && x.name && x.temp != null) diskTemps.push({ id: 'disk:' + x.name, label: x.name, value: x.temp, max: null, crit: null });
+  });
+  var heat = function (v, t) {
+    var ref = t && (t.crit != null ? t.crit : (t.max != null ? t.max : null));
+    if (ref != null && v >= ref * 0.92) return '#ef4444';
+    if (v >= 75) return '#ef4444';
+    if (v >= 60) return '#f59e0b';
+    if (v >= 45) return '#eab308';
+    return '#34d399';
+  };
+  var ThermalMap = function () {
+    var all = (sensors.temps || []).concat(diskTemps);
+    if (!all.length) return h('div', { class: 'v-empty' }, 'No temperature sensors found.');
+    return h('div', { class: 'v-therm-grid' },
+      all.map(function (t) {
+        var lv = t.crit != null && t.value >= t.crit ? 'crit' : (t.value >= 75 ? 'crit' : (t.value >= 60 ? 'warn' : 'ok'));
+        return h('div', { key: t.id, class: 'v-therm v-therm-' + lv, title: t.label + ': ' + t.value + '°C' },
+          h('span', { class: 'v-therm-val' }, Math.round(t.value) + '°'),
+          h('span', { class: 'v-therm-label' }, t.label));
+      }));
+  };
+
+  // Radar: normalize the six dimensions that define "system health" to a
+  // 0-100 proximity-to-limit score (rim = at the limit).
+  var memPct = d.mem && d.mem.pct != null ? d.mem.pct : null;
+  var hottestTemp = 0;
+  (sensors.temps || []).concat(diskTemps).forEach(function (t) { if (t.value > hottestTemp) hottestTemp = t.value; });
+  var load = d.load || {};
+  var load1 = load['1min'] != null ? load['1min'] : (Array.isArray(load) ? load[0] : (load.one != null ? load.one : null));
+  var cores = (d.cpu && d.cpu.cores && d.cpu.cores.count) || 8;
+  var cpuPct = d.cpu && d.cpu.total != null ? d.cpu.total : 0;
+  // Network: peak interface throughput this window vs 1 Gbps reference —
+  // it is the honest "how busy is the wire" proxy available in the slim points.
+  var netPeak = 0;
+  (pts.slice(-12)).forEach(function (p) {
+    var n = p.net || {};
+    Object.keys(n).forEach(function (k) { var tot = (n[k][0] || 0) + (n[k][1] || 0); if (tot > netPeak) netPeak = tot; });
+  });
+  var netPct = Math.min(100, (netPeak / (125 * 1024 * 1024)) * 100);
+  var radarAxes = [
+    { label: 'CPU', value: Math.min(100, cpuPct) },
+    { label: 'Memory', value: Math.min(100, memPct || 0) },
+    { label: 'Temp', value: Math.min(100, (hottestTemp / 90) * 100) },
+    { label: 'Load', value: Math.min(100, load1 != null ? (load1 / cores) * 100 : 0) },
+    { label: 'Network', value: netPct },
+  ];
+  var busyDisks = diskTemps.length;
+  var dockerRunning = d.docker && d.docker.running != null ? d.docker.running : null;
+
   return h('div', null,
+    h(Panel, { title: 'Thermal map', span2: true,
+      hint: (sensors.temps || []).length + ' chip sensors + ' + busyDisks + ' disks — color is the band, number is °C' },
+      h(ThermalMap)),
+    h(Panel, { title: 'System health radar', span2: true,
+      hint: 'distance to limit per dimension — rim = at the limit' },
+      h('div', { class: 'v-radar-wrap' },
+        h(RadarChart, { axes: radarAxes, size: 240 }),
+        h('div', { class: 'v-radar-legend' },
+          radarAxes.map(function (a, i) {
+            return h('div', { key: i, class: 'v-radar-row' },
+              h('span', { class: 'v-radar-dot', style: 'background:' + (a.value >= 85 ? '#ef4444' : a.value >= 60 ? '#f59e0b' : '#34d399') }),
+              h('span', { class: 'v-radar-name' }, a.label),
+              h('span', { class: 'v-radar-val' }, Math.round(a.value) + '%'));
+          })),
+        h('div', { class: 'v-radar-note muted' },
+          dockerRunning != null ? dockerRunning + ' containers running' : ''))),
     h(Panel, { title: 'Temperatures', span2: true,
       hint: (sensors.temps || []).length + ' sensors — headroom is distance to the chip threshold' },
       !(sensors.temps || []).length ? h('div', { class: 'v-empty' }, 'No hwmon temperature sensors found.')
@@ -2350,6 +2456,40 @@ function HwTab(P) {
 
 /* ------------------------------------------------------------------- kb */
 
+/* Global toast notifications. ToastBus.push({kind, icon, title, body, ttl,
+ * onClick}) renders a stack of cards bottom-right; toasts vanish after ttl
+ * (default 6s) unless hovered. Used by the ask-once research flow ("ready
+ * soon" / "research ready — click to view") and any future async events. */
+var ToastBus = (function () {
+  var items = [];
+  var listeners = [];
+  function push(t) {
+    var item = Object.assign({ kind: 'info', ttl: 6000, at: Date.now() }, t);
+    items = items.concat([item]);
+    emit();
+    if (item.ttl > 0) setTimeout(function () { dismiss(item); }, item.ttl);
+  }
+  function dismiss(item) { items = items.filter(function (x) { return x !== item; }); emit(); }
+  function emit() { listeners.forEach(function (l) { l(items.slice()); }); }
+  function subscribe(l) { listeners.push(l); return function () { listeners = listeners.filter(function (x) { return x !== l; }); }; }
+  return { push: push, dismiss: dismiss, subscribe: subscribe };
+})();
+
+function ToastStack() {
+  var s = useState([]); var list = s[0], setList = s[1];
+  useEffect(function () { return ToastBus.subscribe(setList); }, []);
+  if (!list.length) return null;
+  return h('div', { class: 'v-toasts' },
+    list.map(function (t, i) {
+      return h('div', { key: i, class: 'v-toast v-toast-' + t.kind,
+                        onClick: function () { ToastBus.dismiss(t); if (t.onClick) t.onClick(); } },
+        h('i', { class: 'fa ' + (t.icon || 'fa-info-circle') }),
+        h('div', { class: 'v-toast-body' },
+          h('div', { class: 'v-toast-title' }, t.title || ''),
+          t.body ? h('div', { class: 'v-toast-msg' }, t.body) : null));
+    }));
+}
+
 // 'auto:disk:disk3' → 'disk agent (disk3)'; 'auto:unraid-release:7.3.2' → 'Unraid release watcher (7.3.2)'
 function autoOriginLabel(origin) {
   var p = String(origin || '').split(':');
@@ -2375,26 +2515,30 @@ function KbTab() {
   var s5 = useState(null); var topicFilter = s5[0], setTopicFilter = s5[1];
   var s6 = useState(null); var sevFilter = s6[0], setSevFilter = s6[1]; // null = all
   var s7 = useState({}); var sevCounts = s7[0], setSevCounts = s7[1];
+  var s8 = useState(null); var tagFilter = s8[0], setTagFilter = s8[1]; // null = all
+  var s9 = useState({}); var tagCounts = s9[0], setTagCounts = s9[1];
 
-  var loadRecent = function (sev) {
+  var loadRecent = function (sev, tag) {
     var qs = sev ? '&severity=' + encodeURIComponent(sev) : '';
+    if (tag) qs += '&tag=' + encodeURIComponent(tag);
     fetch(ENDPOINT + '?action=kb_recent' + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); } });
+      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); setTagCounts(j.tag_counts || {}); } });
   };
-  useEffect(function () { loadRecent(sevFilter); }, [sevFilter]);
+  useEffect(function () { loadRecent(sevFilter, tagFilter); }, [sevFilter, tagFilter]);
 
   var search = function (e) {
     if (e) e.preventDefault();
-    if (!q.trim()) { loadRecent(sevFilter); return; }
+    if (!q.trim()) { loadRecent(sevFilter, tagFilter); return; }
     setSearching(true);
     var qs = sevFilter ? '&severity=' + encodeURIComponent(sevFilter) : '';
+    if (tagFilter) qs += '&tag=' + encodeURIComponent(tagFilter);
     fetch(ENDPOINT + '?action=kb_search&q=' + encodeURIComponent(q) + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setResults(j.results || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); } setSearching(false); })
+      .then(function (j) { if (j && j.ok) { setResults(j.results || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); setTagCounts(j.tag_counts || {}); } setSearching(false); })
       .catch(function () { setSearching(false); });
   };
-  useEffect(function () { if (q.trim()) search(null); }, [sevFilter]);
+  useEffect(function () { if (q.trim()) search(null); }, [sevFilter, tagFilter]);
 
   var shown = topicFilter ? results.filter(function (r) { return r.topic === topicFilter; }) : results;
   var totalCount = Object.keys(sevCounts).reduce(function (a, k) { return a + sevCounts[k]; }, 0);
@@ -2420,6 +2564,15 @@ function KbTab() {
             onClick: function () { setSevFilter(sv); },
           }, KB_SEV_LABEL[sv] + ' (' + sevCounts[sv] + ')') : null;
         })),
+      // Category row — the agent-assigned tags, most-used first. Third
+      // AND-axis: severity + tag + topic all combine.
+      Object.keys(tagCounts).length ? h('div', { class: 'v-kb-topics' },
+        h('span', { class: 'v-chip' + (tagFilter === null ? ' on' : ''), onClick: function () { setTagFilter(null); } }, 'all categories'),
+        Object.keys(tagCounts).map(function (t) {
+          return h('span', { key: t, class: 'v-chip v-chip-tag' + (tagFilter === t ? ' on' : ''),
+            onClick: function () { setTagFilter(tagFilter === t ? null : t); } },
+            t + ' (' + tagCounts[t] + ')');
+        })) : null,
       topics.length ? h('div', { class: 'v-kb-topics' },
         h('span', { class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all topics'),
         topics.map(function (t) {
@@ -2436,6 +2589,11 @@ function KbTab() {
               h('span', { class: 'v-kb-doc-title' }, doc.title),
               h(Pill, { kind: KB_SEV_PILL[sev] || 'info' }, KB_SEV_LABEL[sev] || sev),
               doc.kind && doc.kind !== 'note' ? h(Pill, { kind: doc.kind === 'study' ? 'info' : 'run' }, doc.kind) : null,
+              (doc.tags || []).map(function (t) {
+                return h('span', { key: t, class: 'v-tag-badge' + (tagFilter === t ? ' on' : ''),
+                  title: 'Filter by category: ' + t,
+                  onClick: function () { setTagFilter(tagFilter === t ? null : t); } }, t);
+              }),
               doc.topic ? h('span', { class: 'v-ai-agent' }, doc.topic) : null,
               h('span', { class: 'muted', style: 'margin-left:auto' }, ts(doc.created_at))),
             doc.summary ? h('div', { class: 'v-kb-doc-summary' }, doc.summary) : null,
@@ -2457,16 +2615,52 @@ function ResearchTab() {
   var s2 = useState([]); var jobs = s2[0], setJobs = s2[1];
   var s3 = useState(null); var activeJob = s3[0], setActiveJob = s3[1];
   var s4 = useState(false); var submitting = s4[0], setSubmitting = s4[1];
-  var s5 = useState('once'); var mode = s5[0], setMode = s5[1];
-  var s6 = useState(12); var hours = s6[0], setHours = s6[1];
-  var s7 = useState(15); var tickMinutes = s7[0], setTickMinutes = s7[1];
+  // Ask-once: no mode/hours/tick controls. The server plans the job from
+  // the prompt itself; this side shows the plan live while typing and
+  // raises a toast (with an ETA estimate) on submit and on completion.
+  var s5 = useState(null); var plan = s5[0], setPlan = s5[1];
+  var prevStatuses = useRef({});
 
   var loadJobs = function () {
     fetch(ENDPOINT + '?action=research_list', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) setJobs(j.jobs || []); });
+      .then(function (j) {
+        if (!(j && j.ok)) return;
+        var jobs = j.jobs || [];
+        setJobs(jobs);
+        // Completion watcher: any job that leaves pending/running/studying
+        // while the page is open raises a notification. Clicking it opens
+        // the job — the report is delivered to the user, not silently
+        // parked in a table.
+        jobs.forEach(function (x) {
+          var prev = prevStatuses.current[x.id];
+          if (prev && prev !== x.status && (x.status === 'done' || x.status === 'error')) {
+            ToastBus.push({
+              kind: x.status === 'done' ? 'success' : 'warn',
+              icon: x.status === 'done' ? 'fa-check-circle' : 'fa-exclamation-triangle',
+              title: x.status === 'done' ? 'Research ready' : 'Research failed',
+              body: (x.prompt || '').slice(0, 90) + ((x.prompt || '').length > 90 ? '…' : ''),
+              ttl: 10000,
+              onClick: function () { openJob(x.id); },
+            });
+          }
+          prevStatuses.current[x.id] = x.status;
+        });
+      });
   };
   useEffect(function () { loadJobs(); var iv = setInterval(loadJobs, 10000); return function () { clearInterval(iv); }; }, []);
+
+  // Live plan preview while typing (debounced, one cheap JSON endpoint).
+  useEffect(function () {
+    if (!prompt.trim()) { setPlan(null); return; }
+    var t = setTimeout(function () {
+      fetch(ENDPOINT + '?action=research_plan&prompt=' + encodeURIComponent(prompt), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.ok) setPlan(j.plan); })
+        .catch(function () {});
+    }, 350);
+    return function () { clearTimeout(t); };
+  }, [prompt]);
 
   var openJob = function (id) {
     fetch(ENDPOINT + '?action=research_status&id=' + id, { cache: 'no-store' })
@@ -2497,15 +2691,20 @@ function ResearchTab() {
     e.preventDefault();
     if (!prompt.trim()) return;
     setSubmitting(true);
-    var params = { prompt: prompt, mode: mode, csrf_token: window.__V_CSRF__ || '' };
-    if (mode === 'study') { params.hours = String(hours); params.tick_minutes = String(tickMinutes); }
-    var body = new URLSearchParams(params);
+    // Free text only — the planner decides how the job runs.
+    var body = new URLSearchParams({ prompt: prompt, csrf_token: window.__V_CSRF__ || '' });
     fetch(ENDPOINT + '?action=research_ask', { method: 'POST', body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setSubmitting(false);
-        if (j && j.ok) { setPrompt(''); loadJobs(); openJob(j.job_id); }
-        else window.alert('Failed: ' + ((j && j.error) || 'unknown error'));
+        if (j && j.ok) {
+          setPrompt(''); setPlan(null);
+          ToastBus.push({ kind: 'info', icon: 'fa-hourglass-start', ttl: 8000,
+            title: j.mode === 'study' ? 'Study started' : 'Research started',
+            body: (j.eta_label || '') + " — we'll notify you here when it's ready." });
+          loadJobs(); openJob(j.job_id);
+        } else ToastBus.push({ kind: 'warn', icon: 'fa-exclamation-triangle', title: 'Could not start research',
+                               body: (j && j.error) || 'unknown error' });
       })
       .catch(function () { setSubmitting(false); });
   };
@@ -2523,29 +2722,19 @@ function ResearchTab() {
   };
 
   return h('div', null,
-    h(Panel, { title: 'Ask or study', span2: true,
-      hint: 'runs in the background using local models — may take a few minutes on this hardware' },
+    h(Panel, { title: 'Ask once — research anything', span2: true,
+      hint: 'free text. The system detects whether this is a one-shot question or a study, and for how long.' },
       h('form', { class: 'v-kb-search', onSubmit: submit, style: 'flex-direction:column;align-items:stretch;gap:8px' },
-        h('div', { class: 'v-seg', role: 'tablist' },
-          h('button', { type: 'button', class: 'v-seg-btn' + (mode === 'once' ? ' active' : ''), onClick: function () { setMode('once'); } },
-            h('i', { class: 'fa fa-question-circle' }), ' Ask once'),
-          h('button', { type: 'button', class: 'v-seg-btn' + (mode === 'study' ? ' active' : ''), onClick: function () { setMode('study'); } },
-            h('i', { class: 'fa fa-binoculars' }), ' Study over time')),
         h('textarea', { class: 'v-input', rows: 3,
-          placeholder: mode === 'study'
-            ? 'e.g. Study the system for the next 12 hours and let me know what is going on — watch temps, disk activity and container health.'
-            : 'e.g. Why has the cache pool been running hot this week? What should I check first?',
+          placeholder: 'e.g. "I need to monitor CPU spikes", "Why has the cache pool been running hot this week?", "Study the system for the next 12 hours"…',
           value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
-        mode === 'study' ? h('div', { class: 'v-row', style: 'gap:16px;flex-wrap:wrap' },
-          h('label', { class: 'v-field' }, 'Study for',
-            h('select', { class: 'v-input', value: hours, onChange: function (e) { setHours(Number(e.target.value)); } },
-              [1, 2, 4, 6, 12, 24, 48, 72].map(function (n) { return h('option', { key: n, value: n }, n + ' hour' + (n === 1 ? '' : 's')); }))),
-          h('label', { class: 'v-field' }, 'Check every',
-            h('select', { class: 'v-input', value: tickMinutes, onChange: function (e) { setTickMinutes(Number(e.target.value)); } },
-              [5, 15, 30, 60, 120].map(function (n) { return h('option', { key: n, value: n }, n + ' min'); })))) : null,
-        h('button', { class: 'v-btn primary', type: 'submit', disabled: submitting, style: 'align-self:flex-start' },
-          h('i', { class: 'fa ' + (mode === 'study' ? 'fa-binoculars' : 'fa-flask') }),
-          submitting ? ' Submitting…' : (mode === 'study' ? ' Start studying' : ' Research in background')))),
+        plan ? h('div', { class: 'v-plan-hint' + (plan.study ? ' study' : '') },
+          h('i', { class: 'fa ' + (plan.study ? 'fa-binoculars' : 'fa-flask') }),
+          h('span', null, plan.eta_label),
+          plan.study ? h('span', { class: 'v-plan-meta' }, 'checks every ' + plan.tick + ' min') : null) : null,
+        h('button', { class: 'v-btn primary', type: 'submit', disabled: submitting || !prompt.trim(), style: 'align-self:flex-start' },
+          h('i', { class: 'fa ' + (plan && plan.study ? 'fa-binoculars' : 'fa-flask') }),
+          submitting ? ' Submitting…' : ' Research'))),
     activeJob ? h(Panel, { title: activeJob.mode === 'study' ? 'Study' : 'Result', span2: true,
         hint: activeJob.status + (activeJob.mode === 'study' && activeJob.status === 'studying'
           ? ' — ' + dur(activeJob.study_until - now) + ' remaining' : '') },
@@ -2806,9 +2995,9 @@ function SettingsTab() {
                         h('div', null,
                           h('b', { class: 'v-name' }, m.name),
                           m.params ? h('span', { class: 'muted', style: 'font-size:0.85em' }, ' · ' + m.params) : null,
-                          m.thinking ? h('span', { class: 'v-pill', style: 'margin-left:6px' }, 'thinking') : null,
-                          m.vision ? h('span', { class: 'v-pill', style: 'margin-left:4px' }, 'vision') : null,
-                          !onBoth ? h('span', { class: 'v-pill v-badge-warning', style: 'margin-left:4px' },
+                          m.thinking ? h('span', { class: 'v-pill think', style: 'margin-left:6px' }, 'thinking') : null,
+                          m.vision ? h('span', { class: 'v-pill vision', style: 'margin-left:4px' }, 'vision') : null,
+                          !onBoth ? h('span', { class: 'v-pill scope', style: 'margin-left:4px' },
                             m.on_primary ? 'primary only' : 'backup only') : null),
                         h('div', { class: 'muted', style: 'font-size:0.85em' },
                           m.embedding_only ? 'Embedding-only — cannot be used for diagnostics.' : (m.blurb || 'No description available.'))));
@@ -2830,5 +3019,5 @@ function SettingsTab() {
 
 /* ---------------------------------------------------------------- mount */
 
-if (mountEl) render(h(App), mountEl);
+if (mountEl) render(h('div', null, h(App), h(ToastStack)), mountEl);
 })();

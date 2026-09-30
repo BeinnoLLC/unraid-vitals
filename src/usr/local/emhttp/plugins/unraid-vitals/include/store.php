@@ -1706,7 +1706,7 @@ function v_apply_share_comment(string $share, string $comment): bool {
 
 /* --------------------------------------------------------------------- KB */
 
-function v_kb_search(string $query, int $limit = 20, string $severity = ''): array {
+function v_kb_search(string $query, int $limit = 20, string $severity = '', string $tag = ''): array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
@@ -1716,18 +1716,37 @@ function v_kb_search(string $query, int $limit = 20, string $severity = ''): arr
   $out = [];
   try {
     $sevClause = $severity !== '' ? 'AND d.severity = :sev' : '';
+    // tags is a comma-joined string: LIKE with delimiters matches whole tags
+    // only ("net" never matches "networking").
+    $tagClause = ($tag !== '' && v_kb_has_tags($db)) ? "AND (',' || d.tags || ',') LIKE :taglike" : '';
     $stmt = $db->prepare(
-      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.severity, d.created_at, bm25(kb_fts) AS rank
+      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.severity, d.tags, d.created_at, bm25(kb_fts) AS rank
        FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
-       WHERE kb_fts MATCH :q $sevClause ORDER BY rank LIMIT :lim");
+       WHERE kb_fts MATCH :q $sevClause $tagClause ORDER BY rank LIMIT :lim");
     $stmt->bindValue(':q', $safe, SQLITE3_TEXT);
     if ($severity !== '') $stmt->bindValue(':sev', $severity, SQLITE3_TEXT);
+    if ($tag !== '' && v_kb_has_tags($db)) $stmt->bindValue(':taglike', '%,' . $tag . ',%', SQLITE3_TEXT);
     $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
     $res = $stmt->execute();
     while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
   } catch (Throwable $e) { /* malformed FTS query from odd input — return what we have */ }
   $db->close();
   return $out;
+}
+
+/** kb_documents.tags was added later (category badges); older DBs that the
+ *  node agents have not migrated yet must still list cleanly. */
+function v_kb_has_tags(SQLite3 $db): bool {
+  static $memo = null;
+  if ($memo !== null) return $memo;
+  $memo = false;
+  $res = $db->query("PRAGMA table_info(kb_documents)");
+  while ($res && ($r = $res->fetchArray(SQLITE3_ASSOC))) if ($r['name'] === 'tags') { $memo = true; break; }
+  return $memo;
+}
+/** Comma column → array. */
+function v_kb_tags_of(array $row): array {
+  return !empty($row['tags']) ? explode(',', $row['tags']) : [];
 }
 
 /** research_jobs.origin was added later (auto-research); older DBs that the
@@ -1743,22 +1762,32 @@ function v_research_has_origin(SQLite3 $db): bool {
 
 function v_kb_row_decode(array $row): array {
   $row['images'] = $row['images'] ? (json_decode($row['images'], true) ?: []) : [];
+  $row['tags'] = v_kb_tags_of($row);
   return $row;
 }
 
-function v_kb_recent(int $limit = 50, string $severity = ''): array {
+function v_kb_recent(int $limit = 50, string $severity = '', string $tag = ''): array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  if ($severity !== '') {
-    $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
-                           FROM kb_documents WHERE severity = :sev ORDER BY created_at DESC, id DESC LIMIT :lim");
-    $stmt->bindValue(':sev', $severity, SQLITE3_TEXT);
+  $tagsSel = v_kb_has_tags($db) ? 'tags' : "'' AS tags";
+  $tagClause = ($tag !== '' && v_kb_has_tags($db)) ? "AND (',' || tags || ',') LIKE :taglike" : '';
+  $sevAndTag = "severity = :sev $tagClause";
+  if ($severity !== '' || $tag !== '') {
+    if ($severity !== '') {
+      $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, $tagsSel, created_at
+                             FROM kb_documents WHERE $sevAndTag ORDER BY created_at DESC, id DESC LIMIT :lim");
+      $stmt->bindValue(':sev', $severity, SQLITE3_TEXT);
+    } else {
+      $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, $tagsSel, created_at
+                             FROM kb_documents WHERE 1=1 $tagClause ORDER BY created_at DESC, id DESC LIMIT :lim");
+    }
+    if ($tag !== '' && v_kb_has_tags($db)) $stmt->bindValue(':taglike', '%,' . $tag . ',%', SQLITE3_TEXT);
     $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
     $res = $stmt->execute();
   } else {
-    $res = $db->query("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
+    $res = $db->query("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, $tagsSel, created_at
                         FROM kb_documents ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
   }
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
@@ -1770,7 +1799,8 @@ function v_kb_get(int $id): ?array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
-  $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
+  $tagsSel = v_kb_has_tags($db) ? 'tags' : "'' AS tags";
+  $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, $tagsSel, created_at
                          FROM kb_documents WHERE id = ?");
   $stmt->bindValue(1, $id, SQLITE3_INTEGER);
   $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
@@ -1787,6 +1817,22 @@ function v_kb_topics(): array {
                       WHERE topic IS NOT NULL GROUP BY topic ORDER BY last DESC");
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
   $db->close();
+  return $out;
+}
+
+/** Tag vocabulary with counts — powers the category chip row. */
+function v_kb_tag_counts(): array {
+  $dbFile = v_db_path();
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  if (!v_kb_has_tags($db)) { $db->close(); return []; }
+  $out = [];
+  $res = $db->query("SELECT tags FROM kb_documents WHERE tags != ''");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) {
+    foreach (explode(',', $row['tags']) as $t) if ($t !== '') $out[$t] = ($out[$t] ?? 0) + 1;
+  }
+  $db->close();
+  arsort($out);
   return $out;
 }
 
