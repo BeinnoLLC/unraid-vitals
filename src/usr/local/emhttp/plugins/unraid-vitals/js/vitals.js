@@ -146,8 +146,14 @@ function gradientFill(hex, topAlpha) {
     var ctx = u.ctx;
     var top = 0, height = (u.bbox && u.bbox.height) || u.height || 150;
     var g = ctx.createLinearGradient(0, top, 0, top + height);
-    g.addColorStop(0, withAlpha(hex, topAlpha == null ? 0.38 : topAlpha));
-    g.addColorStop(1, withAlpha(hex, 0.02));
+    // A caller passing an undefined/invalid color used to throw deep inside
+    // uPlot's draw loop (CanvasGradient.addColorStop rejects a non-color
+    // string) and silently break EVERY chart on the page, not just the one
+    // with the bad series — fall back to a neutral gray instead of
+    // propagating the bad value into the canvas API.
+    var safeHex = (hex && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) ? hex : '#8b8f9a';
+    g.addColorStop(0, withAlpha(safeHex, topAlpha == null ? 0.38 : topAlpha));
+    g.addColorStop(1, withAlpha(safeHex, 0.02));
     return g;
   };
 }
@@ -312,14 +318,19 @@ function ChartStats(P) {
     };
   }).filter(Boolean);
   if (!rows.length) return null;
+  // Each series is its own bordered chip instead of run-on inline text —
+  // with 5-6+ high-cardinality sensors the old plain-text "· avg · min–max"
+  // strings had no visual boundary between series and read as one solid
+  // unreadable line (user: "legends are broken for charts"). Current value
+  // is the prominent bit; avg/range drops to a smaller secondary line.
   return h('div', { class: 'v-chart-stats' },
     rows.map(function (r, i) {
       return h('span', { key: i, class: 'v-chart-stat' },
         h('i', { style: 'background:' + r.color }),
-        h('b', null, r.name),
-        h('span', { class: 'num' }, ' ' + r.fmt(r.now)),
-        h('span', { class: 'muted' },
-          ' · avg ' + r.fmt(r.avg) + ' · ' + r.fmt(r.min) + '–' + r.fmt(r.max)));
+        h('span', { class: 'v-chart-stat-body' },
+          h('span', { class: 'v-chart-stat-name' }, r.name),
+          h('span', { class: 'v-chart-stat-now' }, r.fmt(r.now)),
+          h('span', { class: 'v-chart-stat-range' }, 'avg ' + r.fmt(r.avg) + ' · ' + r.fmt(r.min) + '–' + r.fmt(r.max))));
     }));
 }
 
@@ -337,7 +348,7 @@ function Pill(P) {
 
 function StatCard(P) {
   return h('div', { class: 'v-card' + (P.ring != null ? ' v-card-ring' : '') },
-    P.ring != null ? h(Gauge, { pct: P.ring, color: P.color, size: 56, thickness: 6 })
+    P.ring != null ? h(Gauge, { pct: P.ring, color: P.color, size: 42, thickness: 5 })
     : P.icon ? h('div', { class: 'v-card-icon',
       style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
       h('i', { class: 'fa ' + P.icon })) : null,
@@ -1614,7 +1625,7 @@ function HwTab(P) {
   (sensors.temps || []).forEach(function (t) { sensorMeta[t.id] = t; });
   var topTempIds = (sensors.temps || []).slice(0, 4).map(function (t) { return t.id; });
   var topFanIds = (sensors.fans || []).slice(0, 4).map(function (f) { return f.id; });
-  var PAL_T = ['v-temp', 'v-cpu', 'v-net', 'v-gpu'];
+  var PAL_T = ['v-temp', 'v-cpu', 'v-rx', 'v-gpu'];
   var lvl = function (t) {
     if (t.crit != null && t.value >= t.crit) return 'crit';
     if (t.max != null && t.value >= t.max) return 'warn';
@@ -2210,7 +2221,8 @@ function SettingsTab() {
           h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_UPDATE_INTERVAL_MINUTES,
             onChange: set('VITALS_UPDATE_INTERVAL_MINUTES') },
             [
-              [60, 'Every hour'], [360, 'Every 6 hours (default)'], [720, 'Every 12 hours'], [1440, 'Once a day']
+              [60, 'Every hour'], [360, 'Every 6 hours (default)'], [720, 'Every 12 hours'],
+              [1440, 'Once a day'], [10080, 'Once a week'], [43200, 'Once a month']
             ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); }))))),
       h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },

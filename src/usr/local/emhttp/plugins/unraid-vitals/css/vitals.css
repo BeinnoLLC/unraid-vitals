@@ -291,12 +291,26 @@
 .vitals .v-donut-key b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--v-fg); }
 
 /* OctoPrint-style per-series stats under a chart */
-.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 4px 18px; padding: 8px 10px 2px; font-size: 11.5px;
+.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 10px 10px 2px; font-size: 11.5px;
   margin-top: 4px; border-top: 1px solid var(--v-border); }
-.vitals .v-chart-stat { display: inline-flex; align-items: center; gap: 5px; }
-.vitals .v-chart-stat i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
-.vitals .v-chart-stat .num { font-variant-numeric: tabular-nums; font-weight: 600; }
-.vitals .v-chart-stat .muted { font-variant-numeric: tabular-nums; }
+/* Each series is its own bordered chip (not run-on inline text) so 5+
+   high-cardinality sensors on one chart don't read as a single unbroken
+   line — the old plain-inline legend had no visual boundary between
+   series and became unreadable past 3-4 items (user: "legends are
+   broken for charts"). */
+.vitals .v-chart-stat {
+  display: inline-flex; align-items: flex-start; gap: 6px; padding: 5px 9px;
+  border-radius: 7px; background: color-mix(in srgb, var(--v-fg) 4%, transparent);
+  border: 1px solid var(--v-border); max-width: 210px;
+}
+.vitals .v-chart-stat > i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-top: 4px; flex: none; }
+.vitals .v-chart-stat-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
+.vitals .v-chart-stat-name {
+  font-weight: 650; font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; opacity: .85;
+}
+.vitals .v-chart-stat-now { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 12.5px; }
+.vitals .v-chart-stat-range { font-variant-numeric: tabular-nums; opacity: .55; font-size: 10.5px; white-space: nowrap; }
 
 /* threshold overlay lines */
 .vitals .v-chart { position: relative; }
@@ -343,11 +357,15 @@
   display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
   grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
 }
-/* Exact 4-up so an 8-card dashboard forms two clean rows instead of leaving
-   a single orphaned card on a second row. */
+/* Exact 4-up on phones/tablets, and up to 8-up on desktop so a compact
+   dashboard card doesn't force ugly leftover whitespace when there are
+   8 of them (user: "top cards should be smaller and better organized"). */
 .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 800px) {
   .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (min-width: 1300px) {
+  .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
 .vitals .v-grid {
   display: grid; gap: var(--v-gap); margin-bottom: var(--v-gap);
@@ -383,7 +401,7 @@
 
 .vitals .v-card {
   background: var(--v-card); border: 1px solid var(--v-border);
-  border-radius: var(--v-radius); padding: 14px 16px; position: relative; overflow: hidden;
+  border-radius: var(--v-radius); padding: 11px 13px; position: relative; overflow: hidden;
   transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s ease;
 }
 .vitals .v-card:hover {
@@ -393,18 +411,18 @@
 }
 @media (prefers-reduced-motion: reduce) { .vitals .v-card:hover { transform: none; } }
 .vitals .v-card-icon {
-  width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center;
-  justify-content: center; font-size: 14px; margin-bottom: 10px;
+  width: 24px; height: 24px; border-radius: 7px; display: flex; align-items: center;
+  justify-content: center; font-size: 12px; margin-bottom: 7px;
   /* Fallback for browsers without color-mix(); the inline tint overrides it
      only when supported, so the badge is never left unstyled. */
   background: rgba(127, 127, 127, .14);
 }
 .vitals .v-card-label {
-  font-size: var(--v-fs-xs); text-transform: uppercase; letter-spacing: .07em;
-  opacity: .62; margin-bottom: 8px; font-weight: 650;
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  opacity: .6; margin-bottom: 4px; font-weight: 650;
 }
 .vitals .v-card-value {
-  font-size: clamp(20px, 2.1vw, 27px); font-weight: 650; line-height: 1.1;
+  font-size: clamp(17px, 1.7vw, 21px); font-weight: 650; line-height: 1.1;
   font-variant-numeric: tabular-nums; letter-spacing: -.01em;
 }
 .vitals .v-card-value small { font-size: var(--v-fs-md); font-weight: 500; opacity: .6; }
@@ -420,11 +438,11 @@
    "big ring with number in the middle" KPI style. Row layout so the ring
    sits beside the label/value/sub text instead of stacked above it — a
    96px card is too short to stack a 56px ring on top of three text lines. */
-.vitals .v-card-ring { display: flex; align-items: center; gap: 14px; }
+.vitals .v-card-ring { display: flex; align-items: center; gap: 10px; }
 .vitals .v-card-ring .v-gauge { flex: none; }
 .vitals .v-card-ring .v-card-body { min-width: 0; flex: 1; }
-.vitals .v-card-ring .v-gauge-big { font-size: 13px; }
-.vitals .v-card-ring .v-card-label { margin-bottom: 3px; }
+.vitals .v-card-ring .v-gauge-big { font-size: 11px; }
+.vitals .v-card-ring .v-card-label { margin-bottom: 2px; }
 
 .vitals .ok    { color: var(--v-ok-fg); }
 .vitals .warn  { color: var(--v-warn-fg); }
@@ -450,6 +468,16 @@
 }
 .vitals .v-legend-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
 .vitals .v-legend-item i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+/* Native uPlot multi-series legend (u-legend/u-series) — used by charts
+   that don't render the custom ChartStats block. Default uPlot markup is
+   a plain unstyled <table>; without this it inherits nothing from the
+   dark theme and reads as unreadable dark-on-dark or cramped default
+   browser table spacing (user: "legends are broken for charts"). */
+.vitals .u-legend { font-size: 11.5px; text-align: left; margin: 8px 0 0; width: 100%; }
+.vitals .u-legend tr { display: inline-flex; align-items: center; margin: 3px 10px 3px 0; }
+.vitals .u-legend th { font-weight: 600; padding: 2px 0; color: var(--v-fg); white-space: nowrap; }
+.vitals .u-legend .u-marker { border-radius: 2px; }
+.vitals .u-legend .u-value { color: var(--v-muted); font-variant-numeric: tabular-nums; margin-left: 4px; }
 .vitals .v-empty {
   font-size: var(--v-fs-sm); opacity: .6; padding: 22px 0; text-align: center;
   display: flex; flex-direction: column; align-items: center; gap: 4px;
