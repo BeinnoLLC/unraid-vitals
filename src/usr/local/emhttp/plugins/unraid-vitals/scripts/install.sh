@@ -66,6 +66,18 @@ CHECKSCRONEOF
 chmod 644 "$CHECKS_CRON"
 cp -f "$CHECKS_CRON" "$FLASH/checks.cron" 2>/dev/null || true
 
+# --- storage analyzer cron (P15-05) --------------------------------------------
+# Nightly at 03:10 (after most other maintenance windows), low I/O priority
+# (nice/ionice inside the script itself) — a full `du` pass across every
+# share is far too heavy to run more than once a day.
+STORAGE_CRON=/etc/cron.d/${PLUGIN}-storage
+cat > "$STORAGE_CRON" <<STORAGECRONEOF
+# unraid-vitals storage analyzer — installed by $PLUGIN.plg
+10 3 * * * /usr/bin/php $PLUGDIR/scripts/vitals-storage-scan.php --quiet >> $STATE/storage-scan.log 2>&1
+STORAGECRONEOF
+chmod 644 "$STORAGE_CRON"
+cp -f "$STORAGE_CRON" "$FLASH/storage.cron" 2>/dev/null || true
+
 # --- flash retention script --------------------------------------------------
 cat > "$FLASH/prune.php" <<'PRUNE'
 <?php

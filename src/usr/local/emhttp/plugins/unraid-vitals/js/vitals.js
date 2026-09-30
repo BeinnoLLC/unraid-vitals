@@ -1551,6 +1551,19 @@ function SharesTab(P) {
   var d = P.d, sh = d.shares || {}, list = sh.list || [];
   var byPool = function (v) { return list.filter(function (s) { return s.pool === v; }).length; };
   var bs = useState(null); var browseShare = bs[0], setBrowseShare = bs[1];
+
+  // P15-05: storage analyzer — cached results only, no on-request scanning.
+  var saState = useState(null); var storageData = saState[0], setStorageData = saState[1];
+  var selState = useState(null); var selectedShare = selState[0], setSelectedShare = selState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=storage_analyzer', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { setStorageData(j); if (j.shares && j.shares.length) setSelectedShare(j.shares[0].share); } })
+      .catch(function () {});
+  }, []);
+  var saShares = (storageData && storageData.shares) || [];
+  var current = saShares.filter(function (s) { return s.share === selectedShare; })[0] || saShares[0] || null;
+
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
@@ -1579,6 +1592,48 @@ function SharesTab(P) {
               h('i', { class: 'fa fa-folder-open' }), ' Browse')));
         }))
         : h('div', { class: 'v-empty' }, 'No shares configured.')),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Storage analyzer', span2: true,
+        hint: storageData && storageData.scanned_at ? 'last scan ' + ageLabel(storageData.scanned_at) : '' },
+        !storageData ? h('div', { class: 'v-empty' }, 'Loading…')
+        : !saShares.length ? h('div', { class: 'v-empty' },
+            'No scan results yet — the nightly storage-analyzer scan (03:10) hasn\'t run, or every share\'s disks were spun down at scan time. Run scripts/vitals-storage-scan.php --force to seed data now.')
+        : h('div', null,
+            h('div', { class: 'v-tabs-mini' }, saShares.map(function (s) {
+              return h('button', { key: s.share, class: 'v-btn xs' + (s.share === selectedShare ? ' active' : ''),
+                onClick: function () { setSelectedShare(s.share); } }, s.share + ' · ' + bytes(s.total_bytes));
+            })),
+            current ? h('div', { class: 'v-storage-detail' },
+              h('div', { class: 'v-storage-col' },
+                h('h4', null, 'Top folders in ' + current.share),
+                current.top_folders.length ? h(Table, { noScroll: true },
+                  h('tr', null, h('th', null, 'Folder'), h('th', { class: 'num' }, 'Size')),
+                  current.top_folders.slice(0, 20).map(function (f, i) {
+                    var pct = current.total_bytes ? (100 * f.bytes / current.total_bytes) : 0;
+                    return h('tr', { key: i },
+                      h('td', { class: 'v-name' }, f.name),
+                      h('td', { class: 'num' }, bytes(f.bytes) + ' (' + pct.toFixed(0) + '%)'));
+                  })) : h('div', { class: 'v-empty' }, 'No subfolder breakdown.'),
+                current.stale_count ? h('div', { class: 'v-storage-stale' },
+                  h('i', { class: 'fa fa-clock-o' }), ' ' + bytes(current.stale_bytes) + ' across '
+                    + current.stale_count + ' file(s) not accessed in over a year (sampled)') : null),
+              h('div', { class: 'v-storage-col' },
+                h('h4', null, '30-day growth'),
+                current.growth.length >= 2
+                  ? h(Chart, { series: [{ name: current.share, color: PAL['v-accent'],
+                        points: current.growth }], height: 190, yFmt: bytes })
+                  : h('div', { class: 'v-empty' }, 'Needs 2+ nightly scans to chart growth — currently '
+                      + current.growth.length + '.'),
+                Object.keys(current.file_types).length ? h('div', { class: 'v-storage-types' },
+                  h('h4', null, 'By file type (sampled)'),
+                  Object.keys(current.file_types).slice(0, 8).map(function (ext) {
+                    var b = current.file_types[ext];
+                    var pct = current.total_bytes ? Math.min(100, 100 * b / current.total_bytes) : 0;
+                    return h('div', { key: ext, class: 'v-storage-type-row' },
+                      h('span', { class: 'v-storage-type-name' }, '.' + ext),
+                      h('div', { class: 'v-bar' }, h('i', { style: 'width:' + pct + '%;background:' + PAL['v-accent'] })),
+                      h('span', { class: 'v-storage-type-size' }, bytes(b)));
+                  })) : null)) : null))),
     browseShare ? h(ShareBrowser, { share: browseShare, onClose: function () { setBrowseShare(null); } }) : null);
 }
 

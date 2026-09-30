@@ -991,6 +991,49 @@ function v_event_get(int $id): ?array {
   return $row;
 }
 
+/**
+ * P15-05 — reads the cached storage-analyzer results written by
+ * scripts/vitals-storage-scan.php. Pure read; never triggers a scan.
+ * Returns per-share: latest top-20 folders, file-type breakdown, stale
+ * data, plus a 30-day growth series (one point per historical scan row).
+ */
+function v_storage_analyzer(): array {
+  $dbFile = v_db_path();
+  if ($dbFile === '' || !is_file($dbFile) || !class_exists('SQLite3')) return ['shares' => [], 'scanned_at' => null];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return ['shares' => [], 'scanned_at' => null]; }
+  $exists = $db->querySingle("SELECT name FROM sqlite_master WHERE type='table' AND name='storage_scans'");
+  if (!$exists) { $db->close(); return ['shares' => [], 'scanned_at' => null]; }
+
+  $since = time() - 31 * 86400;
+  $rows = [];
+  $res = $db->query("SELECT share, scanned_at, total_bytes, top_folders, file_types, stale_bytes, stale_count
+                       FROM storage_scans WHERE scanned_at >= " . (int)$since . " ORDER BY share, scanned_at ASC");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $rows[] = $row;
+  $db->close();
+
+  $byShare = [];
+  foreach ($rows as $r) $byShare[$r['share']][] = $r;
+
+  $out = [];
+  $latestScan = null;
+  foreach ($byShare as $share => $scans) {
+    $last = end($scans);
+    if ($latestScan === null || $last['scanned_at'] > $latestScan) $latestScan = $last['scanned_at'];
+    $out[] = [
+      'share' => $share,
+      'scanned_at' => (int)$last['scanned_at'],
+      'total_bytes' => (int)$last['total_bytes'],
+      'top_folders' => json_decode($last['top_folders'] ?? '[]', true) ?: [],
+      'file_types' => json_decode($last['file_types'] ?? '{}', true) ?: [],
+      'stale_bytes' => (int)$last['stale_bytes'],
+      'stale_count' => (int)$last['stale_count'],
+      'growth' => array_map(fn($s) => [(int)$s['scanned_at'], (int)$s['total_bytes']], $scans),
+    ];
+  }
+  usort($out, fn($a, $b) => $b['total_bytes'] <=> $a['total_bytes']);
+  return ['shares' => $out, 'scanned_at' => $latestScan];
+}
+
 function v_check_ai_findings(): void {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return;

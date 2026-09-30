@@ -116,6 +116,19 @@
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 .vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
+.vitals .v-btn.xs.active { background: var(--v-accent); color: #fff; border-color: var(--v-accent); }
+
+/* P15-05: storage analyzer */
+.vitals .v-tabs-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.vitals .v-storage-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.vitals .v-storage-col h4 { margin: 0 0 8px; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--v-muted); }
+.vitals .v-storage-stale { margin-top: 10px; font-size: 12.5px; color: var(--v-warn-fg); display: flex; align-items: center; gap: 6px; }
+.vitals .v-storage-types { margin-top: 14px; }
+.vitals .v-storage-type-row { display: grid; grid-template-columns: 56px 1fr 64px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.vitals .v-storage-type-name { font-family: monospace; opacity: .8; }
+.vitals .v-storage-type-size { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
+@media (max-width: 860px) { .vitals .v-storage-detail { grid-template-columns: 1fr; } }
+
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
 .vitals .v-core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
 .vitals .v-core { border: 1px solid var(--v-border); border-radius: 6px; padding: 6px 4px; text-align: center; background: var(--v-card); }
