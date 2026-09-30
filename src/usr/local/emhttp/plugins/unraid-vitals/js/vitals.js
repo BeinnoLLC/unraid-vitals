@@ -30,6 +30,8 @@ function bytes(n, p) {
   return (i ? n.toFixed(p === undefined ? 1 : p) : String(Math.round(n))) + ' ' + u[i];
 }
 function pctStr(n, d) { return n == null ? '—' : Number(n).toFixed(d === undefined ? 1 : d) + '%'; }
+/* Whole-number tick increments for counters (sectors, restarts, containers). */
+var INT_INCRS = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
 /* Binary tick increments for byte-valued y axes: 1,2,4,8,16,… × 1 B/KiB/MiB/GiB. */
 var BYTE_INCRS = (function () {
   var out = [];
@@ -416,7 +418,7 @@ function Chart(P) {
   // points" — a rebuild every render made that impossible).
   var structSig = JSON.stringify({
     empty: n < 2,
-    h: P.height, area: !!P.area, stack: !!P.stack, hideLegend: !!P.hideLegend,
+    h: P.height, area: !!P.area, stack: !!P.stack, hideLegend: !!P.hideLegend, integer: !!P.integer,
     y2: !!P.y2Fmt, y2max: P.y2Max, y2floor: P.y2Floor,
     names: series.map(function (s) { return s.name + '|' + s.color + '|' + (s.axis || 1); }),
     thrN: (P.thresholds || []).length,
@@ -463,8 +465,17 @@ function Chart(P) {
           space: 70, size: 26,
           values: function (u, sp) { return sp.map(ts); } },
         { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
-          incrs: P.yFmt === bytes ? BYTE_INCRS : undefined,
-          values: function (u, sp) { return sp.map(function (v) { return P.yFmt ? P.yFmt(v) : v; }); } },
+          incrs: P.yFmt === bytes ? BYTE_INCRS : (P.integer ? INT_INCRS : undefined),
+          values: function (u, sp) {
+            // Never print the same label twice down an axis (a 0..1 range
+            // with 5 splits rounded to integers reads "1 1 1 0 0").
+            var seen = {};
+            return sp.map(function (v) {
+              var s = P.yFmt ? P.yFmt(v) : v;
+              if (seen[s]) return '';
+              seen[s] = true; return s;
+            });
+          } },
       ],
       series: [{}].concat(series.map(function (s, i) {
         var o = {
@@ -547,7 +558,7 @@ function Chart(P) {
       ys.forEach(function (a) { a.forEach(function (v) { if (v != null && v > maxV) maxV = v; }); });
       maxV = maxV * 1.15;
     }
-    if (!maxV || maxV <= minV) maxV = minV + 1;
+    if (!maxV || maxV <= minV) maxV = minV + (P.integer ? 4 : 1);
     var thresholds = P.thresholds || [];
     thresholds.forEach(function (t) {
       if (t.v != null && t.v > maxV) maxV = t.v * 1.06;
@@ -1443,7 +1454,7 @@ function ArrayTab(P) {
                 h('td', { class: 'muted' }, Math.round(f.r2 * 100) + '% fit'));
             }))),
       h(Panel, { title: 'SMART sector counters', hint: hasGrowth ? 'lifetime totals — growth is the signal' : '' },
-        hasGrowth ? h(Chart, { series: growthSeries, height: 170,
+        hasGrowth ? h(Chart, { series: growthSeries, height: 170, integer: true,
           yFmt: function (v) { return String(Math.round(v)); },
           empty: 'No disks with non-zero reallocated/pending counters.' })
         : h('div', { class: 'v-empty' }, 'No disks with non-zero reallocated/pending counters — healthy.')),
