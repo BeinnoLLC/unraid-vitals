@@ -719,10 +719,21 @@ function App() {
     resolvePalette();
     load(false);
     loadFindings();
-    var iv = setInterval(function () { load(false); }, 15000);
     var iv2 = setInterval(loadFindings, 60000);
-    return function () { clearInterval(iv); clearInterval(iv2); };
+    return function () { clearInterval(iv2); };
   }, []);
+
+  var d = payload && payload.data;
+
+  // Dashboard poll cadence (default 10s) is user-configurable in Settings
+  // and comes back on every payload as data.ui_refresh_seconds — re-arm the
+  // timer whenever it changes so a saved setting takes effect on the next
+  // tick without requiring a page reload.
+  var refreshSeconds = (d && d.ui_refresh_seconds) || 10;
+  useEffect(function () {
+    var iv = setInterval(function () { load(false); }, refreshSeconds * 1000);
+    return function () { clearInterval(iv); };
+  }, [refreshSeconds]);
 
   useEffect(function () {
     fetch(ENDPOINT + '?action=daily&days=30', { cache: 'no-store' })
@@ -731,7 +742,6 @@ function App() {
       .catch(function () { setDaily([]); });
   }, []);
 
-  var d = payload && payload.data;
   if (d && d.csrf_token) window.__V_CSRF__ = d.csrf_token;
   var ring = (payload && payload.ring) || [];
   var pts = ring.slice(-range);
@@ -1911,6 +1921,7 @@ function SettingsTab() {
   var s1 = useState(null), cfg = s1[0], setCfg = s1[1];
   var s2 = useState(null), meta = s2[0], setMeta = s2[1];
   var s3 = useState('idle'), saveState = s3[0], setSaveState = s3[1];
+  var s4 = useState(null), modelInfo = s4[0], setModelInfo = s4[1];
 
   var reload = function () {
     fetch(ENDPOINT + '?action=settings', { cache: 'no-store' })
@@ -1923,6 +1934,7 @@ function SettingsTab() {
           ALERT_TEMP: j.cfg.ALERT_TEMP || '55', ALERT_FILL: j.cfg.ALERT_FILL || '90',
           ALERT_LOAD: j.cfg.ALERT_LOAD || '0', ALERT_RESTARTS: j.cfg.ALERT_RESTARTS || '3',
           LLM_STUDIO_PRIMARY: j.cfg.LLM_STUDIO_PRIMARY || '', LLM_STUDIO_BACKUP: j.cfg.LLM_STUDIO_BACKUP || '',
+          UI_REFRESH_SECONDS: j.cfg.UI_REFRESH_SECONDS || '10',
           VITALS_DIAG_INTERVAL_MINUTES: j.cfg.VITALS_DIAG_INTERVAL_MINUTES || '360',
           VITALS_DIAG_WINDOW_HOURS: j.cfg.VITALS_DIAG_WINDOW_HOURS || '6',
           VITALS_DIAG_MODELS: j.cfg.VITALS_DIAG_MODELS || '',
@@ -1932,6 +1944,12 @@ function SettingsTab() {
       });
   };
   useEffect(reload, []);
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=list_models', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setModelInfo(j); })
+      .catch(function () {});
+  }, []);
 
   if (!cfg) return h('div', { class: 'v-panel' }, h('div', { class: 'v-empty' }, 'Loading settings…'));
 
@@ -1939,6 +1957,33 @@ function SettingsTab() {
     var v = e.target.value;
     setCfg(function (c) { var n = merge(c, {}); n[k] = v; return n; });
   }; };
+
+  // Which models are "on": explicit VITALS_DIAG_MODELS list if the user has
+  // ever saved one, otherwise the server's own default set (modelInfo tells
+  // us which — see configured_default in v_list_models()) so first-load
+  // checkboxes reflect the real default instead of showing everything
+  // unchecked.
+  var selectedModels = (cfg.VITALS_DIAG_MODELS || '').split(',').map(function (s) { return s.trim(); }).filter(Boolean);
+  var usingDefaults = selectedModels.length === 0;
+  var isChecked = function (m) {
+    if (!usingDefaults) return selectedModels.indexOf(m.name) !== -1;
+    return m.enabled === true || m.enabled === null; // null = "server has no override yet", treat as its own default
+  };
+  var toggleModel = function (name) {
+    return function (e) {
+      var checked = e.target.checked;
+      // First toggle while still "using defaults" seeds the explicit list
+      // from whatever was effectively on, then flips just this one — so
+      // unchecking a single default model doesn't silently turn ALL of
+      // them off.
+      var base = usingDefaults
+        ? (modelInfo ? modelInfo.models.filter(isChecked).map(function (m) { return m.name; }) : [])
+        : selectedModels.slice();
+      var next = checked ? base.concat([name]).filter(function (v, i, a) { return a.indexOf(v) === i; })
+                          : base.filter(function (n) { return n !== name; });
+      setCfg(function (c) { return merge(c, { VITALS_DIAG_MODELS: next.join(',') }); });
+    };
+  };
 
   var save = function () {
     setSaveState('saving');
@@ -1984,7 +2029,14 @@ function SettingsTab() {
             value: cfg.ALERT_LOAD, onInput: set('ALERT_LOAD') }), ' (0 = off)')),
         h('tr', null, h('td', { class: 'muted' }, 'Container-down samples'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 60,
-            value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)'))),
+            value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)')),
+        h('tr', null, h('td', { class: 'muted' }, 'Dashboard refresh rate'),
+          h('td', null, h('select', { class: 'v-select', value: cfg.UI_REFRESH_SECONDS,
+            onChange: set('UI_REFRESH_SECONDS') },
+            [
+              [5, 'Every 5 seconds'], [10, 'Every 10 seconds (default)'], [15, 'Every 15 seconds'],
+              [30, 'Every 30 seconds'], [60, 'Every minute']
+            ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); }))))),
       h('div', { class: 'muted', style: 'margin-top:16px;margin-bottom:6px;font-weight:600' }, 'AI agent endpoint'),
       h('div', { class: 'muted', style: 'margin-bottom:8px;font-size:0.9em' },
         'Empty = the built-in remote default (your metrics and logs leave your network to reach it). ' +
@@ -2019,10 +2071,43 @@ function SettingsTab() {
         h('tr', null, h('td', { class: 'muted' }, 'Look-back window'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 1, max: 72,
             value: cfg.VITALS_DIAG_WINDOW_HOURS, onInput: set('VITALS_DIAG_WINDOW_HOURS') }), ' hours')),
-        h('tr', null, h('td', { class: 'muted' }, 'Models (multi-model corroboration)'),
-          h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
-            placeholder: 'qwen3:14b,llama3.1:8b,gemma2:9b (default)',
-            value: cfg.VITALS_DIAG_MODELS, onInput: set('VITALS_DIAG_MODELS') }))),
+        h('tr', null, h('td', { class: 'muted', style: 'vertical-align:top;padding-top:6px' }, 'Models (multi-model corroboration)'),
+          h('td', null,
+            !modelInfo ? h('div', { class: 'muted' }, 'Loading model list from your LLM studios…')
+            : !modelInfo.models.length ? h('div', { class: 'muted' },
+                'Could not reach either LLM studio to list models (', 'primary: ',
+                modelInfo.reachable_primary ? 'ok' : 'unreachable', ', backup: ',
+                modelInfo.reachable_backup ? 'ok' : 'unreachable', ').')
+            : h('div', null,
+                h('div', { class: 'muted', style: 'font-size:0.85em;margin-bottom:6px' },
+                  'Checkboxes replace typing model names by hand — a typo there used to silently drop a ' +
+                  'model from corroboration with no error. Models only on one studio still work (the agent ' +
+                  'fails over automatically) but are marked below.'),
+                h('div', { style: 'display:flex;flex-direction:column;gap:4px;max-height:260px;overflow:auto' },
+                  modelInfo.models.map(function (m) {
+                    var onBoth = m.on_primary && m.on_backup;
+                    return h('label', {
+                      key: m.name,
+                      style: 'display:flex;gap:8px;align-items:flex-start;padding:4px 6px;border-radius:4px;' +
+                        (m.embedding_only ? 'opacity:.5' : '')
+                    },
+                      h('input', {
+                        type: 'checkbox', style: 'margin-top:3px',
+                        checked: !m.embedding_only && isChecked(m),
+                        disabled: m.embedding_only,
+                        onChange: toggleModel(m.name)
+                      }),
+                      h('div', { style: 'min-width:0' },
+                        h('div', null,
+                          h('b', { class: 'v-name' }, m.name),
+                          m.params ? h('span', { class: 'muted', style: 'font-size:0.85em' }, ' · ' + m.params) : null,
+                          m.thinking ? h('span', { class: 'v-pill', style: 'margin-left:6px' }, 'thinking') : null,
+                          m.vision ? h('span', { class: 'v-pill', style: 'margin-left:4px' }, 'vision') : null,
+                          !onBoth ? h('span', { class: 'v-pill v-badge-warning', style: 'margin-left:4px' },
+                            m.on_primary ? 'primary only' : 'backup only') : null),
+                        h('div', { class: 'muted', style: 'font-size:0.85em' },
+                          m.embedding_only ? 'Embedding-only — cannot be used for diagnostics.' : (m.blurb || 'No description available.'))));
+                  }))))),
         h('tr', null, h('td', { class: 'muted' }, 'Container-update check interval'),
           h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_UPDATE_INTERVAL_MINUTES,
             onChange: set('VITALS_UPDATE_INTERVAL_MINUTES') },

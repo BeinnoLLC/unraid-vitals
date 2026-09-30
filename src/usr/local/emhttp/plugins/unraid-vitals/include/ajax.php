@@ -44,6 +44,13 @@ try {
   if ($action === 'refresh') {
     $snap = v_tick(true);
     $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
+    // Frontend poll cadence (P8/UI): user-configurable in Settings, NOT the
+    // same thing as INTERVAL (the cron collector's cadence in minutes) —
+    // this is how often the open dashboard tab re-fetches, in seconds.
+    // Clamped 3-300s: below 3s is needless load for a metrics page, above
+    // 300s stops feeling "live". Default 10s per user request.
+    $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
+    $snap['ui_refresh_seconds'] = max(3, min(300, (int)($cfg['UI_REFRESH_SECONDS'] ?? 10)));
     echo json_encode(['ok' => true, 'data' => $snap, 'ring' => v_ring()], JSON_UNESCAPED_SLASHES);
     exit;
   }
@@ -82,7 +89,7 @@ try {
   if ($action === 'save_settings') {
     if (!v_csrf_ok()) { http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit; }
     $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS',
-                'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP',
+                'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP', 'UI_REFRESH_SECONDS',
                 'VITALS_DIAG_INTERVAL_MINUTES', 'VITALS_DIAG_WINDOW_HOURS', 'VITALS_DIAG_MODELS',
                 'VITALS_UPDATE_INTERVAL_MINUTES'];
     foreach (array_keys(v_checks_defaults()) as $checkId) {
@@ -231,6 +238,11 @@ try {
     exit;
   }
 
+  if ($action === 'list_models') {
+    echo json_encode(['ok' => true] + v_list_models(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'logs') {
     $source = (string)($_GET['source'] ?? 'syslog');
     $lines = (int)($_GET['lines'] ?? 200);
@@ -260,6 +272,8 @@ try {
   if (!$snap) $snap = v_tick(true);
   $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
   $snap['_age'] = max(0, time() - (int)($snap['time'] ?? 0));
+  $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
+  $snap['ui_refresh_seconds'] = max(3, min(300, (int)($cfg['UI_REFRESH_SECONDS'] ?? 10)));
   echo json_encode(['ok' => true, 'data' => $snap, 'ring' => v_ring()], JSON_UNESCAPED_SLASHES);
 } catch (Throwable $e) {
   http_response_code(500);

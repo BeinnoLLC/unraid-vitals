@@ -41,6 +41,92 @@ function v_run(string $cmd, int $timeout = 8): string {
   return is_string($out) ? trim($out) : '';
 }
 
+/**
+ * Curated one-line "what is this model good at" blurbs for the models
+ * actually present on the user's two Ollama studios (llmstudio1/2). Kept
+ * as a static map rather than inventing marketing copy from the family
+ * name — every line here reflects the model's real intended use (chat vs
+ * code-completion vs a reasoning/"thinking" model vs an embedding-only
+ * model that can't even be selected as a diagnostics model).
+ */
+const V_MODEL_BLURBS = [
+  'llama3.1:latest' => 'Solid general-purpose fallback — fast, dependable tool use, nothing specialized.',
+  'ministral-3:latest' => 'Small vision+tool model — good for quick multimodal checks without heavy VRAM.',
+  'nomic-embed-text:latest' => 'Embedding-only model — cannot be used for diagnostics chat/reasoning.',
+  'qwen2.5-coder:1.5b-base' => 'Tiny code-completion base model — fast but weak reasoning; not for diagnostics.',
+  'qwen3:14b' => 'Strong all-rounder with thinking mode — good default for corroborated diagnostics.',
+  'qwen3-coder:30b' => 'Large code-specialist MoE — best for reading/generating code, heavier to run.',
+  'devstral-small-2:latest' => 'Vision+tool coding model tuned for agentic dev workflows.',
+  'qwen3.8:latest' => 'Large model with thinking + vision — most capable, also the slowest per call.',
+  'nemotron-3.5-lightning:latest' => 'NVIDIA MoE reasoning model — strong on structured/technical analysis.',
+  'qwen2.5-coder:7b' => 'Mid-size code model — good balance of speed and code-aware reasoning.',
+  'llama3-groq-tool-use:latest' => 'Tool-calling tuned Llama3 — reliable for structured function-call findings.',
+  'qwen3:30b-a3b' => 'Large MoE with thinking mode — deep analysis at higher latency/VRAM cost.',
+  'deepseek-r1:14b' => 'Dedicated reasoning ("thinking") model — best for multi-step root-cause analysis.',
+  'qwen2.5-coder:14b' => 'Larger code-completion model — stronger than the 7b at the same coder family.',
+  'gpt-oss:20b' => 'OpenAI open-weight model with thinking mode — broad general reasoning.',
+];
+
+/**
+ * Query both configured LLM studios' /api/tags and return the merged model
+ * list with per-model on/off state (from VITALS_DIAG_MODELS), the curated
+ * blurb, and live availability per studio — so Settings can render
+ * checkboxes instead of a free-text field the user has to spell correctly
+ * (a single typo there silently drops a model from corroboration with no
+ * error surfaced anywhere).
+ */
+function v_list_models(): array {
+  $flashDir = defined('VITALS_FLASH') ? VITALS_FLASH : '/boot/config/plugins/unraid-vitals';
+  $cfg = is_file($flashDir . '/vitals.cfg') ? (@parse_ini_file($flashDir . '/vitals.cfg') ?: []) : [];
+  $primary = $cfg['LLM_STUDIO_PRIMARY'] ?? '';
+  $primary = $primary !== '' ? $primary : 'https://llmstudio2.hazemhagrass.com';
+  $backup  = $cfg['LLM_STUDIO_BACKUP']  ?? '';
+  $backup  = $backup !== '' ? $backup : 'https://llmstudio1.hazemhagrass.com';
+  $enabled = array_filter(array_map('trim', explode(',', (string)($cfg['VITALS_DIAG_MODELS'] ?? ''))));
+
+  $fetchTags = function (string $base): array {
+    $ctx = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+    $raw = @file_get_contents(rtrim($base, '/') . '/api/tags', false, $ctx);
+    $j = $raw ? json_decode($raw, true) : null;
+    $names = [];
+    foreach (($j['models'] ?? []) as $m) if (!empty($m['name'])) $names[$m['name']] = $m;
+    return $names;
+  };
+  $onPrimary = $fetchTags($primary);
+  $onBackup  = $primary === $backup ? $onPrimary : $fetchTags($backup);
+
+  $all = array_keys($onPrimary + $onBackup);
+  sort($all);
+  $models = [];
+  foreach ($all as $name) {
+    $meta = $onPrimary[$name] ?? $onBackup[$name] ?? [];
+    $det = $meta['details'] ?? [];
+    $caps = $meta['capabilities'] ?? [];
+    $models[] = [
+      'name' => $name,
+      'blurb' => V_MODEL_BLURBS[$name] ?? null,
+      'params' => $det['parameter_size'] ?? null,
+      'quant' => $det['quantization_level'] ?? null,
+      'thinking' => in_array('thinking', $caps, true),
+      'vision' => in_array('vision', $caps, true),
+      'embedding_only' => in_array('embedding', $caps, true) && !in_array('completion', $caps, true),
+      'on_primary' => isset($onPrimary[$name]),
+      'on_backup' => isset($onBackup[$name]),
+      // Never enabled by default: a model list that comes back empty
+      // (both studios unreachable) must not silently disable everything
+      // the user already turned on — treat "no VITALS_DIAG_MODELS set at
+      // all" as "not yet configured", not "everything off".
+      'enabled' => $enabled ? in_array($name, $enabled, true) : null,
+    ];
+  }
+  return [
+    'models' => $models,
+    'reachable_primary' => (bool)$onPrimary,
+    'reachable_backup' => (bool)$onBackup,
+    'configured_default' => empty($enabled),
+  ];
+}
+
 function v_bytes(float $n, int $p = 1): string {
   $u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
   $i = 0;
