@@ -1803,6 +1803,29 @@ function PowerTab(P) {
   var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
   var haveHistory = pts.some(function (p) { return p.watts_total != null; });
 
+  // P15-08: real daily kWh + cost from the hourly rollup, not a
+  // steady-state guess off the current instantaneous draw.
+  var erState = useState(null); var energy = erState[0], setEnergy = erState[1];
+  var priceState = useState(''); var priceInput = priceState[0], setPriceInput = priceState[1];
+  var savedState = useState(false); var justSaved = savedState[0], setJustSaved = savedState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=energy_report', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { setEnergy(j); if (j.price_per_kwh != null) setPriceInput(String(j.price_per_kwh)); } })
+      .catch(function () {});
+  }, []);
+  var savePrice = function () {
+    var v = parseFloat(priceInput);
+    if (!(v > 0)) return;
+    var body = new URLSearchParams({ PRICE_PER_KWH: String(v), csrf_token: (window.__V_CSRF__ || '') });
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function () { setJustSaved(true); setTimeout(function () { setJustSaved(false); }, 2000);
+        fetch(ENDPOINT + '?action=energy_report', { cache: 'no-store' }).then(function (r) { return r.json(); })
+          .then(function (j) { if (j && j.ok) setEnergy(j); }); })
+      .catch(function () {});
+  };
+
   var componentCards = [];
   if (pw.cpu_watts != null) componentCards.push({ label: 'CPU package', icon: 'fa-microchip',
     color: PAL['v-cpu'], value: pw.cpu_watts.toFixed(1), unit: 'W',
@@ -1848,16 +1871,30 @@ function PowerTab(P) {
             ].filter(Boolean),
             height: 220, area: true, yFmt: function (v) { return v + 'W'; }
           })),
-      have ? h(Panel, { title: 'Estimated cost', hint: 'assumes current draw is steady' },
-        h('table', null,
-          [0.10, 0.15, 0.20, 0.30].map(function (rate) {
-            var kwh = pw.total_watts / 1000;
-            return h('tr', { key: rate },
-              h('td', { class: 'muted' }, '$' + rate.toFixed(2) + ' / kWh'),
-              h('td', null,
-                '$' + (kwh * rate * 24).toFixed(2) + ' / day · ' +
-                '$' + (kwh * rate * 24 * 30).toFixed(2) + ' / month'));
-          }))) : null));
+      have ? h(Panel, { title: 'Energy use & cost', hint: energy && energy.current_watts_avg_24h != null ? energy.current_watts_avg_24h + 'W avg, last 24h' : '' },
+        h('div', null,
+          h('div', { class: 'v-price-row' },
+            h('label', { class: 'muted' }, 'Price per kWh: $'),
+            h('input', { type: 'number', step: '0.01', min: '0', value: priceInput, class: 'v-price-input',
+              onInput: function (e) { setPriceInput(e.target.value); } }),
+            h('button', { class: 'v-btn xs', onClick: savePrice }, justSaved ? 'Saved ✓' : 'Save')),
+          !energy || !energy.days.length ? h('div', { class: 'v-empty', style: 'margin-top:10px' },
+            'No hourly history with power data yet — check back after a few hours of uptime.')
+          : h('div', null,
+              h(Chart, { series: [{ name: 'kWh/day', color: PAL['v-warn-fg'],
+                points: energy.days.map(function (d) { return [Date.parse(d.day + 'T00:00:00Z') / 1000, d.kwh]; }) }],
+                height: 150, yFmt: function (v) { return v.toFixed(1) + ' kWh'; } }),
+              h(Table, { noScroll: true },
+                h('tr', null, h('th', null, 'Day'), h('th', { class: 'num' }, 'kWh'),
+                  h('th', { class: 'num' }, 'Cost'), h('th', null, 'Source')),
+                energy.days.slice(-10).reverse().map(function (dd) {
+                  return h('tr', { key: dd.day },
+                    h('td', null, dd.day + (dd.estimated ? ' (partial day)' : '')),
+                    h('td', { class: 'num' }, dd.kwh.toFixed(2)),
+                    h('td', { class: 'num' }, dd.cost != null ? '$' + dd.cost.toFixed(2) : '—'),
+                    h('td', { class: 'muted' }, (dd.includes || []).join('+') || '—'));
+                })))))
+        : null));
 }
 
 function HwTab(P) {

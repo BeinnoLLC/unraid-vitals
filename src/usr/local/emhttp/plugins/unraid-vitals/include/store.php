@@ -351,6 +351,11 @@ function v_rollup(array $ring, array $snap): void {
     // SMART counters are monotonic — keep the hour's high-water mark so growth is
     // visible even when a single sample reads clean.
     'smart'     => $snap['smart'] ?? null,
+    // P15-08: hour's power aggregate -- avg watts is what integrates to
+    // kWh (avg_watts * 1h / 1000), max kept as a peak-draw indicator.
+    'watts_avg' => v_agg(array_column($points, 'watts_total'))['avg'],
+    'watts_max' => v_agg(array_column($points, 'watts_total'))['max'],
+    'watts_includes' => $snap['power']['total_includes'] ?? [],
     // Per-container CPU/mem avg+max across the hour, plus the hour's final
     // restart_count (Docker's own monotonic lifetime counter — the weekly
     // reporter in P15-07 diffs two of these snapshots itself rather than
@@ -1139,6 +1144,65 @@ function v_container_weekly_report(): array {
 
   return ['containers' => $out, 'have_last_week' => $haveLastWeek,
     'this_week_hours' => count($thisWeekRows), 'last_week_hours' => count($lastWeekRows)];
+}
+
+/**
+ * P15-08 — energy use and cost report: kWh per day for the last 30 days
+ * plus running cost at the configured price/kWh, from the hourly
+ * rollup's watts_avg (the correct quantity to integrate over time --
+ * watts_max would overstate every day). Acceptance: a day's kWh should
+ * match the UPS's own reported load within 5% when a UPS is present --
+ * this function reports which power source fed the numbers (ups/cpu+gpu/
+ * none) so the UI can show that provenance rather than imply precision
+ * that isn't there for the cpu+gpu-only fallback.
+ */
+function v_energy_report(): array {
+  $rows = v_hourly_rows();
+  $since = time() - 30 * 86400;
+  $rows = array_values(array_filter($rows, fn($r) => $r['h'] * 3600 >= $since && isset($r['watts_avg']) && $r['watts_avg'] !== null));
+
+  $byDay = [];
+  foreach ($rows as $r) {
+    $day = gmdate('Y-m-d', $r['h'] * 3600);
+    $byDay[$day]['wh'] = ($byDay[$day]['wh'] ?? 0) + $r['watts_avg'];   // 1 hour of watts_avg = that many Wh
+    $byDay[$day]['hours'] = ($byDay[$day]['hours'] ?? 0) + 1;
+    $byDay[$day]['includes'] = $r['watts_includes'] ?? [];
+  }
+  ksort($byDay);
+
+  $cfg = defined('V_CFG_FILE') && is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
+  $pricePerKwh = isset($cfg['PRICE_PER_KWH']) && $cfg['PRICE_PER_KWH'] !== '' ? (float)$cfg['PRICE_PER_KWH'] : null;
+
+  $days = [];
+  foreach ($byDay as $day => $d) {
+    $kwh = round($d['wh'] / 1000, 3);
+    $days[] = [
+      'day' => $day,
+      'kwh' => $kwh,
+      'hours_sampled' => $d['hours'],
+      // A day with fewer than 20 of its 24 hours sampled (plugin just
+      // installed, or a gap) is extrapolated so short days don't look
+      // artificially cheap -- flagged so the UI can show it's an estimate.
+      'estimated' => $d['hours'] < 20,
+      'kwh_extrapolated' => $d['hours'] > 0 ? round($kwh * 24 / $d['hours'], 3) : $kwh,
+      'cost' => $pricePerKwh !== null ? round($kwh * $pricePerKwh, 2) : null,
+      'includes' => $d['includes'],
+    ];
+  }
+
+  $last24 = array_slice($rows, -24);
+  $current = null;
+  if ($last24) {
+    $recentAvg = array_sum(array_column($last24, 'watts_avg')) / count($last24);
+    $current = round($recentAvg, 1);
+  }
+
+  return [
+    'days' => $days,
+    'price_per_kwh' => $pricePerKwh,
+    'current_watts_avg_24h' => $current,
+    'source' => $rows ? (end($rows)['watts_includes'] ?? []) : [],
+  ];
 }
 
 /**

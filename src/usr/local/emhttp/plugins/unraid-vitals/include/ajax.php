@@ -100,6 +100,11 @@ try {
     exit;
   }
 
+  if ($action === 'energy_report') {
+    echo json_encode(['ok' => true] + v_energy_report(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'settings') {
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $ring = is_file('/var/tmp/unraid-vitals/history.json')
@@ -130,7 +135,7 @@ try {
     $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS',
                 'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP', 'UI_REFRESH_SECONDS',
                 'VITALS_DIAG_INTERVAL_MINUTES', 'VITALS_DIAG_WINDOW_HOURS', 'VITALS_DIAG_MODELS',
-                'VITALS_UPDATE_INTERVAL_MINUTES'];
+                'VITALS_UPDATE_INTERVAL_MINUTES', 'PRICE_PER_KWH'];
     foreach (array_keys(v_checks_defaults()) as $checkId) {
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_SEVERITY';

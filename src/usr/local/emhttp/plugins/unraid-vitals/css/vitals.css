@@ -131,6 +131,8 @@
 .vitals .v-dup-paths { font-size: 11px; max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-txt-warn { color: var(--v-warn-fg); font-weight: 600; }
 .vitals .v-txt-ok { color: var(--v-ok-fg); font-weight: 600; }
+.vitals .v-price-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.vitals .v-price-input { width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--v-border); background: var(--v-bg2); color: inherit; }
 
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
 .vitals .v-core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
