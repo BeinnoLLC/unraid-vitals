@@ -178,6 +178,18 @@ function StatTile(P) {
     P.spark ? h(Spark, { points: P.spark, color: tone }) : null);
 }
 
+/* hwmon sensors come with opaque labels ("Sensor 1", "temp3") when the
+ * chip has no name for the input — prefix the chip family so two "Sensor 1"
+ * tiles from different chips are distinguishable at a glance. */
+function sensorLabel(t) {
+  var lbl = t.label || t.id || '?';
+  if (/^sensor \d+$/i.test(lbl) || /^temp\d+$/.test(lbl)) {
+    var chip = String(t.chip || '').split(/[-_\s]/)[0];
+    return (chip ? chip + ' ' : '') + lbl.replace(/^sensor /i, '#').replace(/^temp/, 'temp ');
+  }
+  return lbl;
+}
+
 /* SVG radar/spider chart. axes: [{label, value(0..100), color?}]. Value is
  * a normalized 0-100 "how close to the concerning threshold" score — the
  * polygon touching the rim means that dimension is at its limit. Grid rings
@@ -2226,9 +2238,9 @@ function HwTab(P) {
     return h('div', { class: 'v-therm-grid' },
       all.map(function (t) {
         var lv = t.crit != null && t.value >= t.crit ? 'crit' : (t.value >= 75 ? 'crit' : (t.value >= 60 ? 'warn' : 'ok'));
-        return h('div', { key: t.id, class: 'v-therm v-therm-' + lv, title: t.label + ': ' + t.value + '°C' },
+        return h('div', { key: t.id, class: 'v-therm v-therm-' + lv, title: sensorLabel(t) + ': ' + t.value + '°C' },
           h('span', { class: 'v-therm-val' }, Math.round(t.value) + '°'),
-          h('span', { class: 'v-therm-label' }, t.label));
+          h('span', { class: 'v-therm-label' }, sensorLabel(t)));
       }));
   };
 
