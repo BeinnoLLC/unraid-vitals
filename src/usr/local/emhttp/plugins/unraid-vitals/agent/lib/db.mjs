@@ -234,6 +234,14 @@ export function getDb() {
   addKbCol('kind', `TEXT NOT NULL DEFAULT 'note'`);
   addKbCol('summary', 'TEXT');
   addKbCol('images', 'TEXT');
+  // Importance badge (low/medium/high/critical) shown per KB entry so the
+  // admin can tell "must read now" from "read later" at a glance, with a
+  // filter to match (user: "give a score low, medium, high, critical badge
+  // to every topic... things that admin should read or read later...
+  // make sure filters are strong"). Defaults to 'medium' for anything
+  // ingested before this column existed or with no clearer signal.
+  addKbCol('severity', `TEXT NOT NULL DEFAULT 'medium'`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_severity ON kb_documents(severity, created_at DESC);`);
 
   return db;
 }
@@ -300,6 +308,14 @@ export function setShareComment(share, comment, status = 'done') {
   ).run(share, comment, Math.floor(Date.now() / 1000), status);
 }
 
+/** Map a finding's own severity vocabulary ('ok'|'info'|'warning'|'error'|
+ *  'critical') onto the KB's admin-facing importance badge vocabulary
+ *  ('low'|'medium'|'high'|'critical') — the two scales exist for different
+ *  audiences (finding severity drives alerting; KB severity drives "what
+ *  should I read first"), so 'error' (an active problem worth acting on
+ *  now, but not existential) maps to 'high' rather than 1:1 to 'critical'. */
+const FINDING_TO_KB_SEVERITY = { ok: 'low', info: 'low', warning: 'medium', error: 'high', critical: 'critical' };
+
 /** Push a finding into the knowledge base as a searchable document.
  *  Called right after replaceFindings() for anything above 'ok' severity —
  *  routine all-clear findings would just be noise in the KB. */
@@ -308,22 +324,26 @@ export function ingestFindingToKb(agent, finding) {
   const title = `[${agent}] ${finding.title}`;
   const content = [finding.detail, finding.recommendation, finding.subject ? `Subject: ${finding.subject}` : '']
     .filter(Boolean).join('\n');
+  const severity = FINDING_TO_KB_SEVERITY[finding.severity] || 'medium';
   d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?)`
-  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, Math.floor(Date.now() / 1000));
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, severity, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?, ?)`
+  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, severity, Math.floor(Date.now() / 1000));
 }
 
 /** Push a full-length report into the KB — a multi-paragraph analysis or
  *  study writeup, optionally with charts. `kind`: 'report' (one-shot
  *  research) or 'study' (a completed study-mode job). `images`: array of
- *  {path, caption}, paths relative to the kb-assets dir (see lib/charts.mjs). */
-export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images }) {
+ *  {path, caption}, paths relative to the kb-assets dir (see lib/charts.mjs).
+ *  `severity`: admin-facing importance badge — defaults to 'medium' when
+ *  the caller (an LLM synthesis step) doesn't have a clear signal either
+ *  way, so "unclassified" never silently reads as "safe to ignore". */
+export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images, severity = 'medium' }) {
   const d = getDb();
   const res = d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, severity, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(source, sourceRef != null ? String(sourceRef) : null, topic || null, title, content, kind,
-        summary || null, images && images.length ? JSON.stringify(images) : null, Math.floor(Date.now() / 1000));
+        summary || null, images && images.length ? JSON.stringify(images) : null, severity, Math.floor(Date.now() / 1000));
   return res.lastInsertRowid;
 }
 

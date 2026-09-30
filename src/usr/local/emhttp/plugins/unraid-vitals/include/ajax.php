@@ -236,12 +236,18 @@ try {
 
   if ($action === 'kb_search') {
     $q = trim((string)($_GET['q'] ?? ''));
-    echo json_encode(['ok' => true, 'results' => $q === '' ? [] : v_kb_search($q), 'topics' => v_kb_topics()], JSON_UNESCAPED_SLASHES);
+    $sev = trim((string)($_GET['severity'] ?? ''));
+    if (!in_array($sev, ['', 'low', 'medium', 'high', 'critical'], true)) $sev = '';
+    echo json_encode(['ok' => true, 'results' => $q === '' ? [] : v_kb_search($q, 20, $sev),
+      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts()], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'kb_recent') {
-    echo json_encode(['ok' => true, 'docs' => v_kb_recent(), 'topics' => v_kb_topics()], JSON_UNESCAPED_SLASHES);
+    $sev = trim((string)($_GET['severity'] ?? ''));
+    if (!in_array($sev, ['', 'low', 'medium', 'high', 'critical'], true)) $sev = '';
+    echo json_encode(['ok' => true, 'docs' => v_kb_recent(50, $sev),
+      'topics' => v_kb_topics(), 'severity_counts' => v_kb_severity_counts()], JSON_UNESCAPED_SLASHES);
     exit;
   }
 

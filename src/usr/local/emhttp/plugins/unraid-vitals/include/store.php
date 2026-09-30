@@ -1706,7 +1706,7 @@ function v_apply_share_comment(string $share, string $comment): bool {
 
 /* --------------------------------------------------------------------- KB */
 
-function v_kb_search(string $query, int $limit = 20): array {
+function v_kb_search(string $query, int $limit = 20, string $severity = ''): array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
@@ -1715,11 +1715,13 @@ function v_kb_search(string $query, int $limit = 20): array {
   if ($safe === '') { $db->close(); return []; }
   $out = [];
   try {
+    $sevClause = $severity !== '' ? 'AND d.severity = :sev' : '';
     $stmt = $db->prepare(
-      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.created_at, bm25(kb_fts) AS rank
+      "SELECT d.id, d.source, d.source_ref, d.topic, d.title, d.content, d.kind, d.summary, d.images, d.severity, d.created_at, bm25(kb_fts) AS rank
        FROM kb_fts JOIN kb_documents d ON d.id = kb_fts.rowid
-       WHERE kb_fts MATCH :q ORDER BY rank LIMIT :lim");
+       WHERE kb_fts MATCH :q $sevClause ORDER BY rank LIMIT :lim");
     $stmt->bindValue(':q', $safe, SQLITE3_TEXT);
+    if ($severity !== '') $stmt->bindValue(':sev', $severity, SQLITE3_TEXT);
     $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
     $res = $stmt->execute();
     while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
@@ -1733,13 +1735,21 @@ function v_kb_row_decode(array $row): array {
   return $row;
 }
 
-function v_kb_recent(int $limit = 50): array {
+function v_kb_recent(int $limit = 50, string $severity = ''): array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  $res = $db->query("SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at
-                      FROM kb_documents ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
+  if ($severity !== '') {
+    $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
+                           FROM kb_documents WHERE severity = :sev ORDER BY created_at DESC, id DESC LIMIT :lim");
+    $stmt->bindValue(':sev', $severity, SQLITE3_TEXT);
+    $stmt->bindValue(':lim', $limit, SQLITE3_INTEGER);
+    $res = $stmt->execute();
+  } else {
+    $res = $db->query("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
+                        FROM kb_documents ORDER BY created_at DESC, id DESC LIMIT " . (int)$limit);
+  }
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = v_kb_row_decode($row);
   $db->close();
   return $out;
@@ -1749,7 +1759,7 @@ function v_kb_get(int $id): ?array {
   $dbFile = v_db_path();
   if (!is_file($dbFile) || !class_exists('SQLite3')) return null;
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return null; }
-  $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, created_at
+  $stmt = $db->prepare("SELECT id, source, source_ref, topic, title, content, kind, summary, images, severity, created_at
                          FROM kb_documents WHERE id = ?");
   $stmt->bindValue(1, $id, SQLITE3_INTEGER);
   $row = $stmt->execute()->fetchArray(SQLITE3_ASSOC);
@@ -1765,6 +1775,20 @@ function v_kb_topics(): array {
   $res = $db->query("SELECT topic, COUNT(*) AS n, MAX(created_at) AS last FROM kb_documents
                       WHERE topic IS NOT NULL GROUP BY topic ORDER BY last DESC");
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
+  $db->close();
+  return $out;
+}
+
+/** Counts per severity across the whole KB — powers the filter chips so the
+ *  admin can see "3 critical, 12 high, ..." before clicking anything
+ *  (user: "make sure filters are strong"). */
+function v_kb_severity_counts(): array {
+  $dbFile = v_db_path();
+  if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
+  try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
+  $out = [];
+  $res = $db->query("SELECT severity, COUNT(*) AS n FROM kb_documents GROUP BY severity");
+  while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[$row['severity']] = (int)$row['n'];
   $db->close();
   return $out;
 }

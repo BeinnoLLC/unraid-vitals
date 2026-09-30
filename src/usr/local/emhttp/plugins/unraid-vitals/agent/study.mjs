@@ -101,13 +101,16 @@ async function finishOne(job) {
       `to ${new Date(job.study_until * 1000).toISOString()} (sampled every ${job.tick_minutes} min)\n\n` +
       `Aggregated metrics for the whole window:\n${describeWindow(tl).slice(0, 3500)}\n\n` +
       `Full observation journal:\n${journal}\n\n` +
-      `Respond with strict JSON: {"report": "<full markdown report per the structure you were told>", "headline": "<one-line summary>"}`;
+      `Respond with strict JSON: {"report": "<full markdown report per the structure you were told>", ` +
+      `"headline": "<one-line summary>", "severity": "<one of: low, medium, high, critical — how urgently should the admin read this?>"}`;
 
     const agent = await makeAnalysisAgent('Vitals-Study-Summary', SUMMARY_BEHAVIOR, { maxTokens: 1400, temperature: 0.3 });
     const raw = await callAnalyze(agent, SUMMARY_BEHAVIOR, prompt);
     const parsed = extractJson(raw);
     const report = typeof parsed?.report === 'string' ? parsed.report : String(raw).slice(0, 6000);
     const headline = typeof parsed?.headline === 'string' ? parsed.headline : job.prompt;
+    const SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
+    const severity = SEVERITIES.has(parsed?.severity) ? parsed.severity : 'medium';
 
     finishResearchJob(job.id, report, []);
     insertKbDocument({
@@ -115,6 +118,7 @@ async function finishOne(job) {
       title: `Study: ${job.prompt}`,
       summary: headline,
       content: report,
+      severity,
     });
     console.log(`[study#${job.id}] finished — ${obs.length} observations over ${job.tick_minutes ? Math.round((job.study_until - job.created_at) / 60) : '?'} min`);
   } catch (e) {

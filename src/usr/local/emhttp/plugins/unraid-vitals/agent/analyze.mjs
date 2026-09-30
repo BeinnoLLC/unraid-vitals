@@ -59,6 +59,7 @@ async function runAgent(mod) {
         title: `${mod.KB_REPORT} — ${when}`,
         summary: `${findings.length} finding(s), worst: ${worst}`,
         content: `# ${mod.KB_REPORT}\n\n_Run ${when}, ${findings.length} finding(s)._\n\n${body}`,
+        severity: worst === 'critical' ? 'critical' : worst === 'error' ? 'high' : worst === 'warning' ? 'medium' : 'low',
       });
     }
     finishRun(runId, 'ok', null);

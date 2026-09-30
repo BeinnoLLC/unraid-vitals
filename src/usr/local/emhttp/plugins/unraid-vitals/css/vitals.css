@@ -175,6 +175,16 @@
 .vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .vitals .v-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
 .vitals .v-chip.on { background: var(--v-accent); color: #fff; border-color: var(--v-accent); }
+/* Severity filter chips — un-selected state hints at the tone so "critical"
+   reads as urgent even before you click it, not just once selected. */
+.vitals .v-chip-sev-critical { border-color: color-mix(in srgb, var(--v-bad-fg, #ef4444) 45%, var(--v-border)); color: var(--v-bad-fg, #ef4444); }
+.vitals .v-chip-sev-high { border-color: color-mix(in srgb, #f59e0b 45%, var(--v-border)); color: #f59e0b; }
+.vitals .v-chip-sev-medium { border-color: color-mix(in srgb, #4f9cf9 45%, var(--v-border)); color: #4f9cf9; }
+.vitals .v-chip-sev-low { border-color: color-mix(in srgb, var(--v-ok-fg, #4ade80) 45%, var(--v-border)); color: var(--v-ok-fg, #4ade80); }
+.vitals .v-chip-sev-critical.on { background: var(--v-bad-fg, #ef4444); border-color: var(--v-bad-fg, #ef4444); color: #fff; }
+.vitals .v-chip-sev-high.on { background: #f59e0b; border-color: #f59e0b; color: #1a1a1a; }
+.vitals .v-chip-sev-medium.on { background: #4f9cf9; border-color: #4f9cf9; color: #fff; }
+.vitals .v-chip-sev-low.on { background: var(--v-ok-fg, #4ade80); border-color: var(--v-ok-fg, #4ade80); color: #1a1a1a; }
 .vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
 .vitals .v-kb-doc:last-child { border-bottom: none; }
 .vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }

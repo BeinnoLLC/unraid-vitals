@@ -2340,6 +2340,14 @@ function HwTab(P) {
 /* ------------------------------------------------------------------- kb */
 
 var SEV_KB_ICON = { finding: 'fa-heartbeat', research: 'fa-flask', manual: 'fa-pencil' };
+// Importance badge shown on every KB entry so the admin can tell "read
+// now" from "read later" at a glance (user: "give a score low, medium,
+// high, critical badge to every topic ... things that admin should read
+// or read later"). Order matters for the filter chip row (most urgent
+// first) and doubles as the badge tone.
+var KB_SEVERITIES = ['critical', 'high', 'medium', 'low'];
+var KB_SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
+var KB_SEV_PILL = { critical: 'stop', high: 'warn', medium: 'info', low: 'run' };
 
 function KbTab() {
   var s1 = useState(''); var q = s1[0], setQ = s1[1];
@@ -2347,25 +2355,31 @@ function KbTab() {
   var s3 = useState([]); var topics = s3[0], setTopics = s3[1];
   var s4 = useState(false); var searching = s4[0], setSearching = s4[1];
   var s5 = useState(null); var topicFilter = s5[0], setTopicFilter = s5[1];
+  var s6 = useState(null); var sevFilter = s6[0], setSevFilter = s6[1]; // null = all
+  var s7 = useState({}); var sevCounts = s7[0], setSevCounts = s7[1];
 
-  var loadRecent = function () {
-    fetch(ENDPOINT + '?action=kb_recent', { cache: 'no-store' })
+  var loadRecent = function (sev) {
+    var qs = sev ? '&severity=' + encodeURIComponent(sev) : '';
+    fetch(ENDPOINT + '?action=kb_recent' + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); } });
+      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); } });
   };
-  useEffect(function () { loadRecent(); }, []);
+  useEffect(function () { loadRecent(sevFilter); }, [sevFilter]);
 
   var search = function (e) {
-    e.preventDefault();
-    if (!q.trim()) { loadRecent(); return; }
+    if (e) e.preventDefault();
+    if (!q.trim()) { loadRecent(sevFilter); return; }
     setSearching(true);
-    fetch(ENDPOINT + '?action=kb_search&q=' + encodeURIComponent(q), { cache: 'no-store' })
+    var qs = sevFilter ? '&severity=' + encodeURIComponent(sevFilter) : '';
+    fetch(ENDPOINT + '?action=kb_search&q=' + encodeURIComponent(q) + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setResults(j.results || []); setTopics(j.topics || []); } setSearching(false); })
+      .then(function (j) { if (j && j.ok) { setResults(j.results || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); } setSearching(false); })
       .catch(function () { setSearching(false); });
   };
+  useEffect(function () { if (q.trim()) search(null); }, [sevFilter]);
 
   var shown = topicFilter ? results.filter(function (r) { return r.topic === topicFilter; }) : results;
+  var totalCount = Object.keys(sevCounts).reduce(function (a, k) { return a + sevCounts[k]; }, 0);
 
   return h('div', null,
     h(Panel, { title: 'Search the knowledge base', span2: true,
@@ -2375,8 +2389,21 @@ function KbTab() {
           value: q, onInput: function (e) { setQ(e.target.value); } }),
         h('button', { class: 'v-btn primary', type: 'submit', disabled: searching },
           h('i', { class: 'fa fa-search' }), ' Search')),
+      // Severity filter row — the strong filter the user asked for: each
+      // chip shows its own count so "3 critical" is visible before you
+      // even click it, and multiple filter axes (severity + topic) combine
+      // (AND), not replace each other.
+      h('div', { class: 'v-kb-topics', style: 'margin-top:8px' },
+        h('span', { class: 'v-chip' + (sevFilter === null ? ' on' : ''), onClick: function () { setSevFilter(null); } },
+          'all (' + totalCount + ')'),
+        KB_SEVERITIES.map(function (sv) {
+          return sevCounts[sv] ? h('span', {
+            key: sv, class: 'v-chip v-chip-sev-' + sv + (sevFilter === sv ? ' on' : ''),
+            onClick: function () { setSevFilter(sv); },
+          }, KB_SEV_LABEL[sv] + ' (' + sevCounts[sv] + ')') : null;
+        })),
       topics.length ? h('div', { class: 'v-kb-topics' },
-        h('span', { class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all'),
+        h('span', { class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all topics'),
         topics.map(function (t) {
           return h('span', { key: t.topic, class: 'v-chip' + (topicFilter === t.topic ? ' on' : ''),
             onClick: function () { setTopicFilter(t.topic); } }, t.topic + ' (' + t.n + ')');
@@ -2384,10 +2411,12 @@ function KbTab() {
     h(Panel, { title: q ? 'Results' : 'Recent knowledge', span2: true, hint: shown.length + ' documents' },
       !shown.length ? h('div', { class: 'v-empty' }, 'Nothing here yet — the background agents populate this as they run.')
       : shown.map(function (doc) {
+          var sev = doc.severity || 'medium';
           return h('div', { key: doc.id, class: 'v-kb-doc' },
             h('div', { class: 'v-kb-doc-head' },
               h('i', { class: 'fa ' + (SEV_KB_ICON[doc.source] || 'fa-file-text-o') }),
               h('span', { class: 'v-kb-doc-title' }, doc.title),
+              h(Pill, { kind: KB_SEV_PILL[sev] || 'info' }, KB_SEV_LABEL[sev] || sev),
               doc.kind && doc.kind !== 'note' ? h(Pill, { kind: doc.kind === 'study' ? 'info' : 'run' }, doc.kind) : null,
               doc.topic ? h('span', { class: 'v-ai-agent' }, doc.topic) : null,
               h('span', { class: 'muted', style: 'margin-left:auto' }, ts(doc.created_at))),
