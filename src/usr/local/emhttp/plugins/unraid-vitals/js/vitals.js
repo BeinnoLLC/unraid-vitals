@@ -1110,24 +1110,36 @@ function ArrayTab(P) {
     ? used.reduce(function (s, x) { return s + (x.usedPct || 0); }, 0) / used.length : null;
 
   // Ranked temperature hot-list (reference: total-tasks-by-assignee bars).
+  // Shows BOTH current and the 24h max (ticket #31) — current alone hides a
+  // drive that spiked earlier in the window and has since cooled back down,
+  // which is exactly the kind of warming trend you want to catch before it
+  // crosses the alert threshold again.
   var hotRows = smTop.map(function (name) {
-    var cur = null;
+    var cur = null, max24 = null;
     for (var i = pts.length - 1; i >= 0; i--) {
       var s = pts[i].smart && pts[i].smart[name];
-      if (s && s[0] != null) { cur = s[0]; break; }
+      if (!s || s[0] == null) continue;
+      if (cur == null) cur = s[0];
+      max24 = max24 == null ? s[0] : Math.max(max24, s[0]);
     }
-    return { label: name, value: cur == null ? '—' : cur + '°',
+    return { label: name, value: cur == null ? '—' : cur + '°' + (max24 != null && max24 !== cur ? ' (24h max ' + max24 + '°)' : ''),
       pct: cur == null ? 0 : Math.min(100, (cur / 60) * 100),
       color: cur == null ? '#666' : cur >= 55 ? PAL['v-bad-fg'] : cur >= 45 ? PAL['v-warn-fg'] : PAL['v-ok-fg'] };
-  });
+  }).sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
 
-  // SMART sector growth: reallocated/pending for disks with non-zero counters.
-  var smNames = topKeys(pts, 'smart', 1, 6);
-  var hasGrowth = smNames.length > 0;
-  var growthSeries = smNames.map(function (name, i) {
+  // SMART sector growth: reallocated (index 1) AND pending (index 2) for
+  // disks with non-zero counters (ticket #31 asks for both — a disk can
+  // accumulate pending sectors well before any get reallocated).
+  var smReallocNames = topKeys(pts, 'smart', 1, 6);
+  var smPendingNames = topKeys(pts, 'smart', 2, 6);
+  var hasGrowth = smReallocNames.length > 0 || smPendingNames.length > 0;
+  var growthSeries = smReallocNames.map(function (name, i) {
     return { name: name + ' realloc', color: pickColor(i + 3),
       points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][1] : null; }) };
-  });
+  }).concat(smPendingNames.map(function (name, i) {
+    return { name: name + ' pending', color: pickColor(i + 3 + smReallocNames.length),
+      points: pick(function (p) { return p.smart && p.smart[name] ? p.smart[name][2] : null; }) };
+  }));
 
   return h('div', null,
     h('div', { class: 'v-cards' },
