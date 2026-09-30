@@ -497,7 +497,15 @@ export function dueStudyJobs() {
     `SELECT * FROM research_jobs
      WHERE mode = 'study' AND status = 'studying'
        AND (last_tick_at IS NULL OR ? - last_tick_at >= tick_minutes * 60)`
-  ).all(now);
+  ).all(now).map(parseObservations);
+}
+
+/** observations is stored as a JSON string; every reader needs the array. */
+function parseObservations(row) {
+  if (row && row.observations) {
+    try { row.observations = JSON.parse(row.observations); } catch { row.observations = []; }
+  }
+  return row;
 }
 
 /** Study jobs whose window has closed and are ready to be synthesized into
@@ -506,7 +514,7 @@ export function expiredStudyJobs() {
   const now = Math.floor(Date.now() / 1000);
   return getDb().prepare(
     `SELECT * FROM research_jobs WHERE mode = 'study' AND status = 'studying' AND study_until <= ?`
-  ).all(now);
+  ).all(now).map(parseObservations);
 }
 
 /** Append one observation to a study job's running journal and bump
