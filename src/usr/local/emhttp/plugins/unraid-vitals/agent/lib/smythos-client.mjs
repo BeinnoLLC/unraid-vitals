@@ -29,7 +29,11 @@ const NUM_CTX = Number(process.env.VITALS_AGENT_NUM_CTX || 8192);
 // ~4 chars/token is the usual English/JSON estimate; the safety margin
 // covers model-specific tokenizers being less efficient on '|', '=' and
 // numbers, which dominate our prompts.
-const CHARS_PER_TOKEN = 3.6;
+// Prose averages ~3.6 chars/token, but the prompts here are dense
+// markdown/JSON/log lines (measured live: a budgeted 6.2k-"token" release
+// advisory tokenized to 8024) — 2.8 is the conservative figure that keeps
+// the estimate on the safe side for every section type we send.
+const CHARS_PER_TOKEN = Number(process.env.VITALS_CHARS_PER_TOKEN || 2.8);
 
 class OllamaError extends Error {
   constructor(message, causes) {
