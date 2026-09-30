@@ -159,6 +159,17 @@ function v_point(array $snap): array {
     $smart[$s['name']] = [$s['temp'], $s['reallocated'], $s['pending']];
   }
 
+  // Per-disk throughput/IOPS (P15-02) — already computed as a rate by
+  // v_disk_io_delta() and attached to each disk entry as 'io'; just collect
+  // it into a flat name => [read_bps, write_bps, read_iops, write_iops] map
+  // for the ring, same shape convention as 'net' above.
+  $diskIo = [];
+  foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []) as $d) {
+    if (!empty($d['io'])) {
+      $diskIo[$d['name']] = [$d['io']['read_bps'], $d['io']['write_bps'], $d['io']['read_iops'], $d['io']['write_iops']];
+    }
+  }
+
   return [
     't'        => (int)($snap['time'] ?? time()),
     'cpu'      => $snap['cpu']['total'] ?? null,
@@ -189,6 +200,7 @@ function v_point(array $snap): array {
     'watts_total' => $snap['power']['total_watts'] ?? null,
     'fs_bytes' => $fsBytes,
     'docker_img_used' => $dockerImgUsed,
+    'disk_io' => $diskIo,
   ];
 }
 

@@ -457,7 +457,7 @@ function v_zfs_arc_stats(): ?array {
 
 /* -------------------------------------------------------------------- disks */
 
-/** Reads/writes (in sectors, 512 bytes each) for one device from /proc/diskstats. */
+/** Reads/writes (in sectors, 512 bytes each) + IOPS counters for one device from /proc/diskstats. */
 function v_diskstats_for(string $device): ?array {
   static $cache = null;
   if ($cache === null) {
@@ -468,7 +468,8 @@ function v_diskstats_for(string $device): ?array {
       if (count($f) < 14) continue;
       // major minor name reads-completed reads-merged sectors-read ms-reading
       // writes-completed writes-merged sectors-written ms-writing ...
-      $cache[$f[2]] = ['reads' => (int)$f[5], 'writes' => (int)$f[9]];
+      $cache[$f[2]] = ['reads' => (int)$f[5], 'writes' => (int)$f[9],
+                        'reads_ops' => (int)$f[3], 'writes_ops' => (int)$f[7]];
     }
   }
   return $cache[$device] ?? null;
@@ -588,7 +589,10 @@ function v_array_disks(): array {
     // used to detect what's keeping a disk from spinning down.
     if (!empty($e['device'])) {
       $ds = v_diskstats_for($e['device']);
-      if ($ds !== null) { $e['io_reads_sectors'] = $ds['reads']; $e['io_writes_sectors'] = $ds['writes']; }
+      if ($ds !== null) {
+        $e['io_reads_sectors'] = $ds['reads']; $e['io_writes_sectors'] = $ds['writes'];
+        $e['io_reads_ops'] = $ds['reads_ops']; $e['io_writes_ops'] = $ds['writes_ops'];
+      }
     }
     if ($e['type'] === 'Parity') {
       $out['parity'][] = $e;
@@ -1726,6 +1730,35 @@ function v_net_delta(array $now, array $prev, float $seconds): array {
 }
 
 /**
+ * P15-02 — per-disk read/write throughput (bytes/s) and IOPS from the raw
+ * diskstats counters already captured on each disk entry (io_*_sectors,
+ * io_*_ops). Same delta-over-elapsed-seconds pattern as v_net_delta() above
+ * — diskstats counters are monotonic cumulative totals, not rates, so a
+ * single sample alone can't answer "is this disk busy right now".
+ *
+ * $now/$prev are keyed by disk name (matching array disk entries), each
+ * value ['reads_sectors','writes_sectors','reads_ops','writes_ops'].
+ */
+function v_disk_io_delta(array $now, array $prev, float $seconds): array {
+  if ($seconds <= 0) $seconds = 1;
+  $out = [];
+  foreach ($now as $name => $n) {
+    if (!isset($prev[$name])) continue;
+    $readSectors = max(0, $n['reads_sectors'] - $prev[$name]['reads_sectors']);
+    $writeSectors = max(0, $n['writes_sectors'] - $prev[$name]['writes_sectors']);
+    $readOps = max(0, $n['reads_ops'] - $prev[$name]['reads_ops']);
+    $writeOps = max(0, $n['writes_ops'] - $prev[$name]['writes_ops']);
+    $out[$name] = [
+      'read_bps' => round($readSectors * 512 / $seconds, 0),
+      'write_bps' => round($writeSectors * 512 / $seconds, 0),
+      'read_iops' => round($readOps / $seconds, 1),
+      'write_iops' => round($writeOps / $seconds, 1),
+    ];
+  }
+  return $out;
+}
+
+/**
  * Per-interface link state (P14-11): negotiated speed/duplex/mtu/carrier
  * from sysfs, plus bond-member and bridge-member MTU comparisons.
  *
@@ -2019,7 +2052,27 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     }
   }
 
-  $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow, 'rapl' => $snap['power']['_raw_rapl'] ?? null];
+  // P15-02: per-disk throughput/IOPS from the raw diskstats counters
+  // v_array_disks() already attached to each disk entry. Raw counters saved
+  // to _raw for next tick's delta, same as cpu/net above.
+  $diskIoNow = [];
+  foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []) as $d) {
+    if (isset($d['io_reads_sectors'])) {
+      $diskIoNow[$d['name']] = [
+        'reads_sectors' => $d['io_reads_sectors'], 'writes_sectors' => $d['io_writes_sectors'],
+        'reads_ops' => $d['io_reads_ops'] ?? 0, 'writes_ops' => $d['io_writes_ops'] ?? 0,
+      ];
+    }
+  }
+  $diskIoRate = ($prev && !empty($prev['_raw']['disk_io']))
+    ? v_disk_io_delta($diskIoNow, $prev['_raw']['disk_io'], $elapsed) : [];
+  foreach (['data', 'parity', 'cache'] as $grp) {
+    foreach ($snap['array'][$grp] ?? [] as $i => $d) {
+      if (isset($diskIoRate[$d['name']])) $snap['array'][$grp][$i]['io'] = $diskIoRate[$d['name']];
+    }
+  }
+
+  $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow, 'rapl' => $snap['power']['_raw_rapl'] ?? null, 'disk_io' => $diskIoNow];
   unset($snap['power']['_raw_rapl']);
 
   // Spin-down tracking (P14-08): record this sample, then compute analysis

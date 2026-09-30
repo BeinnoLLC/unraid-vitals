@@ -1138,6 +1138,20 @@ function ArrayTab(P) {
       color: cur == null ? '#666' : cur >= 55 ? PAL['v-bad-fg'] : cur >= 45 ? PAL['v-warn-fg'] : PAL['v-ok-fg'] };
   }).sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
 
+  // Per-disk throughput (P15-02): read+write bytes/sec combined into one
+  // series per disk so a parity check (sustained reads across every array
+  // disk at once) is visually obvious as several lines rising together.
+  var ioTop = topKeys(pts, 'disk_io', 0, 8);
+  var ioReadSeries = ioTop.map(function (name, i) {
+    return { name: name + ' read', color: pickColor(i),
+      points: pick(function (p) { return p.disk_io && p.disk_io[name] ? p.disk_io[name][0] : null; }) };
+  });
+  var ioWriteSeries = ioTop.map(function (name, i) {
+    return { name: name + ' write', color: pickColor(i + ioTop.length),
+      points: pick(function (p) { return p.disk_io && p.disk_io[name] ? p.disk_io[name][1] : null; }) };
+  });
+  var hasIo = ioTop.length > 0;
+
   // SMART sector growth: reallocated (index 1) AND pending (index 2) for
   // disks with non-zero counters (ticket #31 asks for both — a disk can
   // accumulate pending sectors well before any get reallocated).
@@ -1199,7 +1213,20 @@ function ArrayTab(P) {
         hasGrowth ? h(Chart, { series: growthSeries, height: 170,
           yFmt: function (v) { return String(Math.round(v)); },
           empty: 'No disks with non-zero reallocated/pending counters.' })
-        : h('div', { class: 'v-empty' }, 'No disks with non-zero reallocated/pending counters — healthy.'))),
+        : h('div', { class: 'v-empty' }, 'No disks with non-zero reallocated/pending counters — healthy.')),
+      h(Panel, { title: 'Per-disk I/O', span2: true, hint: hasIo ? 'read (solid) vs write (dashed), bytes/s' : '' },
+        hasIo ? h('div', null,
+          h(Chart, { series: ioReadSeries.concat(ioWriteSeries), height: 190,
+            yFmt: function (v) { return v >= 1048576 ? (Math.round(v / 1048576 * 10) / 10) + ' MB/s' : Math.round(v / 1024) + ' KB/s'; },
+            empty: 'No disk I/O activity yet.' }),
+          h(ChartStats, { series: ioTop.map(function (name, i) {
+            var r = pick(function (p) { return p.disk_io && p.disk_io[name] ? p.disk_io[name][0] : null; });
+            var w = pick(function (p) { return p.disk_io && p.disk_io[name] ? p.disk_io[name][1] : null; });
+            return { name: name, color: pickColor(i),
+              points: r.map(function (p, j) { return [p[0], (p[1] || 0) + ((w[j] || [0, 0])[1] || 0)]; }),
+              fmt: function (v) { return v >= 1048576 ? (Math.round(v / 1048576 * 10) / 10) + ' MB/s' : Math.round(v / 1024) + ' KB/s'; } };
+          }) }))
+        : h('div', { class: 'v-empty' }, 'No disk I/O activity yet — a parity check or heavy transfer will show up here as sustained reads across every array disk.'))),
     h(Panel, { title: 'Disks', span2: true, hint: disks.length + ' devices' }, h(DiskTable, { d: d })),
     h(Panel, { title: 'SMART detail', span2: true, hint: Object.keys(d.smart || {}).length + ' disks' },
       h(SmartTable, { d: d })),
