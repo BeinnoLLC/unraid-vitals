@@ -133,6 +133,25 @@ function withAlpha(hex, a) {
   return hex;
 }
 
+/** Canvas linear gradient (opaque near the line, fading to transparent at
+ *  the baseline) instead of a flat alpha fill — matches the "glow" area
+ *  chart look from the reference dashboards instead of the flat single-
+ *  alpha wash uPlot's fill option gives you by default. Returns a function
+ *  because uPlot's series.fill wants a fill-resolver, not a static value:
+ *  it needs the canvas 2D context to build the CanvasGradient object, and
+ *  that context isn't available until uPlot itself calls this at draw time.
+ */
+function gradientFill(hex, topAlpha) {
+  return function (u, seriesIdx) {
+    var ctx = u.ctx;
+    var top = 0, height = (u.bbox && u.bbox.height) || u.height || 150;
+    var g = ctx.createLinearGradient(0, top, 0, top + height);
+    g.addColorStop(0, withAlpha(hex, topAlpha == null ? 0.38 : topAlpha));
+    g.addColorStop(1, withAlpha(hex, 0.02));
+    return g;
+  };
+}
+
 /* Grafana-style stat tile: value on a tinted background, tone-driven colour.
    P: {label, value, sub, tone: ok|info|warn|crit|muted, spark: [[t,v]...]} */
 var TONE_COLOR = { ok: '#4ade80', info: '#4f9cf9', warn: '#fbbf24', crit: '#f87171', muted: '#9ca3af' };
@@ -317,17 +336,19 @@ function Pill(P) {
 }
 
 function StatCard(P) {
-  return h('div', { class: 'v-card' },
-    P.icon ? h('div', { class: 'v-card-icon',
+  return h('div', { class: 'v-card' + (P.ring != null ? ' v-card-ring' : '') },
+    P.ring != null ? h(Gauge, { pct: P.ring, color: P.color, size: 56, thickness: 6 })
+    : P.icon ? h('div', { class: 'v-card-icon',
       style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
       h('i', { class: 'fa ' + P.icon })) : null,
-    h('div', { class: 'v-card-label' }, P.label),
-    h('div', { class: 'v-card-value ' + (P.level || '') },
-      P.value, P.unit ? h('small', null, ' ' + P.unit) : null),
-    P.sub ? h('div', { class: 'v-card-sub' }, P.sub) : null,
-    P.bar != null ? h('div', { class: 'v-bar' },
-      h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null,
-    P.spark ? h(Spark, { points: P.spark, color: P.sparkColor || P.color }) : null);
+    h('div', { class: 'v-card-body' },
+      h('div', { class: 'v-card-label' }, P.label),
+      h('div', { class: 'v-card-value ' + (P.level || '') },
+        P.value, P.unit ? h('small', null, ' ' + P.unit) : null),
+      P.sub ? h('div', { class: 'v-card-sub' }, P.sub) : null,
+      P.ring == null && P.bar != null ? h('div', { class: 'v-bar' },
+        h('i', { style: 'width:' + Math.max(0, Math.min(100, P.bar)) + '%;background:' + P.color })) : null,
+      P.spark ? h(Spark, { points: P.spark, color: P.sparkColor || P.color }) : null));
 }
 
 /* uPlot wrapper. P: {series:[{name,color,points,fill(axis2,stack)}], max, floor,
@@ -415,7 +436,9 @@ function Chart(P) {
           spanGaps: true, points: { show: false },
           value: function (u, v) { return legendVal(u, i + 1); },
         };
-        if (P.area || s.fill || P.stack) o.fill = withAlpha(s.color, P.stack ? 0.55 : 0.22);
+        if (P.area || s.fill || P.stack) {
+          o.fill = P.stack ? withAlpha(s.color, 0.55) : gradientFill(s.color, 0.38);
+        }
         if (s.axis === 2) { o.scale = 'y2'; o.stroke = s.color; }
         return o;
       })),
@@ -685,6 +708,7 @@ var TABS = [
   { id: 'sys',    label: 'System',        icon: 'fa-microchip' },
   { id: 'shares', label: 'Shares',        icon: 'fa-folder-open-o' },
   { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' },
+  { id: 'power',  label: 'Power',         icon: 'fa-bolt' },
   { id: 'kb',     label: 'Knowledge',     icon: 'fa-book' },
   { id: 'research', label: 'Research',   icon: 'fa-flask' },
   { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
@@ -789,6 +813,7 @@ function App() {
         : tab === 'sys'    ? h(SysTab,    props)
         : tab === 'shares' ? h(SharesTab, props)
         : tab === 'hw'     ? h(HwTab,     props)
+        : tab === 'power'  ? h(PowerTab,  props)
         : tab === 'kb'     ? h(KbTab,     props)
         : tab === 'research' ? h(ResearchTab, {})
         : tab === 'settings' ? h(SettingsTab, {}) : null),
@@ -917,15 +942,15 @@ function DashTab(P) {
       level: lvl(d.cpu && d.cpu.total, 80, 95),
       sub: (load.cores || '?') + ' threads · load ' +
            (load.l1 != null ? load.l1.toFixed(2) : '—'),
-      bar: d.cpu && d.cpu.total },
+      ring: d.cpu && d.cpu.total },
     merge({ label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
       level: lvl(d.mem && d.mem.pct, 80, 92),
-      sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), bar: d.mem && d.mem.pct },
+      sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), ring: d.mem && d.mem.pct },
       sparkOf(function (p) { return p.mem; }, PAL['v-mem'])),
     { label: 'Array', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(t.data_disks || 0), unit: 'data',
       sub: d.system.md_state + ' · ' + (t.parity_disks || 0) + ' parity · ' + (t.cache_disks || 0) + ' pool' },
     { label: 'Storage', icon: 'fa-database', color: PAL['v-mem'], value: pctStr(t.used_pct),
-      level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), bar: t.used_pct },
+      level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), ring: t.used_pct },
     merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
       value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
       level: tMax == null ? '' : lvl(tMax, 45, 55), sub: temps.length + ' disks reporting' },
@@ -1489,7 +1514,80 @@ function ShareCommentCell(P) {
          : [h('i', { key: 'm', class: 'fa fa-magic' }), ' Generate']);
 }
 
-/* ------------------------------------------------------------- hardware */
+/* ------------------------------------------------------------------ power */
+
+/**
+ * Whole-machine power draw. total_watts only ever sums components the
+ * backend actually detected real sensors for (v_power() in collect.php) —
+ * on this box that's CPU package via Intel-style RAPL... except this box
+ * is a Ryzen 9 5950X, which has NO RAPL/amd_energy sysfs power number
+ * without a kernel module the box doesn't load, so total_includes may be
+ * empty and cpu_watts/total_watts null. That's shown honestly as "not
+ * available on this hardware", never a fabricated estimate.
+ */
+function PowerTab(P) {
+  var d = P.d, pts = P.pts;
+  var pw = d.power || {};
+  var have = (pw.total_includes || []).length > 0;
+  var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
+  var haveHistory = pts.some(function (p) { return p.watts_total != null; });
+
+  var componentCards = [];
+  if (pw.cpu_watts != null) componentCards.push({ label: 'CPU package', icon: 'fa-microchip',
+    color: PAL['v-cpu'], value: pw.cpu_watts.toFixed(1), unit: 'W',
+    sub: 'from CPU energy-counter sensor (RAPL)' });
+  if (pw.gpu_watts != null) componentCards.push({ label: 'GPU', icon: 'fa-tv',
+    color: PAL['v-gpu'], value: pw.gpu_watts.toFixed(1), unit: 'W', sub: 'nvidia-smi power.draw' });
+  if (pw.ups_watts != null) componentCards.push({ label: 'UPS load', icon: 'fa-plug',
+    color: PAL['v-accent'], value: pw.ups_watts.toFixed(1), unit: 'W',
+    sub: (pw.ups_load_pct != null ? pw.ups_load_pct + '% of rated capacity' : '') });
+
+  return h('div', null,
+    h('div', { class: 'v-cards v-cards-4' },
+      h(StatCard, { label: 'Total draw', icon: 'fa-bolt',
+        color: have ? PAL['v-warn-fg'] : '#8b8f9a',
+        value: have ? pw.total_watts.toFixed(1) : '—', unit: have ? 'W' : '',
+        sub: have
+          ? ('includes: ' + pw.total_includes.join(' + '))
+          : 'No power sensor detected on this hardware' }),
+      componentCards.map(function (c, i) { return h(StatCard, merge(c, { key: i })); }),
+      // Pad the row out to 4 cells with an explanatory card when fewer than
+      // 3 components were detected, so the grid doesn't look broken/empty.
+      componentCards.length === 0 ? h('div', { class: 'v-card', style: 'opacity:.6' },
+        h('div', { class: 'v-card-label' }, 'Why so few sensors?'),
+        h('div', { class: 'v-card-sub', style: 'margin-top:6px;line-height:1.5' },
+          'Whole-system wattage needs a real sensor per component — this app never ' +
+          'guesses. Intel CPUs expose it via RAPL; AMD Ryzen normally does not unless ' +
+          'the amd_energy kernel module is loaded. A discrete GPU needs nvidia-smi ' +
+          '(and its driver actually loaded, not passed through to a VM). A UPS needs ' +
+          'apcupsd/apcaccess configured and running.')) : null),
+
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Power draw over time', span2: true,
+        hint: have ? 'total + per-component, last 24 h' : 'no data — no power sensor detected' },
+        !haveHistory ? h('div', { class: 'v-empty' }, 'No power history recorded yet — check back after a few collector ticks.')
+        : h(Chart, {
+            series: [
+              pw.cpu_watts != null || pts.some(function (p) { return p.watts_cpu != null; }) ?
+                { name: 'CPU', color: PAL['v-cpu'], points: pick(function (p) { return p.watts_cpu; }) } : null,
+              pts.some(function (p) { return p.watts_gpu != null; }) ?
+                { name: 'GPU', color: PAL['v-gpu'], points: pick(function (p) { return p.watts_gpu; }) } : null,
+              pts.some(function (p) { return p.watts_ups != null; }) ?
+                { name: 'UPS load', color: PAL['v-accent'], points: pick(function (p) { return p.watts_ups; }) } : null,
+            ].filter(Boolean),
+            height: 220, area: true, yFmt: function (v) { return v + 'W'; }
+          })),
+      have ? h(Panel, { title: 'Estimated cost', hint: 'assumes current draw is steady' },
+        h('table', null,
+          [0.10, 0.15, 0.20, 0.30].map(function (rate) {
+            var kwh = pw.total_watts / 1000;
+            return h('tr', { key: rate },
+              h('td', { class: 'muted' }, '$' + rate.toFixed(2) + ' / kWh'),
+              h('td', null,
+                '$' + (kwh * rate * 24).toFixed(2) + ' / day · ' +
+                '$' + (kwh * rate * 24 * 30).toFixed(2) + ' / month'));
+          }))) : null));
+}
 
 function HwTab(P) {
   var d = P.d, pts = P.pts;

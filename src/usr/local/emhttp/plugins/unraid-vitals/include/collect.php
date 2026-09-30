@@ -1596,6 +1596,97 @@ function v_share_placement_cached(): array {
   return $conflicts;
 }
 
+/* ----------------------------------------------------------------------- power */
+
+/**
+ * Whole-machine power draw (ticket: "power consumption tab based on all
+ * components you can detect"). There is no single universal "total system
+ * watts" sensor on a DIY/server box like this (that only exists on
+ * enterprise servers with a Redfish/IPMI-exposed PSU telemetry chip) — so
+ * this sums the REAL per-component sensors that are actually present
+ * instead of guessing:
+ *
+ *  - CPU package: Intel RAPL (`/sys/class/powercap/intel-rapl:*`) reports
+ *    a monotonic microjoule counter per package; power = energy delta /
+ *    time delta between two samples (same delta-rate pattern as
+ *    v_net_delta()). AMD Ryzen has NO equivalent sysfs power number
+ *    without the (rarely loaded) amd_energy module or a vendor tool, so
+ *    on pure-AMD boxes this returns null rather than a fabricated value —
+ *    verified on this box (5950X, k10temp has no power1_input, no
+ *    amd_energy module loaded): cpu_watts stays null, never a guess.
+ *  - GPU: nvidia-smi power.draw, already collected in v_gpu() per-card.
+ *  - UPS: apcaccess NOMPOWER (rated watts) * LOADPCT/100 gives the load's
+ *    actual draw on a UPS-backed system — this is the closest thing to a
+ *    true whole-machine number when present, since it's downstream of
+ *    everything (CPU+GPU+disks+fans+motherboard). Absent here (no UPS
+ *    configured on this box) so ups_watts is null, not fabricated.
+ *
+ * total_watts is the sum of whichever of the above are non-null, tagged
+ * with which components it actually includes (partial, never silently
+ * presented as "whole machine" when it's only "CPU+GPU").
+ */
+function v_rapl_energy_uj(): ?array {
+  $zones = @glob('/sys/class/powercap/intel-rapl:[0-9]*') ?: [];
+  $total = 0.0; $max = 0.0; $found = false;
+  foreach ($zones as $z) {
+    // Skip subzones like intel-rapl:0:0 (core/uncore split) -- only sum
+    // top-level package zones or wattage double-counts core+uncore.
+    if (!preg_match('#/intel-rapl:\d+$#', $z)) continue;
+    $e = @file_get_contents($z . '/energy_uj');
+    if ($e === false) continue;
+    $total += (float)trim($e);
+    $max += (float)(@file_get_contents($z . '/max_energy_range_uj') ?: '0');
+    $found = true;
+  }
+  return $found ? ['energy_uj' => $total, 'max_uj' => $max] : null;
+}
+
+function v_power(?array $prevRapl, float $elapsed, array $gpu, array $ups): array {
+  $cpuWatts = null;
+  $rapl = v_rapl_energy_uj();
+  if ($rapl && $prevRapl && $elapsed > 0) {
+    $delta = $rapl['energy_uj'] - $prevRapl['energy_uj'];
+    // RAPL's energy_uj counter wraps at max_energy_range_uj; a negative
+    // delta means it wrapped between samples -- add the range back so a
+    // 60s collector tick spanning a wrap doesn't report a bogus negative
+    // or wildly-wrong wattage.
+    if ($delta < 0 && $rapl['max_uj'] > 0) $delta += $rapl['max_uj'];
+    if ($delta >= 0) $cpuWatts = round(($delta / 1e6) / $elapsed, 1);
+  }
+
+  $gpuWatts = null;
+  foreach ($gpu as $g) {
+    if (($g['power'] ?? null) !== null) $gpuWatts = ($gpuWatts ?? 0) + $g['power'];
+  }
+
+  $upsWatts = null; $upsPct = null;
+  if (isset($ups['NOMPOWER']) && isset($ups['LOADPCT'])) {
+    $nom = (float)preg_replace('/[^0-9.]/', '', $ups['NOMPOWER']);
+    $pct = (float)preg_replace('/[^0-9.]/', '', $ups['LOADPCT']);
+    if ($nom > 0) { $upsWatts = round($nom * $pct / 100, 1); $upsPct = $pct; }
+  }
+
+  $parts = [];
+  $total = 0.0;
+  if ($cpuWatts !== null) { $parts[] = 'cpu'; $total += $cpuWatts; }
+  if ($gpuWatts !== null) { $parts[] = 'gpu'; $total += $gpuWatts; }
+  // UPS load already reflects the whole machine's draw downstream of it --
+  // don't ALSO add cpu/gpu on top of that (double-counts), prefer it alone
+  // as the most authoritative whole-machine number when present.
+  if ($upsWatts !== null) { $parts = ['ups']; $total = $upsWatts; }
+
+  return [
+    'cpu_watts' => $cpuWatts,
+    'gpu_watts' => $gpuWatts,
+    'ups_watts' => $upsWatts,
+    'ups_load_pct' => $upsPct,
+    'total_watts' => $parts ? round($total, 1) : null,
+    'total_includes' => $parts,
+    'rapl_available' => $rapl !== null,
+    '_raw_rapl' => $rapl,
+  ];
+}
+
 /* ------------------------------------------------------------------ network */
 
 function v_net_read(): array {
@@ -1873,6 +1964,8 @@ function v_fs_watch(): array {
 function v_collect(?array $prev = null, float $elapsed = 60.0): array {
   $cpuNow = v_cpu_stat();
   $netNow = v_net_read();
+  $gpuNow = v_gpu();
+  $upsNow = v_ups();
   $snap = [
     'time'    => time(),
     'system'  => v_system(),
@@ -1896,8 +1989,9 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     'docker_hygiene' => v_docker_hygiene(),
     'docker_layers' => v_docker_layers_cached(),
     'docker_logs' => v_docker_logs_cached(),
-    'gpu'     => v_gpu(),
-    'ups'     => v_ups(),
+    'gpu'     => $gpuNow,
+    'ups'     => $upsNow,
+    'power'   => v_power($prev['_raw']['rapl'] ?? null, $elapsed, $gpuNow, $upsNow),
     'shares'  => v_shares(),
     'pool_health' => v_pool_health(),
     'share_placement' => v_share_placement_cached(),
@@ -1925,7 +2019,8 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     }
   }
 
-  $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow];
+  $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow, 'rapl' => $snap['power']['_raw_rapl'] ?? null];
+  unset($snap['power']['_raw_rapl']);
 
   // Spin-down tracking (P14-08): record this sample, then compute analysis
   // from the accumulated history -- must happen after v_array_disks() has

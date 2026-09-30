@@ -415,6 +415,17 @@
 }
 .vitals .v-bar > i { display: block; height: 100%; border-radius: 3px; background: var(--v-cpu); transition: width .5s ease; }
 
+/* Ring stat card (P4-UI): CPU/Memory/Storage cards use a Gauge ring instead
+   of the flat icon badge + bottom bar, matching the reference dashboards'
+   "big ring with number in the middle" KPI style. Row layout so the ring
+   sits beside the label/value/sub text instead of stacked above it — a
+   96px card is too short to stack a 56px ring on top of three text lines. */
+.vitals .v-card-ring { display: flex; align-items: center; gap: 14px; }
+.vitals .v-card-ring .v-gauge { flex: none; }
+.vitals .v-card-ring .v-card-body { min-width: 0; flex: 1; }
+.vitals .v-card-ring .v-gauge-big { font-size: 13px; }
+.vitals .v-card-ring .v-card-label { margin-bottom: 3px; }
+
 .vitals .ok    { color: var(--v-ok-fg); }
 .vitals .warn  { color: var(--v-warn-fg); }
 .vitals .crit  { color: var(--v-bad-fg); }

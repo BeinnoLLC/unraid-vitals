@@ -172,6 +172,10 @@ function v_point(array $snap): array {
     'sensors_f' => $sFans,
     'sensors_v' => $sVolts,
     'cpu_mhz_avg' => $snap['cpu_freq']['avg_mhz'] ?? null,
+    'watts_cpu' => $snap['power']['cpu_watts'] ?? null,
+    'watts_gpu' => $snap['power']['gpu_watts'] ?? null,
+    'watts_ups' => $snap['power']['ups_watts'] ?? null,
+    'watts_total' => $snap['power']['total_watts'] ?? null,
   ];
 }
 
