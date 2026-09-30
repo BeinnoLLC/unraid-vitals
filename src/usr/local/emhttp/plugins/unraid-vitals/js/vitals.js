@@ -1962,6 +1962,13 @@ function ResearchTab() {
   var studyPct = activeJob && activeJob.mode === 'study' && activeJob.study_until
     ? Math.max(0, Math.min(100, 100 * (1 - (activeJob.study_until - now) / Math.max(1, activeJob.study_until - activeJob.created_at))))
     : null;
+  // Percent-complete for ANY studying job in the table below, not just the
+  // one currently open — the user wants a progress indicator on research/
+  // study jobs generally, not only after clicking into one.
+  var jobPct = function (j) {
+    if (j.mode !== 'study' || j.status !== 'studying' || !j.study_until) return null;
+    return Math.max(0, Math.min(100, 100 * (1 - (j.study_until - now) / Math.max(1, j.study_until - j.created_at))));
+  };
 
   return h('div', null,
     h(Panel, { title: 'Ask or study', span2: true,
@@ -1991,11 +1998,15 @@ function ResearchTab() {
         hint: activeJob.status + (activeJob.mode === 'study' && activeJob.status === 'studying'
           ? ' — ' + dur(activeJob.study_until - now) + ' remaining' : '') },
       activeJob.status === 'pending' || activeJob.status === 'running'
-        ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Researching — this can take a few minutes, feel free to leave this tab.')
+        ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }),
+            ' Researching' + (activeJob.started_at ? ' — ' + dur(now - activeJob.started_at) + ' elapsed' : '') +
+            '. This can take a few minutes, feel free to leave this tab.')
         : activeJob.status === 'studying'
         ? h('div', null,
-            h('div', { class: 'v-bar', style: 'margin-bottom:12px' },
-              h('i', { style: 'width:' + studyPct.toFixed(0) + '%;background:var(--v-accent)' })),
+            h('div', { style: 'display:flex;align-items:center;gap:10px;margin-bottom:12px' },
+              h('div', { class: 'v-bar', style: 'flex:1;margin:0' },
+                h('i', { style: 'width:' + studyPct.toFixed(0) + '%;background:var(--v-accent)' })),
+              h('span', { class: 'v-name', style: 'font-variant-numeric:tabular-nums;flex:none' }, studyPct.toFixed(0) + '%')),
             h('div', { class: 'v-empty', style: 'padding:8px 0' },
               h('i', { class: 'fa fa-binoculars' }),
               ' Studying — checking every ' + (activeJob.tick_minutes || 15) + ' min. ' +
@@ -2013,12 +2024,21 @@ function ResearchTab() {
     h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
       !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
       : h(Table, null,
-          h('tr', null, h('th', null, 'Question'), h('th', null, 'Mode'), h('th', null, 'Status'), h('th', null, 'Asked'), h('th', null, '')),
+          h('tr', null, h('th', null, 'Question'), h('th', null, 'Mode'), h('th', null, 'Status'),
+            h('th', null, 'Progress'), h('th', null, 'Asked'), h('th', null, '')),
           jobs.map(function (j) {
+            var pct = jobPct(j);
             return h('tr', { key: j.id },
               h('td', { class: 'v-name' }, j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
               h('td', null, j.mode === 'study' ? h(Pill, { kind: 'info' }, j.tick_minutes ? 'study/' + j.tick_minutes + 'm' : 'study') : '—'),
               h('td', null, h(Pill, { kind: j.status === 'done' ? 'run' : j.status === 'error' ? 'stop' : 'warn' }, j.status)),
+              h('td', null, pct != null
+                ? h('div', { style: 'display:flex;align-items:center;gap:6px;min-width:90px' },
+                    h('div', { class: 'v-bar', style: 'flex:1;margin:0' },
+                      h('i', { style: 'width:' + pct.toFixed(0) + '%;background:var(--v-accent)' })),
+                    h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums;font-size:11px' }, pct.toFixed(0) + '%'))
+                : (j.status === 'pending' || j.status === 'running')
+                  ? h('i', { class: 'fa fa-spinner fa-spin muted' }) : h('span', { class: 'muted' }, '—')),
               h('td', { class: 'muted' }, ts(j.created_at)),
               h('td', null, h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View')));
           }))));
