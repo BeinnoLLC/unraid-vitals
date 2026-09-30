@@ -432,6 +432,107 @@ function v_daily(int $days = 90): array {
 }
 
 /**
+ * Raw hourly rollup rows across all history files, sorted by hour — the
+ * building block for anomaly detection (P15-03), which needs hour-of-week
+ * resolution that v_daily()'s day-level aggregation throws away.
+ */
+function v_hourly_rows(): array {
+  $dir = VITALS_FLASH . '/history';
+  if (!is_dir($dir)) return [];
+  $rows = [];
+  foreach (glob($dir . '/*.jsonl') ?: [] as $f) {
+    foreach (explode("\n", (string)@file_get_contents($f)) as $line) {
+      if ($line === '') continue;
+      $r = json_decode($line, true);
+      if (is_array($r) && isset($r['h'])) $rows[] = $r;
+    }
+  }
+  usort($rows, fn($a, $b) => $a['h'] <=> $b['h']);
+  return $rows;
+}
+
+/**
+ * P15-03 — anomaly detection against an hour-of-week baseline.
+ *
+ * Builds a baseline (median + MAD spread) per metric per hour-of-week
+ * bucket (0-167, Monday 00:00 = 0) from all history EXCEPT the most recent
+ * $recentHours, then flags any of those recent hours that sit far outside
+ * the baseline for its own hour-of-week slot — this is exactly why a 90%
+ * CPU load at 03:00 flags on a box that idles then, but the same load
+ * during a nightly backup window (which has its own hour-of-week baseline
+ * built from the backup's own history) does not.
+ *
+ * Requires at least 2 full weeks (336 hourly rows) of baseline history —
+ * before that there's no meaningful "normal for this hour" to compare
+ * against, so this returns a 'need_more_data' status instead of guessing.
+ *
+ * A single spike is noise; this only flags a metric that is anomalous for
+ * 3 consecutive recent hours in a row.
+ */
+function v_anomaly_check(array $metrics = ['cpu' => 'cpu_avg', 'mem' => 'mem_avg', 'temp' => 'temp_max'], int $recentHours = 6): array {
+  $rows = v_hourly_rows();
+  if (count($rows) < 336) {
+    return ['status' => 'need_more_data', 'have_hours' => count($rows), 'need_hours' => 336, 'findings' => []];
+  }
+
+  $recent = array_slice($rows, -$recentHours);
+  $baselineRows = array_slice($rows, 0, -$recentHours);
+
+  // Bucket every baseline row by hour-of-week (0=Mon 00:00 .. 167=Sun 23:00).
+  $buckets = [];
+  foreach ($baselineRows as $r) {
+    $howBucket = ((int)gmdate('N', $r['h'] * 3600) - 1) * 24 + (int)gmdate('G', $r['h'] * 3600);
+    foreach ($metrics as $key => $field) {
+      if (($r[$field] ?? null) !== null) $buckets[$howBucket][$key][] = (float)$r[$field];
+    }
+  }
+
+  $baseline = function (int $howBucket, string $key) use ($buckets) {
+    $vals = $buckets[$howBucket][$key] ?? [];
+    if (count($vals) < 3) return null;   // not enough same-hour history for this slot yet
+    sort($vals);
+    $n = count($vals);
+    $median = $n % 2 ? $vals[intdiv($n, 2)] : ($vals[$n / 2 - 1] + $vals[$n / 2]) / 2;
+    $devs = array_map(fn($v) => abs($v - $median), $vals);
+    sort($devs);
+    $mad = $n % 2 ? $devs[intdiv($n, 2)] : ($devs[$n / 2 - 1] + $devs[$n / 2]) / 2;
+    return ['median' => $median, 'mad' => max($mad, 0.5)];   // floor to avoid a false trigger on a dead-flat metric
+  };
+
+  // Walk recent hours and mark each one anomalous or not per metric, then
+  // require 3-in-a-row before it counts as a finding, not just one spike.
+  $flags = [];
+  foreach ($recent as $r) {
+    $howBucket = ((int)gmdate('N', $r['h'] * 3600) - 1) * 24 + (int)gmdate('G', $r['h'] * 3600);
+    foreach ($metrics as $key => $field) {
+      $val = $r[$field] ?? null;
+      if ($val === null) continue;
+      $b = $baseline($howBucket, $key);
+      if ($b === null) continue;
+      $z = abs($val - $b['median']) / ($b['mad'] * 1.4826);   // 1.4826 scales MAD to be comparable to a std-dev
+      $flags[$key][] = $z >= 3.5 ? ['h' => $r['h'], 'val' => $val, 'median' => $b['median'], 'z' => round($z, 1)] : null;
+    }
+  }
+
+  $findings = [];
+  foreach ($flags as $key => $seq) {
+    // Consecutive-3 anywhere in the recent window, not just at the tail —
+    // a spike that started 4 hours ago and is still going should still flag.
+    for ($i = 0; $i + 2 < count($seq); $i++) {
+      if ($seq[$i] && $seq[$i + 1] && $seq[$i + 2]) {
+        $findings[] = [
+          'metric' => $key, 'hours' => [$seq[$i]['h'], $seq[$i + 1]['h'], $seq[$i + 2]['h']],
+          'value' => $seq[$i + 2]['val'], 'baseline_median' => $seq[$i + 2]['median'], 'z_score' => $seq[$i + 2]['z'],
+        ];
+        break;   // one finding per metric per run is enough
+      }
+    }
+  }
+
+  return ['status' => 'ok', 'have_hours' => count($rows), 'findings' => $findings];
+}
+
+/**
  * P15-01 — capacity forecast: "full in about N days" per array/cache disk
  * and docker.img, from a linear fit over the last 30 daily fs_bytes
  * snapshots.

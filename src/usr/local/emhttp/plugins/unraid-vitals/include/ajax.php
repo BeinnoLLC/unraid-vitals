@@ -74,6 +74,11 @@ try {
     exit;
   }
 
+  if ($action === 'anomaly') {
+    echo json_encode(['ok' => true] + v_anomaly_check(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'settings') {
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $ring = is_file('/var/tmp/unraid-vitals/history.json')

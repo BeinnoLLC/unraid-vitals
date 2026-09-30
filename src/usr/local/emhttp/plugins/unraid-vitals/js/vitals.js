@@ -917,6 +917,16 @@ function DashTab(P) {
   var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
   var cores = load.cores || 1;
 
+  // P15-03: anomaly detection against an hour-of-week baseline — a
+  // dashboard-level signal (cross-metric), not tied to any one tab.
+  var anState = useState(null); var anomaly = anState[0], setAnomaly = anState[1];
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=anomaly', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setAnomaly(j); })
+      .catch(function () { setAnomaly({ status: 'error', findings: [] }); });
+  }, []);
+
   var cpuSeries = [
     { name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) },
     { name: 'Memory %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) },
@@ -1024,7 +1034,24 @@ function DashTab(P) {
       h(Panel, { title: 'Docker containers', span2: true,
         hint: ((d.docker || {}).running || 0) + ' of ' + ((d.docker || {}).count || 0) + ' running' },
         h(ContainerTable, { d: d, compact: true })),
-      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))));
+      h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))),
+    h('div', { class: 'v-grid' },
+      h(Panel, { title: 'Anomaly detection', span2: true,
+        hint: anomaly && anomaly.status === 'ok' ? anomaly.have_hours + 'h of history' : '' },
+        !anomaly ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Building baseline…')
+        : anomaly.status === 'need_more_data'
+          ? h('div', { class: 'v-empty' }, 'Needs at least 2 weeks of history to build a per-hour baseline — '
+              + anomaly.have_hours + ' of ' + anomaly.need_hours + ' hours collected so far.')
+        : !anomaly.findings.length
+          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-check-circle' }), ' Everything is within its usual range for this time of week.')
+        : anomaly.findings.map(function (f, i) {
+            return h('div', { key: i, class: 'v-ai-item' },
+              h('i', { class: 'fa fa-exclamation-triangle' }),
+              h('div', { class: 'v-ai-body' },
+                h('div', { class: 'v-ai-title' }, f.metric.toUpperCase() + ' is well outside its usual range for this time') ,
+                h('div', { class: 'v-ai-detail' }, 'Reading ' + f.value + ' for 3+ hours, vs a usual '
+                  + f.baseline_median + ' at this hour of the week (z-score ' + f.z_score + ').')));
+          }))));
 }
 
 function merge(a, b) {
