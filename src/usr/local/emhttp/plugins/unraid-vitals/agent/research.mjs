@@ -24,6 +24,7 @@
  */
 import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt } from './lib/smythos-client.mjs';
+import { selectModels } from './lib/models.mjs';
 import { latestSnapshot, vmList } from './lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
@@ -167,12 +168,16 @@ async function main() {
       // surfaced as such (with which model said what), never silently
       // picking one. The user asked for exactly this kind of multi-model
       // reading; the synthesis is what stops it being 3× the text.
-      // Default must name models that actually exist on the studios: the
-      // old llama3.1:8b / gemma2:9b defaults are not installed anywhere,
-      // so every unconfigured run burned three guaranteed-doomed calls
-      // before retrying. (Configured runs get the real list from
-      // VITALS_DIAG_MODELS in vitals.cfg.)
-      const models = (process.env.VITALS_DIAG_MODELS || 'qwen3:14b,ministral-3:latest,devstral-small-2:latest').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+      // Which models to ask: whatever the admin enabled AND that actually
+      // exists right now, else live discovery from the studios' /api/tags.
+      // Hand-maintained lists drift — they keep naming models that were
+      // never installed (costing a doomed call each) while missing the ones
+      // pulled later.
+      const models = await selectModels({
+        enabled: process.env.VITALS_DIAG_MODELS || '',
+        prefer: ['gemma3:12b', 'qwen2.5:7b', 'deepseek-coder-v2:16b'],
+        limit: 3
+      });
       // A transient overload on the shared studio used to kill the whole
       // job ("all models failed") — two auto-jobs launched from one agent
       // run arrive together and overload it. Retry the whole drafting pass

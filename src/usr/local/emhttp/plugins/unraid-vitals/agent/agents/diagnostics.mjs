@@ -17,6 +17,7 @@
  * model agreement matters most exactly here, where "X caused Y" is the
  * easiest thing to hallucinate.
  */
+import { selectModels } from '../lib/models.mjs';
 import { runSpecialistMultiModel } from './contract.mjs';
 import { latestSnapshot, recentSyslogWarnings } from '../lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
@@ -24,8 +25,7 @@ import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
 export const AGENT_ID = 'diagnostics';
 export const KB_REPORT = `${Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6))}-hour diagnostics scan`;
 
-// Only names that exist on the LLM studios — a missing model costs a full
-// failed call in every multi-model pass.
+// Used only when the studios cannot be reached for discovery at all.
 const DEFAULT_MODELS = ['qwen3:14b', 'ministral-3:latest', 'devstral-small-2:latest'];
 
 function deltaTable(cur, both) {
@@ -47,8 +47,11 @@ function deltaTable(cur, both) {
 
 export async function run() {
   const hours = Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6));
-  const models = (process.env.VITALS_DIAG_MODELS || DEFAULT_MODELS.join(','))
-    .split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+  const models = await selectModels({
+    enabled: process.env.VITALS_DIAG_MODELS || '',
+    prefer: ['gemma3:12b', 'qwen2.5:7b', 'deepseek-coder-v2:16b'],
+    limit: 3
+  });
 
   const snap = latestSnapshot();
   const cur = timelineWindow(hours);
