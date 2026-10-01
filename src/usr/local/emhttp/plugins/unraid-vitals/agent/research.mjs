@@ -168,15 +168,29 @@ async function main() {
       // picking one. The user asked for exactly this kind of multi-model
       // reading; the synthesis is what stops it being 3× the text.
       const models = (process.env.VITALS_DIAG_MODELS || 'qwen3:14b,llama3.1:8b,gemma2:9b').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
-      const drafts = [];
-      for (const model of models) {
-        try {
-          const agent = await makeAnalysisAgent(`Vitals-Research-${model}`, BEHAVIOR, { maxTokens: 900, temperature: 0.3, model });
-          const parsed = extractJson(await callAnalyze(agent, BEHAVIOR, userPrompt));
-          if (typeof parsed?.answer === 'string') drafts.push({ model, answer: parsed.answer, used: Array.isArray(parsed.used_docs) ? parsed.used_docs : [] });
-        } catch (e) { console.warn(`[research#${jobId}] ${model} failed: ${e?.message || e}`); }
+      // A transient overload on the shared studio used to kill the whole
+      // job ("all models failed") — two auto-jobs launched from one agent
+      // run arrive together and overload it. Retry the whole drafting pass
+      // on a stagger so a busy studio costs seconds, not the investigation.
+      let drafts = [];
+      let lastErr;
+      for (let attempt = 1; attempt <= 3 && !drafts.length; attempt++) {
+        const perModel = [];
+        for (const model of models) {
+          try {
+            const agent = await makeAnalysisAgent(`Vitals-Research-${model}`, BEHAVIOR, { maxTokens: 900, temperature: 0.3, model });
+            const parsed = extractJson(await callAnalyze(agent, BEHAVIOR, userPrompt));
+            if (typeof parsed?.answer === 'string') perModel.push({ model, answer: parsed.answer, used: Array.isArray(parsed.used_docs) ? parsed.used_docs : [] });
+            else lastErr = `${model}: no answer field in JSON`;
+          } catch (e) { lastErr = e?.message || String(e); console.warn(`[research#${jobId}] ${model} failed: ${lastErr}`); }
+        }
+        drafts = perModel;
+        if (!drafts.length && attempt < 3) {
+          console.warn(`[research#${jobId}] no drafts on attempt ${attempt} (${lastErr}); retrying in ${attempt * 20}s`);
+          await new Promise(r => setTimeout(r, attempt * 20000));
+        }
       }
-      if (!drafts.length) throw new Error('all models failed');
+      if (!drafts.length) throw new Error(`all models failed after 3 attempts: ${lastErr}`);
       if (drafts.length === 1) { answer = drafts[0].answer; usedDocs = drafts[0].used; }
       else {
         const synthPrompt = `Question: ${job.prompt}\n\n${drafts.map(d => `--- Answer from ${d.model} ---\n${d.answer}`).join('\n\n')}\n\n` +

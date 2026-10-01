@@ -14,6 +14,7 @@
  */
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { mkdirSync, openSync, readFileSync, writeFileSync, closeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { claimAutoTrigger, recordAutoTriggerJob, createResearchJob, createStudyJob, getDb } from './db.mjs';
 
@@ -94,11 +95,38 @@ export function fireAutoResearch(agent, findings, { launch = true } = {}) {
   return filed;
 }
 
+/* Jobs launched in the same batch hit the shared LLM studio together and
+ * overload it (one of them returns no draft, or nothing at all). Stagger:
+ * each job waits until its slot is free — the first launches immediately,
+ * the next after 45s, the next after 90s — so a batch of auto-research jobs
+ * spreads itself instead of stampeding. */
+const LIVE_JOBS = '/var/tmp/unraid-vitals/agent-jobs.lock';
+function staggerSeconds() {
+  try {
+    mkdirSync(dirname(LIVE_JOBS), { recursive: true });
+    const lock = openSync(LIVE_JOBS, 'a+');
+    try {
+      const now = Math.floor(Date.now() / 1000);
+      // recycle: drop slots whose 3-minute window has passed
+      const active = readFileSync(LIVE_JOBS, 'utf8').split('\n').map(Number).filter(t => t && now - t < 180);
+      writeFileSync(LIVE_JOBS, [...active, now].join('\n') + '\n');
+      return active.length * 45;
+    } finally { closeSync(lock); }
+  } catch (e) { console.warn(`[auto-research] stagger unavailable: ${e?.message || e}`); return 0; }
+}
+
 function launchJob(mode, jobId) {
   const script = join(HERE, '..', mode === 'study' ? 'study.mjs' : 'research.mjs');
   const args = mode === 'study' ? ['--once', String(jobId)] : [String(jobId)];
+  const wait = staggerSeconds();
   try {
-    const child = spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', env: process.env });
-    child.unref();
+    if (wait > 0) {
+      // shell shim so the sleep happens before the agent process exists:
+      // the studio sees one request stream at a time, not a stampede.
+      const shim = `sleep ${wait}; exec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} ${args.map(a => JSON.stringify(a)).join(' ')}`;
+      spawn('/bin/sh', ['-c', shim], { detached: true, stdio: 'ignore', env: process.env }).unref();
+    } else {
+      spawn(process.execPath, [script, ...args], { detached: true, stdio: 'ignore', env: process.env }).unref();
+    }
   } catch (e) { console.warn(`[auto-research] launch failed for job ${jobId}: ${e?.message || e}`); }
 }

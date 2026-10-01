@@ -25,14 +25,21 @@ for (let i = 120; i >= 0; i--) {
 }
 writeFileSync(dir + '/history.json', JSON.stringify(ring));
 writeFileSync(dir + '/latest.json', JSON.stringify({ time: now, cpu: { total: 70 }, mem: { pct: 40 }, load: { l1: 1.2 }, temp_max: 44, docker: { running: 2, count: 3 } }));
-// rollups: 48 hourly rows before the ring
-const month = new Date().toISOString().slice(0, 7);
-const lines = [];
+// rollups: 48 hourly rows before the ring. Bucket each row into the month
+// file it really belongs to — a row from "6h ago" lands in the previous
+// month file at month boundaries, and rollups() only reads the month files
+// that overlap the requested range, so a single-file fixture silently
+// returns nothing on the 1st of a month.
+const monthOf = (t) => new Date(t * 1000).toISOString().slice(0, 7);
+const byMonth = new Map();
 for (let h = 50; h >= 3; h--) {
   const hour = Math.floor((now - h * 3600) / 3600);
-  lines.push(JSON.stringify({ h: hour, cpu_avg: 15, cpu_max: 25, mem_avg: 38, mem_max: 41, load_avg: 0.8, load_max: 1.5, temp_avg: 34, temp_max: 37, net_rx: 3e9, net_tx: 5e8, fs_used: 14.9e12, smart: { disk3: { name: 'disk3', temp: 37, reallocated: 0, pending: 0 } } }));
+  const row = JSON.stringify({ h: hour, cpu_avg: 15, cpu_max: 25, mem_avg: 38, mem_max: 41, load_avg: 0.8, load_max: 1.5, temp_avg: 34, temp_max: 37, net_rx: 3e9, net_tx: 5e8, fs_used: 14.9e12, smart: { disk3: { name: 'disk3', temp: 37, reallocated: 0, pending: 0 } } });
+  const m = monthOf(hour * 3600);
+  if (!byMonth.has(m)) byMonth.set(m, []);
+  byMonth.get(m).push(row);
 }
-writeFileSync(`${dir}/flash/${month}.jsonl`, lines.join('\n') + '\n');
+for (const [m, rows] of byMonth) writeFileSync(`${dir}/flash/${m}.jsonl`, rows.join('\n') + '\n');
 
 // events
 const { getDb, createOrTouchEvent, resolveEventsByKey } = await import('../src/usr/local/emhttp/plugins/unraid-vitals/agent/lib/db.mjs');
