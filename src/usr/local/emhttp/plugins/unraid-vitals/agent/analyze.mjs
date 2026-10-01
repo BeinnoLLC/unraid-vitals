@@ -10,7 +10,7 @@
  * Usage: node analyze.mjs [agentId ...]   (default: run every registered agent)
  */
 import { randomUUID } from 'node:crypto';
-import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun, insertKbDocument } from './lib/db.mjs';
+import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun, insertKbDocument, reapStaleRuns } from './lib/db.mjs';
 import * as disks from './agents/disks.mjs';
 import * as thermal from './agents/thermal.mjs';
 import * as pools from './agents/pools.mjs';
@@ -84,6 +84,9 @@ async function runAgent(mod) {
 
 async function main() {
   getDb(); // ensure schema exists before any agent runs
+  // Clear rows left behind by killed processes before deciding what is due —
+  // otherwise an abandoned run makes its agent look permanently overdue.
+  reapStaleRuns();
   const only = process.argv.slice(2);
   const allMods = [...FAST_REGISTRY, ...GATED_REGISTRY.map(g => g.mod)];
   const fast = only.length ? FAST_REGISTRY.filter(m => only.includes(m.AGENT_ID)) : FAST_REGISTRY;

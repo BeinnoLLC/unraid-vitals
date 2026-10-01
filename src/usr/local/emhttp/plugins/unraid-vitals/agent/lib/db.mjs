@@ -297,6 +297,21 @@ export function isDueForRun(agentGroup, intervalMinutes) {
   return Math.floor(Date.now() / 1000) >= dueAt;
 }
 
+/** Runs killed mid-flight (reboot, OOM, pkill) leave their row stuck in
+ *  'running' forever. Those rows never count as finished, so the agent looks
+ *  overdue on every later check and the Research/AI tab shows a permanent
+ *  "running since…" that never resolves. Mark anything older than
+ *  staleRunMinutes as error so it is visible and re-runnable. */
+export function reapStaleRuns(staleRunMinutes = 90) {
+  const cutoff = Math.floor(Date.now() / 1000) - staleRunMinutes * 60;
+  const res = getDb().prepare(
+    `UPDATE runs SET status = 'error', error = COALESCE(NULLIF(error,''), 'abandoned: process killed before finishing'),
+       finished_at = ? WHERE status = 'running' AND started_at < ?`
+  ).run(Math.floor(Date.now() / 1000), cutoff);
+  if (res.changes) console.warn(`[runs] reaped ${res.changes} abandoned run(s) older than ${staleRunMinutes}m`);
+  return res.changes || 0;
+}
+
 /** Replace an agent's prior findings with a fresh batch (one run = one snapshot). */
 export function replaceFindings(agent, runId, findings) {
   const d = getDb();

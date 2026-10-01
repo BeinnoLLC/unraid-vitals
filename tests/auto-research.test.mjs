@@ -9,7 +9,7 @@ process.env.VITALS_DB_PATH = join(process.env.VITALS_STATE_DIR, 'vitals.db');
 
 const { ruleFor, fireAutoResearch } = await import('../src/usr/local/emhttp/plugins/unraid-vitals/agent/lib/auto-research.mjs');
 const { compareVersions } = await import('../src/usr/local/emhttp/plugins/unraid-vitals/agent/agents/unraid-release.mjs');
-const { getDb, getResearchJob } = await import('../src/usr/local/emhttp/plugins/unraid-vitals/agent/lib/db.mjs');
+const { getDb, getResearchJob, reapStaleRuns } = await import('../src/usr/local/emhttp/plugins/unraid-vitals/agent/lib/db.mjs');
 
 test('compareVersions orders stable above rc and by numeric parts', () => {
   assert.ok(compareVersions('7.3.2', '7.2.1') > 0);
@@ -36,6 +36,16 @@ test('new Unraid release becomes an upgrade advisory keyed by version', () => {
   assert.equal(r.mode, 'once');
   assert.equal(r.key, 'unraid-release:7.3.2');
   assert.match(r.prompt, /upgrade to 7\.3\.2/);
+});
+
+test('abandoned runs left in running are reaped, live ones are not', () => {
+  const db = getDb();
+  const nowS = Math.floor(Date.now() / 1000);
+  db.prepare("INSERT INTO runs (run_id, agent, started_at, status) VALUES ('old-run','disks',?,'running')").run(nowS - 3 * 3600);
+  db.prepare("INSERT INTO runs (run_id, agent, started_at, status) VALUES ('live-run','disks',?,'running')").run(nowS - 60);
+  assert.equal(reapStaleRuns(90), 1);
+  assert.equal(db.prepare("SELECT status FROM runs WHERE run_id='old-run'").get().status, 'error');
+  assert.equal(db.prepare("SELECT status FROM runs WHERE run_id='live-run'").get().status, 'running');
 });
 
 test('error findings from any agent trigger a 12h-cooldown investigation', () => {
