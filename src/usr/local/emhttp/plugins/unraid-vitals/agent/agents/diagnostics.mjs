@@ -24,7 +24,9 @@ import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
 export const AGENT_ID = 'diagnostics';
 export const KB_REPORT = `${Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6))}-hour diagnostics scan`;
 
-const DEFAULT_MODELS = ['qwen3:14b', 'llama3.1:8b', 'gemma2:9b'];
+// Only names that exist on the LLM studios — a missing model costs a full
+// failed call in every multi-model pass.
+const DEFAULT_MODELS = ['qwen3:14b', 'ministral-3:latest', 'devstral-small-2:latest'];
 
 function deltaTable(cur, both) {
   const rows = [];

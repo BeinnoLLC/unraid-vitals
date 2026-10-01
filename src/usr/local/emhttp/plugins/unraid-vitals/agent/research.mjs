@@ -167,7 +167,12 @@ async function main() {
       // surfaced as such (with which model said what), never silently
       // picking one. The user asked for exactly this kind of multi-model
       // reading; the synthesis is what stops it being 3× the text.
-      const models = (process.env.VITALS_DIAG_MODELS || 'qwen3:14b,llama3.1:8b,gemma2:9b').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
+      // Default must name models that actually exist on the studios: the
+      // old llama3.1:8b / gemma2:9b defaults are not installed anywhere,
+      // so every unconfigured run burned three guaranteed-doomed calls
+      // before retrying. (Configured runs get the real list from
+      // VITALS_DIAG_MODELS in vitals.cfg.)
+      const models = (process.env.VITALS_DIAG_MODELS || 'qwen3:14b,ministral-3:latest,devstral-small-2:latest').split(',').map(s => s.trim()).filter(Boolean).slice(0, 3);
       // A transient overload on the shared studio used to kill the whole
       // job ("all models failed") — two auto-jobs launched from one agent
       // run arrive together and overload it. Retry the whole drafting pass
