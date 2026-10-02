@@ -1,11 +1,13 @@
 /** General system-health specialist — cross-cutting synthesis + error-log triage. */
 import { runSpecialist } from './contract.mjs';
-import { latestSnapshot, tail } from '../lib/sources.mjs';
+import { activeSource, tail } from '../lib/sources.mjs';
+import { healthBrief } from '../viewmodels/health.mjs';
 
 export const AGENT_ID = 'general';
 
 export async function run() {
-  const snap = latestSnapshot();
+  const source = activeSource();
+  const snap = source.snapshot();
   const dk = snap.docker || {};
   const containers = dk.containers || [];
   const stopped = containers.filter(c => c.state !== 'running').map(c => c.name);
@@ -18,10 +20,12 @@ export async function run() {
     maxTokens: 1000,
     knownSubjects: [...containers.map(c => c.name), snap.system?.name],
     sections: [
-      { name: 'system', priority: 5, text: `System: ${snap.system?.name} — Unraid ${snap.system?.version}, uptime ${Math.floor((snap.system?.uptime || 0) / 3600)}h
-Memory: ${snap.mem?.pct ?? 'n/a'}% used, swap ${snap.mem?.swap_pct ?? 0}% (${snap.mem?.swap_used ?? 0} bytes)
-Load: 1m=${snap.load?.l1 ?? 'n/a'} 5m=${snap.load?.l5 ?? 'n/a'} 15m=${snap.load?.l15 ?? 'n/a'} over ${snap.load?.cores ?? '?'} cores
-Docker: ${dk.running ?? 0} running / ${dk.count ?? 0} total. Stopped: ${stopped.join(', ') || 'none'}` },
+      // healthBrief already carries memory, load, cores, disks and container
+      // counts — duplicating them here burned prompt budget and risked the two
+      // copies disagreeing.
+      { name: 'system', priority: 5, text: `${healthBrief(source, 6)}
+Memory: ${snap.mem?.pct ?? 'n/a'}% used, swap ${snap.mem?.swapPct ?? snap.mem?.swap_pct ?? 0}% (${snap.mem?.swapUsed ?? snap.mem?.swap_used ?? 0} bytes)
+Stopped containers (name each one): ${stopped.join(', ') || 'none'}` },
       // Lowest priority: the log tail is the first thing trimmed when the
       // prompt is over budget — it is context, the metrics are the facts.
       { name: 'collector_log', priority: 1, text: `Collector log tail (last ~120 lines, may include noise — only flag real errors):

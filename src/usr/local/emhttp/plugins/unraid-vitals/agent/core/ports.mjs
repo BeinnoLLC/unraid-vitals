@@ -106,11 +106,16 @@ export function makePoint(o = {}) {
  * viewmodels, then remove the alias.
  */
 export function makeSnapshot(o = {}) {
+  // system/mem/cpu keep BOTH halves: the normalized keys plus every key the
+  // source supplied. Rebuilding these objects from a fixed key list is what
+  // silently broke disks.mjs (reads system.md_state) and general.mjs (reads
+  // mem.swap_pct) — a dropped key reports "unknown" instead of failing.
   const snap = {
     time: num(o.time ?? Math.floor(Date.now() / 1000)),
-    system: { name: o.system?.name ?? '', version: o.system?.version ?? '', uptime: num(o.system?.uptime) },
-    cpu: { total: num(o.cpu?.total), cores: num(o.cpu?.cores) },
+    system: { ...o.system, name: o.system?.name ?? '', version: o.system?.version ?? '', uptime: num(o.system?.uptime) },
+    cpu: { ...o.cpu, total: num(o.cpu?.total), cores: num(o.cpu?.cores) },
     mem: {
+      ...o.mem,
       pct: num(o.mem?.pct),
       swapPct: num(o.mem?.swapPct ?? o.mem?.swap_pct),
       swapUsed: num(o.mem?.swapUsed ?? o.mem?.swap_used)

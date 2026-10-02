@@ -87,7 +87,8 @@ writeFileSync(join(fixtureDir, 'latest.json'), JSON.stringify({
   time: 1700000000, system: { name: 'fixturebox', version: '7', uptime: 3600 },
   cpu: { total: 42, cores: 8 }, mem: { pct: 61, swap_pct: 3, swap_used: 4096 },
   load: { l1: 1.4, l5: 1.1, l15: 0.9, cores: 8 },
-  temp_max: 41, temp_avg: 39,
+  temp_max: 41, temp_avg: 39, array_state: 'Normal',
+  system: { name: 'fixturebox', version: '7.3.2', uptime: 3600, md_state: 'Normal' },
   array: { data: [{ name: 'disk1', temp: 35 }], parity: [{ name: 'disk2', temp: 34 }], cache: [] },
   sensors: { temps: [{ id: 'temp1', label: 'CPU', value: 45, crit: 90 }], fans: [{ id: 'fan1', label: 'CPU fan', rpm: 900 }] },
   shares: [{ name: 'apps' }], smart: { disk1: { temp: 35 } },
@@ -177,6 +178,12 @@ test('native subsystem blocks survive normalization (silent-empty guard)', () =>
   assert.ok(Array.isArray(snap.shares));
   assert.ok(snap.net && snap.flash);
   assert.equal(snap.mem.swapPct, 3, 'snake_case swap_pct normalized');
+  // The specialists read the NATIVE spellings; both must survive.
+  assert.equal(snap.mem.swap_pct, 3, 'native swap_pct must survive for general.mjs');
+  assert.equal(snap.mem.swap_used, 4096, 'native swap_used must survive');
+  assert.equal(snap.system.md_state, 'Normal', 'system.md_state must survive for disks.mjs');
+  assert.equal(snap.load.cores, 8, 'load.cores must survive (disks/general read it)');
+  assert.equal(snap.cpu.cores, 8);
   // AND the normalized half is populated from the same data.
   assert.equal(snap.disks.length, 2);
   assert.equal(snap.tempMax, 41);

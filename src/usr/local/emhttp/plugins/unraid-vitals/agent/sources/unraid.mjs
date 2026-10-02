@@ -29,12 +29,13 @@ function snapshotFrom(raw) {
   ];
   return makeSnapshot({
     time: d.time,
-    system: d.system,
-    cpu: { total: d.cpu?.total, cores: d.cpu?.cores },
-    // The collector writes swap_pct/swap_used; the port names are
-    // swapPct/swapUsed. Map both so neither spelling is silently lost.
-    mem: { pct: d.mem?.pct, swapPct: d.mem?.swapPct ?? d.mem?.swap_pct, swapUsed: d.mem?.swapUsed ?? d.mem?.swap_used },
-    load: { l1: d.load?.l1, l5: d.load?.l5, l15: d.load?.l15, cores: d.load?.cores },
+    system: d.system,          // pass through: disks.mjs reads system.md_state
+    // Spread the native objects rather than rebuilding them: general.mjs
+    // reads mem.swap_pct/swap_used and disks.mjs reads system.md_state.
+    // Rebuilding from a fixed key list silently drops those.
+    cpu: { ...d.cpu },
+    mem: { ...d.mem, swapPct: d.mem?.swapPct ?? d.mem?.swap_pct, swapUsed: d.mem?.swapUsed ?? d.mem?.swap_used },
+    load: { ...d.load },
     tempMax: d.temp_max ?? d.tempMax,
     temp_avg: d.temp_avg,
     array: arr,

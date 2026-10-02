@@ -1,11 +1,11 @@
 /** Disk & array health specialist — SMART trends, fill rate, spin health. */
 import { runSpecialist } from './contract.mjs';
-import { latestSnapshot } from '../lib/sources.mjs';
+import { activeSource } from '../lib/sources.mjs';
 
 export const AGENT_ID = 'disks';
 
 export async function run() {
-  const snap = latestSnapshot();
+  const snap = activeSource().snapshot();
   const a = snap.array || {};
   const smart = snap.smart || {};
   const disks = [...(a.parity || []), ...(a.data || []), ...(a.cache || [])];
@@ -17,7 +17,7 @@ export async function run() {
     maxTokens: 1100,
     knownSubjects: [...disks.map(d => d.name), ...Object.values(smart).map(s => s.name), ...Object.keys(smart)],
     sections: [
-      { name: 'array', priority: 3, text: `Array state: ${a && snap.system ? snap.system.md_state : 'unknown'}
+      { name: 'array', priority: 3, text: `Array state: ${snap.system?.md_state || snap.array_state || 'unknown'}
 Disks (name, type, temp C, used%, errors, spundown):
 ${disks.map(d => `- ${d.name} (${d.type}): temp=${d.temp ?? 'n/a'}C used=${d.usedPct?.toFixed?.(1) ?? 'n/a'}% errors=${d.numErrors ?? 0} spundown=${d.spundown}`).join('\n')}` },
       { name: 'smart', priority: 2, text: `SMART detail (name, health, power-on hours, reallocated, pending, uncorrectable, CRC errors):
