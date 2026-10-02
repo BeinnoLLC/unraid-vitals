@@ -19,7 +19,7 @@
  */
 import { selectModels } from '../lib/models.mjs';
 import { runSpecialistMultiModel } from './contract.mjs';
-import { latestSnapshot, recentSyslogWarnings } from '../lib/sources.mjs';
+import { activeSource, recentSyslogWarnings } from '../lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
 
 export const AGENT_ID = 'diagnostics';
@@ -53,7 +53,7 @@ export async function run() {
     limit: 3
   });
 
-  const snap = latestSnapshot();
+  const snap = activeSource().snapshot();
   const cur = timelineWindow(hours);
   const both = timelineWindow(hours * 2);
   const syslog = recentSyslogWarnings(hours * 60, 250);

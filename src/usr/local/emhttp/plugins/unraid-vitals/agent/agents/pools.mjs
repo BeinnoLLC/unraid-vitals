@@ -1,11 +1,11 @@
 /** Storage-pool specialist — cache/pool fill, balance, and share placement. */
 import { runSpecialist } from './contract.mjs';
-import { latestSnapshot } from '../lib/sources.mjs';
+import { activeSource } from '../lib/sources.mjs';
 
 export const AGENT_ID = 'pools';
 
 export async function run() {
-  const snap = latestSnapshot();
+  const snap = activeSource().snapshot();
   const pools = snap.array?.cache || [];
   const shares = snap.shares?.list || [];
   const poolOnly = shares.filter(s => s.pool === 'only');
