@@ -1,40 +1,72 @@
-/** Thermal specialist — CPU / disk / pool temperatures and fan-adjacent risk. */
+/**
+ * Thermal specialist — disks, sensors and cooling, on the layered stack.
+ *
+ * Same agent id, same findings schema, same thresholds as before, but its
+ * data now comes from a source object rather than Unraid paths. Point
+ * VITALS_SOURCE at another source and this agent reports on that box with
+ * no change here.
+ */
 import { runSpecialist } from './contract.mjs';
-import { latestSnapshot, history } from '../lib/sources.mjs';
+import { activeSource } from '../lib/sources.mjs';
+import { hottestDisks } from '../viewmodels/health.mjs';
+import { UnsupportedError } from '../core/ports.mjs';
 
 export const AGENT_ID = 'thermal';
 
+/** Sensor rows, when the source can supply them. Returns null otherwise. */
+function sensorRows(source) {
+  let raw;
+  try {
+    raw = source.sensors();
+  } catch (e) {
+    if (e instanceof UnsupportedError) return null;   // source has no sensors
+    throw e;
+  }
+  const sensors = raw?.sensors || raw;
+  const list = Array.isArray(raw) ? raw : (sensors?.temps || []);
+  const temps = list
+    .map((s) => ({
+      label: s.label || s.id || s.name || 'sensor',
+      chip: s.chip || s.device || '',
+      value: Number.isFinite(s.value) ? s.value : Number(s.value),
+      max: Number.isFinite(s.max) ? s.max : null,
+      crit: Number.isFinite(s.crit) ? s.crit : null
+    }))
+    .filter((s) => Number.isFinite(s.value));
+  const fans = (Array.isArray(sensors?.fans) ? sensors.fans : []).map((f) => ({
+    label: f.label || f.id || f.name || 'fan',
+    rpm: Number.isFinite(f.rpm) ? f.rpm : Number(f.rpm)
+  })).filter((f) => Number.isFinite(f.rpm));
+  return { temps, fans };
+}
+
 export async function run() {
-  const snap = latestSnapshot();
-  const ring = history().slice(-120);
-  const a = snap.array || {};
-  const disks = [...(a.parity || []), ...(a.data || []), ...(a.cache || [])]
-    .filter(d => d.temp != null);
-  const tSeries = ring.map(p => p.temp_max).filter(v => v != null);
-  const trend = tSeries.length >= 10
-    ? (tSeries.slice(-10).reduce((s, v) => s + v, 0) / 10 -
-       tSeries.slice(0, 10).reduce((s, v) => s + v, 0) / 10).toFixed(1)
-    : 'insufficient history';
-  const sensors = snap.sensors || {};
-  const temps = (sensors.temps || []).slice(0, 40);
-  const fans = (sensors.fans || []).slice(0, 20);
+  const source = activeSource();
+  const snap = source.snapshot();
+  const hot = hottestDisks(source, 8);
+  const sensors = sensorRows(source);
+
+  const diskLines = hot.map((d) => `${d.name}=${d.temp ?? 'n/a'}C (${d.role})`).join(', ') || '(no disk temperatures available)';
+  const temps = sensors?.temps || [];
+  const fans = sensors?.fans || [];
 
   return runSpecialist({
     agentName: 'Vitals-Thermal',
     behavior: 'You are the thermal-management specialist inside Unraid Vitals, a background health-monitoring agent. You are given current temperature and load data and must return structured findings, nothing else.',
     systemRole: 'You are a thermal-management specialist for an Unraid server. You watch CPU load vs. temperature relationships and disk/pool temperature trends to catch cooling problems before they cause throttling or shortened drive life.',
     maxTokens: 700,
-    knownSubjects: [...disks.map(d => d.name), ...temps.map(t => t.label), ...temps.map(t => t.id), ...fans.map(f => f.label), ...fans.map(f => f.id)],
+    knownSubjects: [
+      ...hot.map((d) => d.name),
+      ...temps.map((t) => t.label), ...temps.map((t) => t.chip).filter(Boolean),
+      ...fans.map((f) => f.label),
+      snap.system?.name
+    ],
     sections: [
-      { name: 'summary', priority: 5, text: `Current hottest disk: ${snap.temp_max ?? 'n/a'}C (avg ${snap.temp_avg ?? 'n/a'}C)
-CPU load: ${snap.cpu?.total ?? 'n/a'}%
-Hottest-disk trend over the last ~2h (recent 10-sample avg minus earlier 10-sample avg, degrees C): ${trend}
-Sample count in window: ${tSeries.length}` },
-      { name: 'disk_temps', priority: 3, text: `Disk temps now: ${disks.map(d => `${d.name}=${d.temp}C`).join(', ') || '(none)'}` },
-      { name: 'sensors', priority: 2, text: `Board/CPU sensors (label: now C, chip max C, chip crit C):
-${temps.map(t => `- ${t.label}: ${t.value}C max=${t.max ?? 'n/a'} crit=${t.crit ?? 'n/a'}`).join('\n') || '(no hwmon temps)'}
-Fans (label: rpm):
-${fans.map(f => `- ${f.label}: ${f.rpm} rpm`).join('\n') || '(no hwmon fans)'}` },
+      { name: 'summary', priority: 5, text: `System: ${snap.system?.name} — hottest disk ${typeof snap.tempMax === 'number' ? snap.tempMax : 'n/a'}C (avg ${typeof snap.temp_avg === 'number' ? snap.temp_avg : 'n/a'}C)\nCPU load: ${snap.cpu?.total ?? 'n/a'}%\nHottest disks: ${diskLines}` },
+      { name: 'disk_temps', priority: 3, text: `Disk temps now: ${diskLines}` },
+      { name: 'sensors', priority: 2, text: sensors
+        ? `Board/CPU sensors (label: now C, chip max C, chip crit C):\n${temps.map((t) => `- ${t.label}: ${t.value}C max=${t.max ?? 'n/a'} crit=${t.crit ?? 'n/a'}`).join('\n') || '(no hwmon temps)'}\nFans (label: rpm):\n${fans.map((f) => `- ${f.label}: ${f.rpm} rpm`).join('\n') || '(no hwmon fans)'}`
+        : '(this source reports no hwmon sensors)' },
       { name: 'instructions', priority: 9, text: 'Flag: any disk above 50C, any sensor within 10C of its chip max, a fan reading 0 rpm that has a label suggesting it should spin, a rising trend even if still under threshold, and note if the array has spun-down disks masking real temps (spundown disks report null/last-known temp, not current).' }
     ]
   });

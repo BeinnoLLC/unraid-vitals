@@ -30,10 +30,17 @@ function snapshotFrom(raw) {
   return makeSnapshot({
     time: d.time,
     system: d.system,
-    cpu: d.cpu,
-    mem: d.mem,
-    load: d.load,
+    cpu: { total: d.cpu?.total, cores: d.cpu?.cores },
+    // The collector writes swap_pct/swap_used; the port names are
+    // swapPct/swapUsed. Map both so neither spelling is silently lost.
+    mem: { pct: d.mem?.pct, swapPct: d.mem?.swapPct ?? d.mem?.swap_pct, swapUsed: d.mem?.swapUsed ?? d.mem?.swap_used },
+    load: { l1: d.load?.l1, l5: d.load?.l5, l15: d.load?.l15, cores: d.load?.cores },
     tempMax: d.temp_max ?? d.tempMax,
+    temp_avg: d.temp_avg,
+    array: arr,
+    // Pass-through: the existing specialists read these blocks directly.
+    sensors: d.sensors, shares: d.shares, smart: d.smart,
+    net: d.net, flash: d.flash,
     docker: {
       running: d.docker?.running,
       count: d.docker?.count,
@@ -106,11 +113,12 @@ export function createUnraidSource({ stateDir = STATE_DIR } = {}) {
       return syslogWarnings(minutes, maxLines, process.env.VITALS_SYSLOG || '/var/log/syslog');
     },
 
-    /** Fan/sensor data lives only on a real Unraid box. */
+    /** Fan/sensor data: the collector puts it in latest.json's `sensors`
+     *  block (there is no separate sensors.json). */
     sensors() {
-      const s = readStateFile(stateDir, 'sensors.json', null);
-      if (!s) throw new UnsupportedError('no sensor data in this state dir', { provider: 'sensors' });
-      return s;
+      const snap = source.snapshot();
+      if (!snap.sensors) throw new UnsupportedError('this source reports no hwmon sensors', { provider: 'sensors' });
+      return snap.sensors;
     },
 
     /** Capabilities this host actually has — lets a viewmodel degrade
@@ -119,7 +127,7 @@ export function createUnraidSource({ stateDir = STATE_DIR } = {}) {
       return {
         containers: hasBin('docker'),
         hypervisor: hasBin('virsh'),
-        sensors: !!readStateFile(stateDir, 'sensors.json', null)
+        sensors: !!source.snapshot().sensors
       };
     },
 

@@ -93,15 +93,30 @@ export function makePoint(o = {}) {
   return p;
 }
 
-/** Whole-system facts as of now. */
+/**
+ * Whole-system facts as of now.
+ *
+ * Like makePoint(), this carries BOTH the normalized port fields (disks,
+ * tempMax, mem.pct) and the collector's native shape (array, temp_max,
+ * sensors, shares, smart, net, flash). The native half is not decoration:
+ * the existing specialists read snap.array, snap.temp_max, snap.sensors,
+ * snap.shares, snap.smart, snap.net and snap.flash directly. Dropping them
+ * does not throw — it silently reports "no disks" and "no sensors", which is
+ * worse than a crash. Migrate a module by adding the native read to the
+ * viewmodels, then remove the alias.
+ */
 export function makeSnapshot(o = {}) {
-  return {
+  const snap = {
     time: num(o.time ?? Math.floor(Date.now() / 1000)),
     system: { name: o.system?.name ?? '', version: o.system?.version ?? '', uptime: num(o.system?.uptime) },
     cpu: { total: num(o.cpu?.total), cores: num(o.cpu?.cores) },
-    mem: { pct: num(o.mem?.pct), swapPct: num(o.mem?.swapPct), swapUsed: num(o.mem?.swapUsed) },
+    mem: {
+      pct: num(o.mem?.pct),
+      swapPct: num(o.mem?.swapPct ?? o.mem?.swap_pct),
+      swapUsed: num(o.mem?.swapUsed ?? o.mem?.swap_used)
+    },
     load: { l1: num(o.load?.l1), l5: num(o.load?.l5), l15: num(o.load?.l15), cores: num(o.load?.cores) },
-    tempMax: num(o.tempMax),
+    tempMax: num(o.tempMax ?? o.temp_max),
     docker: {
       running: num(o.docker?.running),
       count: num(o.docker?.count),
@@ -110,6 +125,16 @@ export function makeSnapshot(o = {}) {
     disks: Array.isArray(o.disks) ? o.disks.map(makeDisk) : [],
     vms: Array.isArray(o.vms) ? o.vms.map(makeVm) : []
   };
+  // Native on-disk aliases — see the note above. These are pass-through, not
+  // recomputed, so a source with extra subsystem data keeps it for free.
+  const arr = o.array || o.disksByRole;
+  if (arr) snap.array = arr;
+  for (const k of ['sensors', 'shares', 'smart', 'net', 'flash', 'array_state', 'mdState', 'temps']) {
+    if (o[k] !== undefined) snap[k] = o[k];
+  }
+  snap.temp_max = snap.tempMax;
+  if (o.temp_avg !== undefined) snap.temp_avg = num(o.temp_avg);
+  return snap;
 }
 
 function num(v) { return typeof v === 'number' && Number.isFinite(v) ? v : null; }

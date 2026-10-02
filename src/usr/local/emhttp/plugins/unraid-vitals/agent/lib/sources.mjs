@@ -23,6 +23,10 @@ function src() {
 /** Test seam: point every legacy call at a specific source object. */
 export function __setSource(s) { active = s; }
 export function __resetSource() { active = null; }
+
+/** The active source object itself — for new code that uses the port
+ *  directly instead of the legacy named helpers. */
+export function activeSource() { return src(); }
 export { registerSource, registerBuiltins, getSource, listSources };
 
 export function latestSnapshot() { return src().snapshot(); }

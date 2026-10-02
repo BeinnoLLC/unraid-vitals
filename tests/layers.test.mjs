@@ -15,6 +15,7 @@ const AGENT = join(dirname(fileURLToPath(import.meta.url)),
   '../src/usr/local/emhttp/plugins/unraid-vitals/agent');
 
 const { createFixtureSource } = await import(`${AGENT}/sources/fixture.mjs`);
+const { createUnraidSource } = await import(`${AGENT}/sources/unraid.mjs`);
 const { registerSource, getSource, getActiveSource, listSources, fuseSources } =
   await import(`${AGENT}/sources/registry.mjs`);
 const { assertSource, SourceError, UnsupportedError } = await import(`${AGENT}/core/ports.mjs`);
@@ -76,6 +77,24 @@ test('the source port rejects a half-implemented source at load', () => {
 /* ---------------------------------------------------------------- *
  * A second source — the actual "integrate any service" proof
  * ---------------------------------------------------------------- */
+
+/** Write the fixture files the real Unraid source reads. */
+const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+const { tmpdir } = await import('node:os');
+const fixtureDir = mkdtempSync(join(tmpdir(), 'vitals-src-'));
+mkdirSync(fixtureDir, { recursive: true });
+writeFileSync(join(fixtureDir, 'latest.json'), JSON.stringify({
+  time: 1700000000, system: { name: 'fixturebox', version: '7', uptime: 3600 },
+  cpu: { total: 42, cores: 8 }, mem: { pct: 61, swap_pct: 3, swap_used: 4096 },
+  load: { l1: 1.4, l5: 1.1, l15: 0.9, cores: 8 },
+  temp_max: 41, temp_avg: 39,
+  array: { data: [{ name: 'disk1', temp: 35 }], parity: [{ name: 'disk2', temp: 34 }], cache: [] },
+  sensors: { temps: [{ id: 'temp1', label: 'CPU', value: 45, crit: 90 }], fans: [{ id: 'fan1', label: 'CPU fan', rpm: 900 }] },
+  shares: [{ name: 'apps' }], smart: { disk1: { temp: 35 } },
+  net: { eth0: { rx: 1 } }, flash: { ssd1: { health: 90 } }
+}));
+writeFileSync(join(fixtureDir, 'history.json'), JSON.stringify([]));
+writeFileSync(join(fixtureDir, 'alerts.json'), JSON.stringify([]));
 
 function fixtures() {
   return {
@@ -142,6 +161,25 @@ test('an unsupported capability degrades instead of crashing', () => {
   } finally {
     facade.__resetSource();
   }
+});
+
+test('native subsystem blocks survive normalization (silent-empty guard)', () => {
+  // A dropped block does not throw — it makes an agent report "no disks".
+  // Pin every block the existing specialists read.
+  // The real Unraid source, pointed at a fixture dir — no host needed.
+  const src = createUnraidSource({ stateDir: fixtureDir });
+  const snap = src.snapshot();
+  assert.equal(snap.temp_max, 41, 'native temp_max alias');
+  assert.equal(snap.temp_avg, 39);
+  assert.equal(snap.array.data[0].name, 'disk1', 'array block must survive');
+  assert.equal(snap.sensors.temps.length, 1, 'sensors block must survive');
+  assert.equal(snap.sensors.fans[0].rpm, 900);
+  assert.ok(Array.isArray(snap.shares));
+  assert.ok(snap.net && snap.flash);
+  assert.equal(snap.mem.swapPct, 3, 'snake_case swap_pct normalized');
+  // AND the normalized half is populated from the same data.
+  assert.equal(snap.disks.length, 2);
+  assert.equal(snap.tempMax, 41);
 });
 
 test('unknown source id fails with a typed error', () => {
