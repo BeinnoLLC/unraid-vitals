@@ -53,7 +53,12 @@ fi
 # exactly where Unraid expects them.
 STAGE="$DIST/stage"
 mkdir -p "$STAGE/usr/local/emhttp/plugins/$NAME"
+# Exclude agent/node_modules from the payload: it is 386 MB, and the agents
+# provision their own deps via install.sh's npm ci bootstrap (see install.sh:
+# agent deps bootstrap). Shipping it would bloat the txz ~380x and make the
+# flash drive hold a second copy of every dependency on every release.
 cp -r "$SRC/." "$STAGE/usr/local/emhttp/plugins/$NAME/"
+rm -rf "$STAGE/usr/local/emhttp/plugins/$NAME/agent/node_modules"
 chmod +x "$STAGE/usr/local/emhttp/plugins/$NAME/scripts/"*.sh
 
 TXZ="$DIST/${PKGNAME}.txz"

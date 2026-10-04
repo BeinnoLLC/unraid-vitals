@@ -140,6 +140,37 @@ chmod 644 /etc/cron.d/${PLUGIN}-prune
 # the developer's remote one, per ca_profile.xml's disclosure of what "runs
 # by default" actually means.
 NODE_BIN="$(command -v node 2>/dev/null || true)"
+# --- SRE vault bootstrap (P13-01) -------------------------------------------
+# @smythos/sre demands $HOME/.smyth/vault.json before any agent entrypoint
+# will run. On Unraid /root is tmpfs: wiped each boot, so the agent crons die
+# into interactive vault-creation on non-TTY stdin (MODULE_NOT_FOUND-looking
+# crash in cron logs — actually a vault discovery failure). Write a minimal
+# empty-provider vault if one doesn't exist. Providers here stay empty: the
+# agents never read credentials from the vault (they talk to a locally
+# configured Ollama-compatible endpoint), so nothing secret is stored.
+VAULT="$HOME/.smyth/vault.json"
+if [ ! -f "$VAULT" ]; then
+  mkdir -p "$(dirname "$VAULT")"
+  printf '{"default":{"echo":"","openai":"","anthropic":"","googleai":"","groq":"","togetherai":"","xai":""}}\n' > "$VAULT"
+  chmod 600 "$VAULT"
+  echo "unraid-vitals: created SRE vault stub at $VAULT (agents never store secrets in it)"
+fi
+# --- agent deps bootstrap (P13-01 acceptance: cron must not die on missing deps)
+# Unraid's flash-based txz installs ship agent/ source without node_modules
+# (386 MB does not belong in a plugin payload). Cron jobs that point at agent
+# entrypoints will die with MODULE_NOT_FOUND until deps exist. Previously this
+# only logged a hint; now install.sh tries to provision deps itself so a
+# freshly installed plugin is operational without hand-running npm.
+if [ -n "$NODE_BIN" ] && [ ! -d "$PLUGDIR/agent/node_modules" ] && [ -f "$PLUGDIR/agent/package.json" ]; then
+ if command -v npm >/dev/null 2>&1; then
+   echo "unraid-vitals: installing agent deps (one-time, may take a minute)…"
+   (cd "$PLUGDIR/agent" && npm ci --no-audit --no-fund --loglevel=error) \
+     && echo "unraid-vitals: agent deps installed" \
+     || echo "unraid-vitals: npm ci failed — background AI agents disabled until manually run"
+ else
+   echo "unraid-vitals: npm not found — background AI agents disabled (run 'cd $PLUGDIR/agent && npm install' to enable)"
+ fi
+fi
 if [ -n "$NODE_BIN" ] && [ -d "$PLUGDIR/agent/node_modules" ]; then
   LLM_PRIMARY_CFG=$(grep -oP '^LLM_STUDIO_PRIMARY="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
   LLM_BACKUP_CFG=$(grep -oP '^LLM_STUDIO_BACKUP="?\K[^"]*' "$FLASH/vitals.cfg" 2>/dev/null || echo "")
