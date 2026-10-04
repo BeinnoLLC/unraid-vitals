@@ -13,6 +13,12 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.07
+- One-click full health check: score out of 100, severity-sorted findings, diff vs your previous run (#84)
+- Fix playbooks for every check, one click away from any finding (#85)
+- Diagnostics export: Unraid's own bundle + an anonymized summary safe for forum posts (#86)
+- SMART self-tests per disk from the Hardware tab, with progress and history (#87)
+- "What changed?" 14-day timeline: container image tags, plugins, Unraid version, share settings, disk assignments (#88)
 ###2026.10.06
 - Cleanup tab: preview→apply framework with audit log; kinds — plugin logs, tmp, orphaned appdata folders (move-to-held), oversized container logs (truncate), recycle bins (age-filtered), junk files (opted-in shares), docker prune (dangling/unused images, stopped containers, build cache, unused volumes with double confirm)
 - Run mover now from the UI: start/stop/status, refuses during parity unless confirmed
