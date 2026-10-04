@@ -14,6 +14,8 @@
 
 declare(strict_types=1);
 
+const V_JOBCONTROL_DIR = '/var/tmp/unraid-vitals';
+
 /**
  * @return array<string, array{id:string,label:string,sched:string,cmd:string,env:array<string,string>,needs_node:bool,log:string}>
  */
@@ -22,48 +24,52 @@ function v_sched_registry(): array {
     'collector' => [
       'label' => 'Metrics collector', 'sched' => '* * * * *',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-collect.php --quiet',
-      'env' => [], 'needs_node' => false, 'log' => 'collector.log',
+      'env' => [], 'needs_node' => false, 'log' => 'collector.log', 'timeout' => 300,
     ],
     'checks' => [
       'label' => 'Diagnosis checks engine (every 5 min)', 'sched' => '*/5 * * * *',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-checks.php --quiet',
-      'env' => [], 'needs_node' => false, 'log' => 'checks.log',
+      'env' => [], 'needs_node' => false, 'log' => 'checks.log', 'timeout' => 600,
     ],
     'logrotate' => [
       'label' => 'Plugin log rotation (5 MiB caps, daily)', 'sched' => '25 4 * * *',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-logrotate.php',
-      'env' => [], 'needs_node' => false, 'log' => 'logrotate.log',
+      'env' => [], 'needs_node' => false, 'log' => 'logrotate.log', 'timeout' => 600,
     ],
     'storage' => [
       'label' => 'Storage analyzer (nightly, low I/O priority)', 'sched' => '10 3 * * *',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-storage-scan.php --quiet',
-      'env' => [], 'needs_node' => false, 'log' => 'storage-scan.log',
+      'env' => [], 'needs_node' => false, 'log' => 'storage-scan.log', 'timeout' => 7200,
+      'heavy' => true, 'default_lock' => true,
     ],
     'dupscan' => [
       'label' => 'Duplicate file finder (weekly)', 'sched' => '0 4 * * 0',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-dup-scan.php --quiet',
-      'env' => [], 'needs_node' => false, 'log' => 'dup-scan.log',
+      'env' => [], 'needs_node' => false, 'log' => 'dup-scan.log', 'timeout' => 21600,
+      'heavy' => true, 'default_lock' => true,
     ],
     'weekly' => [
       'label' => 'Weekly health report (Mon 10:40)', 'sched' => '40 6 * * 1',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-weekly-report.php --quiet',
-      'env' => [], 'needs_node' => false, 'log' => 'weekly-report.log',
+      'env' => [], 'needs_node' => false, 'log' => 'weekly-report.log', 'timeout' => 1800,
     ],
     'prune' => [
       'label' => 'Retention prune (nightly)', 'sched' => '17 4 * * *',
       'cmd' => '/usr/bin/php /boot/config/plugins/unraid-vitals/prune.php',
-      'env' => [], 'needs_node' => false, 'log' => 'prune.log',
+      'env' => [], 'needs_node' => false, 'log' => 'prune.log', 'timeout' => 600,
     ],
     'vmwatch' => [
       'label' => 'VM event listener (every 2 min)', 'sched' => '*/2 * * * *',
       'cmd' => '/usr/bin/flock -n /var/tmp/unraid-vitals/vmwatch.lock NODE_BIN_PLACEHOLDER /usr/local/emhttp/plugins/unraid-vitals/agent/vmwatch.mjs',
-      'env' => [], 'needs_node' => true, 'log' => 'vmwatch.log',
+      'env' => [], 'needs_node' => true, 'log' => 'vmwatch.log', 'timeout' => 600,
+      'heavy' => false, 'default_lock' => true,
     ],
     'study' => [
       'label' => 'Study-mode ticker (every 5 min)', 'sched' => '*/5 * * * *',
       'cmd' => '/usr/bin/flock -n /var/tmp/unraid-vitals/study.lock NODE_BIN_PLACEHOLDER /usr/local/emhttp/plugins/unraid-vitals/agent/study.mjs',
       'env' => ['LLM_STUDIO_PRIMARY' => 'LLM_PRIMARY_CFG', 'LLM_STUDIO_BACKUP' => 'LLM_BACKUP_CFG'],
-      'needs_node' => true, 'log' => 'study.log',
+      'needs_node' => true, 'log' => 'study.log', 'timeout' => 3600,
+      'heavy' => true, 'default_lock' => true,
     ],
     'agents' => [
       'label' => 'Background AI agents (hourly)', 'sched' => '7 * * * *',
@@ -71,9 +77,33 @@ function v_sched_registry(): array {
       'env' => ['LLM_STUDIO_PRIMARY' => 'LLM_PRIMARY_CFG', 'LLM_STUDIO_BACKUP' => 'LLM_BACKUP_CFG',
                 'VITALS_DIAG_INTERVAL_MINUTES' => 'DIAG_INTERVAL_CFG', 'VITALS_DIAG_WINDOW_HOURS' => 'DIAG_WINDOW_CFG',
                 'VITALS_DIAG_MODELS' => 'DIAG_MODELS_CFG', 'VITALS_UPDATE_INTERVAL_MINUTES' => 'UPDATE_INTERVAL_CFG'],
-      'needs_node' => true, 'log' => 'agents.log',
+      'needs_node' => true, 'log' => 'agents.log', 'timeout' => 21600,
+      'heavy' => true, 'default_lock' => true,
     ],
   ];
+}
+
+/**
+ * Build the full shell command for a job (env prefix + lock + node path),
+ * shared by cron install (apply) and the run-now/jobwrap paths so all three
+ * surfaces run byte-identical commands.
+ * $envVars: install.sh's exported *_CFG + NODE_BIN (run-now builds its own).
+ */
+function v_sched_build_cmd(string $id, array $envVars = []): string {
+  $reg = v_sched_registry();
+  if (!isset($reg[$id])) return '';
+  $job = $reg[$id];
+  $nodeBin = trim((string)($envVars['NODE_BIN'] ?? 'node'));
+  $cfg = @parse_ini_file(VITALS_FLASH . '/vitals.cfg') ?: [];
+  $cmdMap = ['LLM_PRIMARY_CFG' => 'LLM_STUDIO_PRIMARY', 'LLM_BACKUP_CFG' => 'LLM_STUDIO_BACKUP',
+             'DIAG_INTERVAL_CFG' => 'VITALS_DIAG_INTERVAL_MINUTES', 'DIAG_WINDOW_CFG' => 'VITALS_DIAG_WINDOW_HOURS',
+             'DIAG_MODELS_CFG' => 'VITALS_DIAG_MODELS', 'UPDATE_INTERVAL_CFG' => 'VITALS_UPDATE_INTERVAL_MINUTES'];
+  $cmd = str_replace('NODE_BIN_PLACEHOLDER', escapeshellarg($nodeBin ?: 'node'), $job['cmd']);
+  foreach ($job['env'] as $envKey => $cfgVar) {
+    $val = (string)($envVars[$cfgVar] ?? ($cfg[$cmdMap[$cfgVar] ?? $cfgVar] ?? ''));
+    $cmd = $envKey . '="' . str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $val) . '" ' . $cmd;
+  }
+  return $cmd;
 }
 
 /**
@@ -118,15 +148,13 @@ function v_sched_apply(string $stateDir, string $flashDir, array $envVars = []):
       continue;
     }
 
-    $cmd = str_replace('NODE_BIN_PLACEHOLDER', escapeshellarg($nodeBin ?: 'node'), $job['cmd']);
-    foreach ($job['env'] as $envKey => $cfgVar) {
-      $val = (string)($envVars[$cfgVar] ?? '');
-      $cmd = $envKey . '="' . str_replace(['\\', '"', '$', '`'], ['\\\\', '\\"', '\\$', '\\`'], $val) . '" ' . $cmd;
-    }
+    $cmd = v_sched_build_cmd($id, $envVars);
+    // each cron entry delegates to the jobwrap script which records start/
+    // duration/exit into runbook.<id>.json (read by the schedules panel).
     $lines = [
       '# unraid-vitals — ' . $job['label'],
       '# schedule: ' . ($cfg[$key] ?? 'default') . ($cfg[$key] ? '' : ' (default)'),
-      $sched . ' ' . $cmd . ' >> /var/tmp/unraid-vitals/' . $job['log'] . ' 2>&1',
+      $sched . ' /usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-jobwrap.php ' . escapeshellarg($id) . ' >> /var/tmp/unraid-vitals/jobwrap.log 2>&1',
     ];
     @file_put_contents($file, implode("\n", $lines) . "\n");
     @chmod($file, 0644);

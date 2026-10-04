@@ -21,6 +21,7 @@ require_once __DIR__ . '/cleanup_junk.php';
 require_once __DIR__ . '/playbooks.php';
 require_once __DIR__ . '/timeline.php';
 require_once __DIR__ . '/smart_selftest.php';
+require_once __DIR__ . '/job_control.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -172,7 +173,12 @@ try {
     $allowed = ['INTERVAL', 'KEEP_DAYS', 'SET_STARTPAGE', 'ALERT_TEMP', 'ALERT_FILL', 'ALERT_LOAD', 'ALERT_RESTARTS',
                 'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP', 'UI_REFRESH_SECONDS',
                 'VITALS_DIAG_INTERVAL_MINUTES', 'VITALS_DIAG_WINDOW_HOURS', 'VITALS_DIAG_MODELS',
-                'VITALS_UPDATE_INTERVAL_MINUTES', 'PRICE_PER_KWH'];
+                'VITALS_UPDATE_INTERVAL_MINUTES', 'PRICE_PER_KWH',
+                'QUIET_START', 'QUIET_END'];
+    foreach (array_keys(v_sched_registry()) as $jobId) {
+      $allowed[] = 'SCHED_' . strtoupper($jobId);
+      $allowed[] = 'SCHED_' . strtoupper($jobId) . '_ENABLED';
+    }
     foreach (array_keys(v_checks_defaults()) as $checkId) {
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_SEVERITY';
@@ -293,6 +299,22 @@ try {
     $disk = (string)($_POST['disk'] ?? '');
     $type = (string)($_POST['type'] ?? 'short');
     echo json_encode(v_smart_test_start($disk, $type), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'job_statuses') {
+    echo json_encode(['ok' => true, 'jobs' => v_job_statuses(),
+                      'quiet' => v_job_quiet_active(), 'busy' => v_job_busy_system()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'job_run') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    $id = (string)($_POST['job'] ?? '');
+    if (!preg_match('/^[a-z0-9_]{1,64}$/', $id)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'bad job id']); exit; }
+    echo json_encode(v_job_run_now($id, ($_POST['force'] ?? '') === 'yes'), JSON_UNESCAPED_SLASHES);
     exit;
   }
 

@@ -995,8 +995,25 @@ function App() {
   // timer whenever it changes so a saved setting takes effect on the next
   // tick without requiring a page reload.
   var refreshSeconds = (d && d.ui_refresh_seconds) || 10;
+  // P18-09: refresh pauses while the tab is hidden (Page Visibility API) —
+  // no wasted polling of a dashboard nobody is looking at; resumes (and
+  // immediately re-syncs) on return.
   useEffect(function () {
-    var iv = setInterval(function () { load(false); }, refreshSeconds * 1000);
+    var hidden = false;
+    var onVis = function () {
+      var nowHidden = document.visibilityState === 'hidden';
+      if (nowHidden === hidden) return;
+      hidden = nowHidden;
+      if (!hidden) load(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return function () { document.removeEventListener('visibilitychange', onVis); };
+  }, []);
+  useEffect(function () {
+    var iv = setInterval(function () {
+      if (document.visibilityState === 'hidden') return; // paused
+      load(false);
+    }, refreshSeconds * 1000);
     return function () { clearInterval(iv); };
   }, [refreshSeconds]);
 
@@ -1023,7 +1040,13 @@ function App() {
 
   if (d && d.csrf_token) window.__V_CSRF__ = d.csrf_token;
   var ring = (payload && payload.ring) || [];
-  var pts = ring.slice(-range);
+  // P18-07: the range selector promises HOURS — count points by their real
+  // timestamps, never by "1 sample = 1 minute" (a 5-min INTERVAL made '1h'
+  // silently show 5 hours). Timespan from the newest sample backwards.
+  var newestT = ring.length ? ring[ring.length - 1].t : 0;
+  var rangeT = newestT - range * 60;             // range is in minutes
+  var pts = ring.filter(function (p) { return p.t >= rangeT; });
+  if (!pts.length && ring.length) pts = [ring[ring.length - 1]]; // sparse ring: keep the last sample
   var props = { d: d, pts: pts, range: range, daily: daily, findings: findings, chartEvents: chartEvents };
 
   return h('div', null,
@@ -3164,6 +3187,81 @@ function CleanupTab() {
             }))));
 }
 
+/* P18-02: schedules panel — one row per job (enabled switch, frequency,
+ * last run + duration + exit, Run-now (CSRF, lock-aware), last log lines). */
+function SchedulesPanel() {
+  var st = useState(null); var jobs = st[0], setJobs = st[1];
+  var s2 = useState(null); var sys = s2[0], setSys = s2[1];   // quiet/busy flags
+  var s3 = useState(null); var openJob = s3[0], setOpenJob = s3[1];
+  var s4 = useState('idle'); var actState = s4[0], setActState = s4[1];
+  var s5 = useState(''); var msg = s5[0], setMsg = s5[1];
+
+  var load = function () {
+    fetch(ENDPOINT + '?action=job_statuses', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) { setJobs(j.jobs); setSys({ quiet: j.quiet, busy: j.busy }); } });
+  };
+  useEffect(load, []);
+
+  var toggleJob = function (id, enabled) {
+    setActState('saving');
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST',
+      body: new URLSearchParams(Object.fromEntries([['csrf_token', ''],
+        ['SCHED_' + id.toUpperCase() + '_ENABLED', enabled ? '1' : '0']])) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setActState('idle');
+        setMsg(j && (j.ok || j.saved) ? ('Job ' + id + ' ' + (enabled ? 'enabled' : 'disabled') + ' — cron updated.') : 'Save failed');
+        load();
+      }).catch(function () { setActState('idle'); setMsg('Save failed'); });
+  };
+  var runNow = function (id, force) {
+    setActState('running');
+    fetch(ENDPOINT + '?action=job_run', { method: 'POST',
+      body: new URLSearchParams({ job: id, force: force ? 'yes' : '' }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setActState('idle');
+        setMsg((j && j.ok) ? ('Started ' + id + ' — duration/exit appear when it finishes.')
+                           : ((j && j.error) || 'run refused'));
+        load();
+      }).catch(function () { setActState('idle'); setMsg('run failed'); });
+  };
+
+  return h(Panel, {
+    title: 'Scheduled jobs',
+    span2: true,
+    hint: (sys && sys.quiet ? 'quiet hours active · ' : '') + (sys && sys.busy ? 'parity/mover busy — heavy jobs skip' : 'all clear')
+  },
+    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    !jobs ? h('div', { class: 'v-empty' }, 'Loading jobs…')
+      : h(Table, null,
+        h('tr', null, h('th', null, 'Job'), h('th', null, 'Schedule'), h('th', null, 'Last run'), h('th', null, '')),
+        Object.keys(jobs).sort().map(function (id) {
+          var j = jobs[id];
+          var last = j.last_start ? (ts(j.last_start) + (j.last_duration_s != null ? ' (' + dur(j.last_duration_s) + ')' : '')
+            + (j.last_exit != null ? ' — exit ' + j.last_exit : (j.running ? ' — running' : ' — exit ?')) + (j.manual ? ' (manual)' : ''))
+            : h('span', { class: 'muted' }, j.running ? 'running…' : 'never');
+          return h('tr', { key: id },
+            h('td', { class: 'v-name' }, j.label || id,
+              j.heavy ? h('span', { class: 'v-badge warn', style: 'margin-left:6px' }, 'heavy') : null,
+              j.running ? h('span', { class: 'v-badge ok', style: 'margin-left:6px' }, 'running') : null),
+            h('td', { class: 'num' }, h('code', null, j.sched || '—'),
+              !j.enabled ? h('span', { class: 'v-badge', style: 'margin-left:6px' }, 'disabled') : null),
+            h('td', null, last),
+            h('td', null,
+              h('button', { class: 'v-btn xs', onClick: function () { setOpenJob(openJob === id ? null : id); } }, ''),
+              ' ',
+              h('button', { class: 'v-btn xs', onClick: function () { runNow(id, false); }, disabled: actState !== 'idle' || j.running }, 'Run now')));
+        })),
+    openJob && jobs[openJob]
+      ? h('div', { style: 'margin-top:8px' },
+        h('div', { class: 'muted' }, 'Last log lines of ' + openJob + ':'),
+        h('pre', { class: 'v-pre', style: 'white-space:pre-wrap;max-height:220px;overflow:auto;background:transparent' },
+          ((jobs[openJob].lines || []).join('\n')) || '(no output yet)'))
+      : null);
+}
+
 function SettingsTab() {
   var s1 = useState(null), cfg = s1[0], setCfg = s1[1];
   var s2 = useState(null), meta = s2[0], setMeta = s2[1];
@@ -3243,6 +3341,7 @@ function SettingsTab() {
   };
 
   return h('div', null,
+    h(SchedulesPanel, {}),
     h(Panel, { title: 'Collector status' },
       h('table', null, [
         ['Last sample', meta.last_run ? ts(meta.last_run) : '—'],

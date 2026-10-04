@@ -11,7 +11,19 @@
 require_once __DIR__ . '/../include/store.php';
 
 $slim = in_array('--slim', $argv ?? [], true);
+
+// Overlap guard (P18-08): a slow docker stats or SMART read must not stack
+// runs. flock -n on the collector lock; second-instance exits 0 silently so
+// cron behavior (no error mail) is preserved.
+$lockFp = fopen('/var/tmp/unraid-vitals/collector.lock', 'c');
+if ($lockFp && !flock($lockFp, LOCK_EX | LOCK_NB)) {
+  if (!in_array('--quiet', $argv ?? [], true)) fwrite(STDERR, "vitals: previous run still in progress — skipping\n");
+  exit(0);
+}
+
 $snap = v_tick(!$slim);
+
+if ($lockFp) { flock($lockFp, LOCK_UN); fclose($lockFp); }
 
 if (in_array('--quiet', $argv ?? [], true)) exit(0);
 

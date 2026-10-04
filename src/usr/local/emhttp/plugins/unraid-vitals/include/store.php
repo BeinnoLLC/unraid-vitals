@@ -17,7 +17,11 @@
 require_once __DIR__ . '/collect.php';
 
 if (!defined('VITALS_FLASH')) define('VITALS_FLASH', '/boot/config/plugins/unraid-vitals');
-if (!defined('VITALS_RING_MAX')) define('VITALS_RING_MAX', 1440);   // 24h @ 1/min
+if (!defined('VITALS_RING_MAX')) define('VITALS_RING_MAX', 1440);        // points retained
+if (!defined('VITALS_RING_MINUTES')) define('VITALS_RING_MINUTES', 1440); // timespan promise: 24h of wall clock
+ // P18-07: the ring keeps BOTH a point budget (disk safety) and a timespan
+ // promise (the 24h view stays 24h at any sample interval — a 5-min INTERVAL
+ // only means 288 points/day, well inside the budget).
 if (!defined('VITALS_DOCKER_CFG')) define('VITALS_DOCKER_CFG', '/boot/config/docker.cfg');
 if (!defined('VITALS_AI_RENOTIFY')) define('VITALS_AI_RENOTIFY', 86400);   // re-raise a standing AI finding once a day
 
