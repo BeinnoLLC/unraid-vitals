@@ -8,7 +8,7 @@
  */
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
-import { hottestDisks } from '../viewmodels/health.mjs';
+import { hottestDisks, peaks, changes } from '../viewmodels/health.mjs';
 import { UnsupportedError } from '../core/ports.mjs';
 
 export const AGENT_ID = 'thermal';
@@ -62,6 +62,7 @@ export async function run() {
       snap.system?.name
     ],
     sections: [
+      { name: 'trends', priority: 4, text: `Thermal trends (last 6h): peaks=${JSON.stringify(peaks(source, 6))} — recent per-container/disk I/O changes: ${JSON.stringify(changes(source, 6))}` },
       { name: 'summary', priority: 5, text: `System: ${snap.system?.name} — hottest disk ${typeof snap.tempMax === 'number' ? snap.tempMax : 'n/a'}C (avg ${typeof snap.temp_avg === 'number' ? snap.temp_avg : 'n/a'}C)\nCPU load: ${snap.cpu?.total ?? 'n/a'}%\nHottest disks: ${diskLines}` },
       { name: 'disk_temps', priority: 3, text: `Disk temps now: ${diskLines}` },
       { name: 'sensors', priority: 2, text: sensors

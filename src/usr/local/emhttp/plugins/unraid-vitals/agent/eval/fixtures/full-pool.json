@@ -1,0 +1,13 @@
+{
+  "time": "=SITEGEN_1=",
+  "system": { "name": "eval-box", "md_state": "STARTED" },
+  "cpu": { "total": 12.0 }, "mem": { "pct": 55.0 },
+  "load": { "l1": 1.1, "cores": 24 },
+  "array": {
+    "parity": [],
+    "data": [ { "name": "disk1", "type": "hdd", "temp": 36, "usedPct": 30.0 } ],
+    "cache": [ { "name": "cache", "type": "ssd", "temp": 40, "usedPct": 97.8, "numErrors": 0 } ],
+    "totals": { "used_pct": 91.0, "data_disks": 1, "cache_disks": 1 }
+  },
+  "smart": {}
+}

@@ -1,0 +1,12 @@
+{
+  "time": "=SITEGEN_1=",
+  "system": { "name": "eval-box", "md_state": "STARTED" },
+  "cpu": { "total": 18.0 }, "mem": { "pct": 70.0 },
+  "load": { "l1": 3.0, "cores": 24 },
+  "docker": {
+    "running": 1, "count": 1,
+    "containers": [ { "name": "crashy", "state": "Restarting (7) 5 seconds ago", "restartCount": 7, "lastExit": 1, "image": "alpine:3.20" } ]
+  },
+  "array": { "parity": [], "data": [], "cache": [], "totals": { "used_pct": 0 } },
+  "smart": {}
+}

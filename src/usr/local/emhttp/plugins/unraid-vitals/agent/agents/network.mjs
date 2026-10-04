@@ -10,6 +10,7 @@
  */
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
+import { peaks, changes } from '../viewmodels/health.mjs';
 
 export const AGENT_ID = 'network';
 
@@ -32,6 +33,7 @@ export async function run() {
     maxTokens: 700,
     knownSubjects: [...active.map(([k]) => k), snap.system?.name],
     sections: [
+      { name: 'trends', priority: 4, text: `Network trends (peaks + per-interface rate changes over 6h): ${JSON.stringify(peaks(source, 6))} ${JSON.stringify(changes(source, 6))}` },
       { name: 'throughput', priority: 5, text: `Total: ${(totalRx / 1e6).toFixed(1)} MB/s down, ${(totalTx / 1e6).toFixed(1)} MB/s up across ${active.length} active interfaces.` },
       { name: 'interfaces', priority: 3, text: `Per interface (name: rx rate, tx rate, rx total, tx total, all bytes/bytes-per-sec):\n${ifaceLines}` },
       { name: 'instructions', priority: 9, text: 'Flag: any interface sustaining a rate that looks like saturation for a typical home/media-server gigabit link (>110MB/s sustained), container network interfaces (vethXXXX/docker0) with disproportionate traffic vs the physical uplink, and anything that looks like a stuck/runaway transfer.' }

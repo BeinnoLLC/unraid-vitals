@@ -1,11 +1,13 @@
 /** Storage-pool specialist — cache/pool fill, balance, and share placement. */
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
+import { peaks, changes } from '../viewmodels/health.mjs';
 
 export const AGENT_ID = 'pools';
 
 export async function run() {
-  const snap = activeSource().snapshot();
+  const source = activeSource();
+  const snap = source.snapshot();
   const pools = snap.array?.cache || [];
   const shares = snap.shares?.list || [];
   const poolOnly = shares.filter(s => s.pool === 'only');
@@ -17,6 +19,7 @@ export async function run() {
     maxTokens: 700,
     knownSubjects: [...pools.map(p => p.name), ...shares.map(s => s.name)],
     sections: [
+      { name: 'trends', priority: 4, text: `Pool trends (last 6h peaks + I/O changes — trends not snapshots): ${JSON.stringify(peaks(source, 6))} ${JSON.stringify(changes(source, 6))}` },
       { name: 'pools', priority: 3, text: `Pool devices (name, size, used%, temp):
 ${pools.map(p => `- ${p.name}: size=${p.size ?? 'n/a'} used=${p.usedPct?.toFixed?.(1) ?? 'n/a'}% temp=${p.temp ?? 'n/a'}C`).join('\n') || '(none reported)'}` },
       { name: 'shares', priority: 2, text: `Shares using the pool: ${snap.shares?.cache ?? 0} of ${snap.shares?.total ?? 0} total.

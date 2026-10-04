@@ -1,0 +1,18 @@
+{
+  "time": "=SITEGEN_1=",
+  "system": { "name": "eval-box", "md_state": "STARTED", "version": "7.3.2" },
+  "cpu": { "total": 34.1 }, "mem": { "pct": 62.0 },
+  "load": { "l1": 4.2, "cores": 24 },
+  "array": {
+    "parity": [ { "name": "parity1", "type": "parity", "temp": 38, "usedPct": 0 } ],
+    "data": [
+      { "name": "sdX", "type": "hdd", "temp": 41, "usedPct": 44.1, "numErrors": 0, "spundown": 0 },
+      { "name": "sdZ", "type": "hdd", "temp": 39, "usedPct": 51.0, "numErrors": 0, "spundown": 0 }
+    ],
+    "cache": [ { "name": "cache", "type": "ssd", "temp": 44, "usedPct": 22.0, "numErrors": 0 } ],
+    "totals": { "used_pct": 47.2, "data_disks": 2, "parity_disks": 1, "cache_disks": 1 }
+  },
+  "smart": {
+    "sdX": { "name": "sdX", "health": "FAILED", "hours": 41230, "reallocated": 1489, "pending": 87, "uncorrectable": 12, "crc": 0 }
+  }
+}

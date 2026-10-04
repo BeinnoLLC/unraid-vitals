@@ -48,7 +48,12 @@ export function createFixtureSource({ fixtures = {}, dir = null, id = 'fixture',
           ...(arr.data || []).map((x) => makeDisk({ ...x, role: 'data' })),
           ...(arr.parity || []).map((x) => makeDisk({ ...x, role: 'parity' }))
         ],
-        vms: (load('vms', null) || d.vms || []).map((v) => (typeof v === 'string' ? { name: v, state: 'unknown' } : v))
+        vms: (load('vms', null) || d.vms || []).map((v) => (typeof v === 'string' ? { name: v, state: 'unknown' } : v)),
+        // native blocks pass through untouched (agents read snap.array,
+        // snap.smart, snap.docker_logs, snap.events… directly)
+        array: arr,
+        smart: d.smart ?? {},
+        docker_logs: d.docker_logs, syslog: d.syslog
       });
     },
 
