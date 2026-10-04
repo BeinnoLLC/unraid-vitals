@@ -25,7 +25,7 @@
 import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt } from './lib/smythos-client.mjs';
 import { selectModels } from './lib/models.mjs';
-import { latestSnapshot, vmList } from './lib/sources.mjs';
+import { latestSnapshot, vmList, activeSource } from './lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
 const BEHAVIOR = `You are the Unraid Vitals research assistant. You answer questions about
@@ -98,7 +98,8 @@ async function main() {
         contextPrefix = `Official Unraid ${ver} release notes:\n${rel.content.slice(0, 7000)}\n`;
       }
     }
-    const snap = latestSnapshot();
+    const source = activeSource();
+    const snap = source.snapshot() ?? latestSnapshot();
     const vms = vmList();
     const scopedVm = detectVmScope(job.prompt, vms);
     const windowHours = detectWindowHours(job.prompt);
@@ -138,13 +139,42 @@ async function main() {
 
     const snapshot = [];
     if (snap) {
-      snapshot.push('\nLive snapshot (abbreviated):');
+      // P20-07 (#112): the question picks the detail sections. The abbreviated
+      // baseline stays (issue #28's lesson: a fixed subset couldn't answer a
+      // disk-temperature question) — now a topic classifier ADDS the per-disk,
+      // SMART, sensor, network interface and per-share detail the question
+      // names. Budget still applies: topic sections outrank the snapshot.
+      const p2 = job.prompt.toLowerCase();
+      const wants = (re) => re.test(p2);
+      const detail = {};
+      if (wants(/disk|drive|smart|reallocat|pending|sector|spin|temperature|hot|cool|temp\b/)) {
+        detail.diskTemps = (snap.disks || []).map(d => ({ name: d.name, role: d.role ?? '', temp: d.temp, usedPct: d.usedPct, spin: d.spundown }));
+        detail.smart = snap.smart;
+        if (snap.tempMax != null) detail.tempMax = snap.tempMax;
+      }
+      if (wants(/fan|cooling|airflow|throttl/)) detail.sensors = snap.sensors && { fans: snap.sensors.fans, temps: (snap.sensors.temps || []).slice(0, 12) };
+      if (wants(/pool|zfs|btrfs|scrub|raid|parity/)) {
+        detail.poolHealth = snap.pool_health ?? null;
+        detail.parityHistory = (snap.parity_history || []).slice(-5);
+      }
+      if (wants(/network|interface|eth\d|bond|vlan|mtu|link|port|nics?/)) detail.net = { link: snap.net_link, net: snap.net };
+      if (wants(/share|smb|nfs|export/)) detail.shareList = snap.shares && snap.shares.list;
+      if (wants(/docker|container|image|compose/)) detail.dockerDetail = { running: snap.docker?.running, count: snap.docker?.count, containers: (snap.docker?.containers || []).slice(0, 12) };
+      if (wants(/vm|vmware|virt|kvm/)) detail.vms = snap.vms;
+      if (wants(/log|syslog|kernel|oom|crash|dmesg/)) detail.syslogTail = String(source.tail('syslog', 60) ?? '').slice(-1800);
+
+      snapshot.push('\nLive snapshot (baseline):');
       snapshot.push(JSON.stringify({
         time: snap.time, system: snap.system, load: snap.load,
         array: snap.array && snap.array.totals, docker: snap.docker && { running: snap.docker.running, count: snap.docker.count },
         vms: snap.vms && { running: snap.vms.running, count: snap.vms.count },
         shares: snap.shares && { total: snap.shares.total },
-      }).slice(0, 1500));
+      }).slice(0, 1200));
+      const detailKeys = Object.keys(detail);
+      if (detailKeys.length) {
+        snapshot.push(`\nTopic detail (the question is about: ${detailKeys.join(', ')}):`);
+        snapshot.push(JSON.stringify(detail).slice(0, 6000));
+      }
     }
 
     // Priorities: question + instructions never trimmed; trigger context /
