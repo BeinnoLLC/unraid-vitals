@@ -43,7 +43,29 @@ async function runAgent(mod) {
   startRun(mod.AGENT_ID, runId);
   try {
     const findings = await mod.run();
-    replaceFindings(mod.AGENT_ID, runId, findings);
+
+    // P20-18 (#123): an EMPTY or unreasonably-small result is a failed run.
+    // The old path deleted the agent's findings and inserted nothing — one
+    // bad model reply made standing problems invisible ("as if the problems
+    // were fixed"). An empty list now keeps the previous findings, marks the
+    // run 'stale-empty', and the next good run replaces them normally.
+    if (!Array.isArray(findings) || findings.length === 0) {
+      console.warn(`[analyze] ${mod.AGENT_ID}: empty result — keeping previous findings (run marked stale-empty)`);
+      finishRun(runId, 'stale-empty', 'model returned no findings');
+      // record the run row (observability) with the previous findings count
+      const prev = getDb().prepare(`SELECT COUNT(*) AS n FROM findings WHERE agent = ?`).get(mod.AGENT_ID);
+      console.warn(`[analyze] ${mod.AGENT_ID}: ${prev?.n ?? 0} standing findings kept`);
+      return [];
+    }
+    // sanity: everything invalid (severity missing) also counts as a failed batch
+    const valid = findings.filter(f => f && typeof f === 'object' && f.severity);
+    if (valid.length === 0) {
+      console.warn(`[analyze] ${mod.AGENT_ID}: all findings invalid — keeping previous findings`);
+      finishRun(runId, 'stale-empty', 'all findings invalid');
+      return [];
+    }
+
+    replaceFindings(mod.AGENT_ID, runId, valid);
     // Feed anything worth remembering into the knowledge base — routine
     // 'ok' findings would just be noise, so only non-baseline severities
     // get indexed for the KB search page / background research.
