@@ -20,6 +20,7 @@ require_once __DIR__ . '/cleanup_mover.php';
 require_once __DIR__ . '/cleanup_junk.php';
 require_once __DIR__ . '/playbooks.php';
 require_once __DIR__ . '/timeline.php';
+require_once __DIR__ . '/smart_selftest.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -277,6 +278,21 @@ try {
   if ($action === 'timeline') {
     v_timeline_tick(); // refresh today's snapshot, then diff against history
     echo json_encode(['ok' => true, 'days' => v_timeline_diffs(14)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'smart_tests') {
+    echo json_encode(['ok' => true, 'disks' => v_smart_test_overview()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'smart_test_start') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    $disk = (string)($_POST['disk'] ?? '');
+    $type = (string)($_POST['type'] ?? 'short');
+    echo json_encode(v_smart_test_start($disk, $type), JSON_UNESCAPED_SLASHES);
     exit;
   }
 

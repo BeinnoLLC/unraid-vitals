@@ -2544,7 +2544,61 @@ function HwTab(P) {
             'No UPS configured, or apcupsd / NUT is not reporting.')),
     h(Panel, { title: 'SMART detail', span2: true,
       hint: Object.keys(d.smart || {}).length + ' disks' },
-      h(SmartTable, { d: d })));
+      h(SmartTable, { d: d })),
+    h(SmartSelfTestPanel, {}));
+}
+
+/* P17-04: per-disk SMART self-tests — start short/long, progress + history. */
+function SmartSelfTestPanel() {
+  var st = useState(null); var data = st[0], setData = st[1];
+  var bs = useState('idle'); var busy = bs[0], setBusy = bs[1];
+  var msgS = useState(null); var msg = msgS[0], setMsg = msgS[1];
+  var load = function () {
+    fetch(ENDPOINT + '?action=smart_tests', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setData(j.disks); });
+  };
+  useEffect(load, []);
+  // poll while anything is running so progress moves
+  useEffect(function () {
+    if (!data) return;
+    var any = Object.keys(data).some(function (k) { return data[k].running; });
+    if (!any) return;
+    var t = setInterval(load, 15000);
+    return function () { clearInterval(t); };
+  }, [data]);
+
+  var start = function (disk, type) {
+    setBusy(disk);
+    fetch(ENDPOINT + '?action=smart_test_start', { method: 'POST', body: new URLSearchParams({ disk: disk, type: type }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setBusy(null);
+        setMsg(j && j.ok ? ('Started ' + j.type + ' test on ' + j.device + ' — progress in this panel updates every 15 s.')
+                          : ((j && j.error) || 'start failed'));
+        load();
+      }).catch(function () { setBusy(null); setMsg('start failed'); });
+  };
+
+  return h(Panel, { title: 'SMART self-tests', span2: true,
+    hint: 'Short ≈ 2 min/disk, Long ≈ hours. Never starts during a parity check.' },
+    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    !data ? h('div', { class: 'v-empty' }, 'Loading disks…')
+      : h(Table, null,
+        h('tr', null, h('th', null, 'Disk'), h('th', null, 'State'), h('th', null, 'Last result'), h('th', null, '')),
+        Object.keys(data).sort().map(function (name) {
+          var dk = data[name];
+          var running = dk.running ? h('b', null, 'testing…' + (dk.progress_pct != null ? ' ' + dk.progress_pct + '%' : '')) : h('span', { class: 'muted' }, 'idle');
+          var last = (dk.history || [])[0];
+          return h('tr', { key: name },
+            h('td', { class: 'v-name' }, name + ' (' + dk.device + ')'),
+            h('td', null, running),
+            h('td', null, last ? (last.type + ' — ' + last.result) : h('span', { class: 'muted' }, 'no tests yet')),
+            h('td', null,
+              h('button', { class: 'v-btn xs', onClick: function () { start(name, 'short'); }, disabled: busy === name || dk.running }, 'Short'),
+              ' ',
+              h('button', { class: 'v-btn xs', onClick: function () { start(name, 'long'); }, disabled: busy === name || dk.running }, 'Long')));
+        })));
 }
 
 /* ------------------------------------------------------------------- kb */
