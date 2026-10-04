@@ -235,6 +235,9 @@ export function getDb() {
   // that FTS retrieval alone might miss.
   addCol('origin', `TEXT NOT NULL DEFAULT 'manual'`);
   addCol('context', 'TEXT');
+  // #108 (P20-03): kb_documents dedupe bookkeeping — merged into the kbCols
+  // migration block below (kind/summary/images/severity exist there).
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_docs_seen ON kb_documents(source, source_ref, title);`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_research_study_due ON research_jobs(mode, status, study_until);`);
   // One row per trigger key — a disk failing stays failed for days, and
   // every hourly agent pass would otherwise re-file the same research.
@@ -257,6 +260,10 @@ export function getDb() {
   // ingested before this column existed or with no clearer signal.
   addKbCol('severity', `TEXT NOT NULL DEFAULT 'medium'`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_severity ON kb_documents(severity, created_at DESC);`);
+  // #108 (P20-03): finding re-raise dedupe bookkeeping
+  addKbCol('times_seen', 'INTEGER NOT NULL DEFAULT 1');
+  addKbCol('last_seen_at', 'INTEGER');
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_docs_seen ON kb_documents(source, source_ref, title);`);
   // KB categories: comma-separated lowercase tags ('docker', 'network',
   // 'security', …) assigned by the tagger agent, which always sees the
   // existing tag set first so the vocabulary stays small and reusable.
@@ -362,9 +369,23 @@ export function ingestFindingToKb(agent, finding) {
   const severity = FINDING_TO_KB_SEVERITY[finding.severity] || 'medium';
   // Category tags: heuristic + vocabulary-aware (see lib/kb-tags.mjs).
   const tags = suggestTags(`${finding.title} ${content}`, kbTagCounts(), finding.tags);
+
+  // #108 (P20-03) dedupe: an identical {source_ref, title, content} already in
+  // the KB — the same finding re-raised on the next run — must bump the
+  // existing row (times_seen/last_seen) instead of spawning a duplicate doc;
+  // FTS5 retrieval showing the same paragraph five times is pure noise.
+  const existing = d.prepare(
+    `SELECT id, times_seen FROM kb_documents WHERE source='finding' AND source_ref=? AND title=? LIMIT 1`
+  ).get(String(finding.id ?? ''), title);
+  if (existing) {
+    d.prepare(`UPDATE kb_documents SET times_seen = times_seen + 1, last_seen_at = ?, content = ?, severity = ? WHERE id = ?`)
+     .run(Math.floor(Date.now() / 1000), content || finding.title, severity, existing.id);
+    return;
+  }
+
   d.prepare(
-    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, severity, tags, created_at) VALUES (?, ?, ?, ?, ?, 'note', ?, ?, ?)`
-  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, severity, tags.join(','), Math.floor(Date.now() / 1000));
+    `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, severity, tags, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, 'note', severity, tags.join(','), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000));
 }
 
 /** Push a full-length report into the KB — a multi-paragraph analysis or
