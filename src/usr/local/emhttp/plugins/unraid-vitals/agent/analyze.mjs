@@ -92,7 +92,28 @@ async function runAgent(mod) {
   }
 }
 
+
+/** P20-17: dump the relevant vitals.cfg keys as JSON for the specialists. */
+async function seedAgentCfg() {
+  try {
+    const { readFileSync, writeFile: wf, writeFileSync, mkdirSync } = await import('node:fs');
+    const { execSync } = await import('node:child_process');
+    let cfg = {};
+    try {
+      const raw = readFileSync(process.env.VITALS_CFG || '/boot/config/plugins/unraid-vitals/vitals.cfg', 'utf8');
+      for (const line of raw.split('\n')) {
+        const m = line.match(/^([A-Z0-9_]+)="?(.*?)"?\s*$/);
+        if (m) cfg[m[1]] = m[2];
+      }
+    } catch { /* no cfg yet — defaults */ }
+    writeFileSync('/tmp/vitals-agent-cfg.json', JSON.stringify(cfg));
+  } catch (e) { console.warn('[analyze] seedAgentCfg failed:', e.message); }
+}
+
 async function main() {
+  // P20-17: expose the parsed plugin cfg to the specialists (redaction flags
+  // etc. — contract.mjs reads this file; env VITALS_REDACT overrides).
+  await seedAgentCfg();
   getDb(); // ensure schema exists before any agent runs
   // Clear rows left behind by killed processes before deciding what is due —
   // otherwise an abandoned run makes its agent look permanently overdue.

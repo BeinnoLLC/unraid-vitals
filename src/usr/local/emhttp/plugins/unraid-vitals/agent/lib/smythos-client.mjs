@@ -140,8 +140,11 @@ async function promptOllama(systemPrompt, userPrompt, opts = {}) {
   lastCallStats.retries = 0;
   for (let i = 0; i < attempts.length; i++) {
     try { return await attempts[i](); }
-    catch (e) { errors.push(e); lastCallStats.retries = i;
-    catch (e) { errors.push(e); if (i < attempts.length - 1) await new Promise(r => setTimeout(r, 5000)); }
+    catch (e) {
+      errors.push(e);
+      lastCallStats.retries = i;
+      if (i < attempts.length - 1) await new Promise(r => setTimeout(r, 5000));
+    }
   }
   throw new OllamaError('both LLM studios unreachable after retry', {
     primary: errors[0], primaryRetry: errors[1], fallback: errors[2], fallbackRetry: errors[3]
