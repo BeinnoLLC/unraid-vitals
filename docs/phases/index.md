@@ -1,6 +1,6 @@
 # unraid-vitals — phases
 
-**Overall progress:** `[██████████████████░░░░░░░░░░░░] 59%` — **74 / 124** tickets done
+**Overall progress:** `[███████████████████░░░░░░░░░░░] 63%` — **79 / 124** tickets done
 
 > GitHub is the source of truth for tickets. These files summarise progress and link out; they hold no ticket detail.
 
@@ -23,7 +23,7 @@
 | [Phase 14 — Diagnosis checks](./phase-14-diagnosis-checks/index.md) | `[██████████████████████████████░] 100%` | 16 / 16 | [#15](https://github.com/BeinnoLLC/unraid-vitals/milestone/15) |
 | [Phase 15 — Data study](./phase-15-data-study/index.md) | `[██████████████████████████████░] 100%` | 10 / 10 | [#16](https://github.com/BeinnoLLC/unraid-vitals/milestone/16) |
 | [Phase 16 — Cleanup actions](./phase-16-cleanup-actions/index.md) | `[██████████████████████████████░] 100%` | 8 / 8 | [#17](https://github.com/BeinnoLLC/unraid-vitals/milestone/17) |
-| [Phase 17 — Diagnosis tools](./phase-17-diagnosis-tools/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 5 | [#18](https://github.com/BeinnoLLC/unraid-vitals/milestone/18) |
+| [Phase 17 — Diagnosis tools](./phase-17-diagnosis-tools/index.md) | `[██████████████████████████████░] 100%` | 5 / 5 | [#18](https://github.com/BeinnoLLC/unraid-vitals/milestone/18) |
 | [Phase 18 — Scheduler settings](./phase-18-scheduler-settings/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 9 | [#19](https://github.com/BeinnoLLC/unraid-vitals/milestone/19) |
 | [Phase 19 — Database backup & restore](./phase-19-database-backup-restore/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 8 | [#20](https://github.com/BeinnoLLC/unraid-vitals/milestone/20) |
 | [Phase 20 — AI agents & RAG quality](./phase-20-ai-agents-rag-quality/index.md) | `[██░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 5%` | 1 / 19 | [#21](https://github.com/BeinnoLLC/unraid-vitals/milestone/21) |
