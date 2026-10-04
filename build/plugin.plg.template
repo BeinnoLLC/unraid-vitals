@@ -13,6 +13,9 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.05
+- Two new diagnosis checks: system maintenance (update checks / NTP / SSD TRIM) and share permissions (files not owned by nobody:users)
+- Checks engine: 18 checks; 28 findings live on the reference box, falsification-tested
 ###2026.10.04
 - Vitals is now its own top-level navigation tab, plus a compact tile on the stock Dashboard (headline stats + worst finding)
 - Checks engine: 16 built-in health checks with results stored per run
