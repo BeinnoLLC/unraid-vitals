@@ -1,6 +1,6 @@
 # unraid-vitals — phases
 
-**Overall progress:** `[██████████░░░░░░░░░░░░░░░░░░░░] 34%` — **43 / 124** tickets done
+**Overall progress:** `[███████████░░░░░░░░░░░░░░░░░░░] 38%` — **48 / 124** tickets done
 
 > GitHub is the source of truth for tickets. These files summarise progress and link out; they hold no ticket detail.
 
@@ -19,8 +19,8 @@
 | [Phase 10 — Learning pipeline: events become knowledge](./phase-10-learning-pipeline-events-become-knowledge/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 1 | [#11](https://github.com/BeinnoLLC/unraid-vitals/milestone/11) |
 | [Phase 11 — Retrieval quality: hybrid search + reranker](./phase-11-retrieval-quality-hybrid-search-reranker/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 1 | [#12](https://github.com/BeinnoLLC/unraid-vitals/milestone/12) |
 | [Phase 12 — KB curation & lifecycle UI](./phase-12-kb-curation-lifecycle-ui/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 1 | [#13](https://github.com/BeinnoLLC/unraid-vitals/milestone/13) |
-| [Phase 13 — Foundations & data integrity](./phase-13-foundations-data-integrity/index.md) | `[██████████████████████░░░░░░░░] 72%` | 8 / 11 | [#14](https://github.com/BeinnoLLC/unraid-vitals/milestone/14) |
-| [Phase 14 — Diagnosis checks](./phase-14-diagnosis-checks/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 16 | [#15](https://github.com/BeinnoLLC/unraid-vitals/milestone/15) |
+| [Phase 13 — Foundations & data integrity](./phase-13-foundations-data-integrity/index.md) | `[██████████████████████████████░] 100%` | 11 / 11 | [#14](https://github.com/BeinnoLLC/unraid-vitals/milestone/14) |
+| [Phase 14 — Diagnosis checks](./phase-14-diagnosis-checks/index.md) | `[████░░░░░░░░░░░░░░░░░░░░░░░░░░] 12%` | 2 / 16 | [#15](https://github.com/BeinnoLLC/unraid-vitals/milestone/15) |
 | [Phase 15 — Data study](./phase-15-data-study/index.md) | `[██████████████████████████████░] 100%` | 10 / 10 | [#16](https://github.com/BeinnoLLC/unraid-vitals/milestone/16) |
 | [Phase 16 — Cleanup actions](./phase-16-cleanup-actions/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 8 | [#17](https://github.com/BeinnoLLC/unraid-vitals/milestone/17) |
 | [Phase 17 — Diagnosis tools](./phase-17-diagnosis-tools/index.md) | `[█░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0%` | 0 / 5 | [#18](https://github.com/BeinnoLLC/unraid-vitals/milestone/18) |
