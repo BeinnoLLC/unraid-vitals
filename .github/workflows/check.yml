@@ -10,6 +10,12 @@ name: check
 # how a behavioural regression (floor findings switching themselves off when a
 # prompt row got trimmed) sat on main: every suite in the tree passed, and
 # nothing ran them. Lint proves a file parses, not that it does what it claims.
+#
+# Node 24, not 20: the agent stores findings in SQLite via the `node:sqlite`
+# builtin (lib/db.mjs), which does not exist before Node 22.5 and needed an
+# experimental flag until 23.4. This job pinned 20, so the moment tests were
+# added to `check` it went red on a suite that had no way to pass there — the
+# local/CI divergence this workflow exists to prevent, in the other direction.
 
 on:
   push:
@@ -25,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Install PHP CLI
         run: sudo apt-get update && sudo apt-get install -y php-cli
