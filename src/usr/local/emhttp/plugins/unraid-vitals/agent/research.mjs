@@ -25,6 +25,7 @@
 import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt } from './lib/smythos-client.mjs';
 import { selectModels } from './lib/models.mjs';
+import { TOOLS_PROMPT, runResearchTool, parseToolCall } from './lib/research-tools.mjs';
 import { latestSnapshot, vmList, activeSource } from './lib/sources.mjs';
 import { window as timelineWindow, describeWindow } from './lib/timeline.mjs';
 
@@ -219,7 +220,19 @@ async function main() {
         for (const model of models) {
           try {
             const agent = await makeAnalysisAgent(`Vitals-Research-${model}`, BEHAVIOR, { maxTokens: 900, temperature: 0.3, model });
-            const parsed = extractJson(await callAnalyze(agent, BEHAVIOR, userPrompt));
+            // P20-08: tool loop — the model may ask for data instead of
+            // guessing. ≤3 read-only rounds; tool results become a new
+            // user-role section appended to the prompt, then re-ask.
+            let round = 0, toolUser = userPrompt;
+            let parsed;
+            for (;;) {
+              const raw = await callAnalyze(agent, BEHAVIOR + TOOLS_PROMPT, toolUser);
+              const call = parseToolCall(raw);
+              if (!call || ++round > 3) { parsed = extractJson(raw); break; }
+              const result = runResearchTool(call.name, call.args);
+              console.log(`[research] tool ${round}: ${call.name}(${JSON.stringify(call.args).slice(0,80)}) -> ${JSON.stringify(result).slice(0,80)}…`);
+              toolUser = `${userPrompt}\n\nTOOL RESULT ${round} — ${call.name}(${JSON.stringify(call.args)}):\n${JSON.stringify(result).slice(0, 4000)}\n\nContinue: either the next tool call or the final JSON answer.`;
+            }
             if (typeof parsed?.answer === 'string') perModel.push({ model, answer: parsed.answer, used: Array.isArray(parsed.used_docs) ? parsed.used_docs : [] });
             else lastErr = `${model}: no answer field in JSON`;
           } catch (e) { lastErr = e?.message || String(e); console.warn(`[research#${jobId}] ${model} failed: ${lastErr}`); }
