@@ -206,6 +206,15 @@ function v_cleanup_apply(string $previewId): array {
 
   if (isset($dockerKinds[$kind])) {
     $spec = $dockerKinds[$kind];
+    // Whole-cache kinds act on the docker builder state, not individual refs.
+    if ($kind === 'docker_build_cache') {
+      $out = (string)@shell_exec('timeout 60 docker ' . $spec['cmd'] . ' 2>&1');
+      if (preg_match('/Total reclaimed space:\s*([0-9.]+[KMGB]+)/i', $out, $m)) {
+        $bytes = v_cleanup_size_to_bytes($m[1]);
+      } else { $bytes = 0; }
+      $results[] = ['ref' => 'build cache', 'out' => substr($out, 0, 200)];
+      $done = 1;
+    } else {
     foreach ($items as $it) {
       $ref = (string)($it['ref'] ?? '');
       if ($ref === '') continue;
@@ -219,6 +228,7 @@ function v_cleanup_apply(string $previewId): array {
       $results[] = ['ref' => $ref, 'out' => substr($out, 0, 200)];
       if (strpos($out, 'Error') === false && strpos($out, 'error') === false) { $done++; }
       $bytes += (int)($it['bytes'] ?? 0);
+    }
     }
   } else {
     $roots = v_cleanup_roots($kind);

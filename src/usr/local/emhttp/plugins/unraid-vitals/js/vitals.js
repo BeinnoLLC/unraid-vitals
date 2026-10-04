@@ -950,6 +950,7 @@ var TABS = [
   { id: 'power',  label: 'Power',         icon: 'fa-bolt' },
   { id: 'kb',     label: 'Knowledge',     icon: 'fa-book' },
   { id: 'research', label: 'Research',   icon: 'fa-flask' },
+  { id: 'cleanup', label: 'Cleanup',     icon: 'fa-trash-o' },
   { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
 ];
 
@@ -1070,6 +1071,7 @@ function App() {
         : tab === 'power'  ? h(PowerTab,  props)
         : tab === 'kb'     ? h(KbTab,     props)
         : tab === 'research' ? h(ResearchTab, {})
+        : tab === 'cleanup' ? h(CleanupTab, {})
         : tab === 'settings' ? h(SettingsTab, {}) : null),
 
     h('div', { class: 'v-foot' },
@@ -2814,6 +2816,136 @@ function ResearchTab() {
 }
 
 /* ------------------------------------------------------------- settings */
+
+var CLEANUP_KINDS = [
+  { kind: 'logs',                      label: 'Plugin logs (var/tmp)',  docker: false, confirm2: false, hint: 'Rotated/truncated plugin-owned logs' },
+  { kind: 'tmp',                       label: 'Plugin tmp files',       docker: false, confirm2: false, hint: 'Files the plugin left under /tmp' },
+  { kind: 'docker_dangling_images',    label: 'Dangling images',        docker: true,  confirm2: false, hint: '<none> image layers from rebuilds' },
+  { kind: 'docker_unused_images',      label: 'Unused images (>24h)',   docker: true,  confirm2: false, hint: 'Images no container has used in 24h' },
+  { kind: 'docker_stopped_containers', label: 'Stopped containers',     docker: true,  confirm2: false, hint: 'Containers in exited/created state' },
+  { kind: 'docker_build_cache',        label: 'Build cache',            docker: true,  confirm2: false, hint: 'docker builder cache' },
+  { kind: 'docker_unused_volumes',     label: 'Unused volumes',         docker: true,  confirm2: true,  hint: 'Volumes nothing references — data loss risk, double confirm' }
+];
+
+function CleanupTab() {
+  var s1 = useState(null), audit = s1[0], setAudit = s1[1];
+  var s2 = useState(null), preview = s2[0], setPreview = s2[1];   // {kind, data}
+  var s3 = useState('idle'), applyState = s3[0], setApplyState = s3[1];
+  var s4 = useState(null), applyResult = s4[0], setApplyResult = s4[1];
+  var s5 = useState(false), confirm2 = s5[0], setConfirm2 = s5[1];
+
+  var reloadAudit = function () {
+    fetch(ENDPOINT + '?action=cleanup_audit', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setAudit(j.audit); });
+  };
+  useEffect(reloadAudit, []);
+
+  var doPreview = function (k) {
+    return function () {
+      setPreview(null); setApplyResult(null); setConfirm2(false);
+      setApplyState('previewing');
+      fetch(ENDPOINT + '?action=cleanup_preview&kind=' + encodeURIComponent(k.kind), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          setApplyState('idle');
+          if (j && j.ok) setPreview({ kind: k, data: j });
+          else setPreview({ kind: k, error: (j && j.error) || 'preview failed' });
+        })
+        .catch(function () { setPreview({ kind: k, error: 'preview failed' }); setApplyState('idle'); });
+    };
+  };
+
+  var doApply = function () {
+    if (!preview || !preview.data) return;
+    setApplyState('applying');
+    var body = new URLSearchParams({ preview_id: preview.data.preview_id, confirm2: confirm2 ? 'yes' : '' });
+    fetch(ENDPOINT + '?action=cleanup_apply', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setApplyState('idle');
+        setApplyResult(j);
+        if (j && j.ok) { setPreview(null); reloadAudit(); }
+      })
+      .catch(function () { setApplyState('idle'); setApplyResult({ ok: false, error: 'apply failed' }); });
+  };
+
+  var fmt = function (n) { return (n == null ? '—' : bytes(n, 1)); };
+
+  return h('div', null,
+    h(Panel, { title: 'Cleanup', hint: 'Preview first — apply only runs exactly what the preview listed' },
+      h('table', null,
+        h('tr', null, h('th', null, 'Kind'), h('th', null, 'What it does'), h('th', null, '')),
+        CLEANUP_KINDS.map(function (k) {
+          return h('tr', { key: k.kind },
+            h('td', { class: 'v-name' }, k.label + (k.confirm2 ? ' ⚠' : '')),
+            h('td', { class: 'muted' }, k.hint),
+            h('td', null, h('button', {
+              class: 'v-btn xs', onClick: doPreview(k),
+              disabled: applyState !== 'idle' && applyState !== 'error'
+            }, 'Preview')));
+        }))),
+    preview && preview.error ? h(Panel, { title: 'Preview failed' },
+      h('div', { class: 'v-empty' }, preview.error)) : null,
+    preview && preview.data ? h(Panel, {
+      title: 'Preview: ' + preview.kind.label,
+      hint: preview.kind.confirm2 ? 'Type-on confirmation required below' : null
+    },
+      h('div', null,
+        h('div', { class: 'muted', style: 'margin-bottom:6px' },
+          (preview.data.items || []).length + ' item(s), reclaiming ' + fmt(preview.data.total_bytes) +
+          ' — expires ' + ts(preview.data.expires_at)),
+        h('div', { style: 'max-height:260px;overflow:auto' },
+          h('table', null,
+            (preview.data.items || []).slice(0, 200).map(function (it, i) {
+              return h('tr', { key: i },
+                h('td', { class: 'v-name', style: 'word-break:break-all' }, it.path || it.ref),
+                h('td', { class: 'num muted' }, it.bytes == null ? '' : fmt(it.bytes)));
+            }))),
+        preview.kind.confirm2
+          ? h('label', { style: 'display:block;margin-top:8px' },
+              h('input', { type: 'checkbox', checked: confirm2,
+                onChange: function (e) { setConfirm2(e.target.checked); } }),
+              ' I understand this deletes unused docker volumes (data loss risk)')
+          : null,
+        h('div', { style: 'margin-top:10px' },
+          h('button', { class: 'v-btn', onClick: doApply,
+            disabled: applyState !== 'idle' || (preview.kind.confirm2 && !confirm2) },
+            'Apply — delete ' + (preview.data.items || []).length + ' item(s)'),
+          ' ',
+          h('button', { class: 'v-btn xs', onClick: function () { setPreview(null); } }, 'Cancel'))))
+      : null,
+    applyResult ? h(Panel, { title: applyResult.ok ? 'Applied' : 'Rejected' },
+      h('div', null,
+        applyResult.ok
+          ? h('div', null, 'Removed ' + applyResult.removed + ' of ' + applyResult.of +
+              ' — reclaimed ' + fmt(applyResult.bytes_reclaimed))
+          : h('div', { class: 'v-empty' }, applyResult.error +
+            (applyResult.detail ? '' : '')),
+        applyResult.results && applyResult.results.length
+          ? h('table', null, applyResult.results.slice(0, 50).map(function (r, i) {
+              return h('tr', { key: i },
+                h('td', { class: 'v-name', style: 'word-break:break-all' }, r.path || r.ref),
+                h('td', { class: 'muted' }, r.removed === false ? (r.error || 'failed') : (r.out ? 'ok' : 'removed')));
+            }))
+          : null))
+      : null,
+    h(Panel, { title: 'Audit log', hint: 'Every apply/reject is recorded — who, when, what, bytes' },
+      !audit ? h('div', { class: 'v-empty' }, 'Loading…')
+        : audit.length === 0 ? h('div', { class: 'v-empty' }, 'No cleanup actions yet.')
+        : h('table', null,
+            h('tr', null, h('th', null, 'When'), h('th', null, 'Who'), h('th', null, 'Kind'),
+              h('th', null, 'Items'), h('th', null, 'Bytes'), h('th', null, 'Result')),
+            audit.map(function (r, i) {
+              return h('tr', { key: i },
+                h('td', { class: 'muted' }, ts(r.at)),
+                h('td', null, r.user || '—'),
+                h('td', { class: 'v-name' }, r.kind),
+                h('td', { class: 'num' }, r.items),
+                h('td', { class: 'num' }, r.bytes ? bytes(r.bytes, 1) : ''),
+                h('td', null, h('span', { class: r.result === 'applied' ? 'v-badge ok' : 'v-badge warn' }, r.result)));
+            }))));
+}
 
 function SettingsTab() {
   var s1 = useState(null), cfg = s1[0], setCfg = s1[1];
