@@ -1255,10 +1255,42 @@ function DashTab(P) {
     size: 120,
   };
 
+  // P17-01: one-click full health check — runs every check now, shows a score
+  // + severity-sorted findings + diff vs the previous run.
+  var hcState = useState(null); var hcReport = hcState[0], setHcReport = hcState[1];
+  var hcRunState = useState('idle'); var hcRunning = hcRunState[0], setHcRunning = hcRunState[1];
+  var runHealth = function () {
+    setHcRunning('busy');
+    fetch(ENDPOINT + '?action=health_check', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { setHcRunning('idle'); if (j && j.ok) setHcReport(j); })
+      .catch(function () { setHcRunning('idle'); });
+  };
+
   return h('div', null,
     h('div', { class: 'v-cards v-cards-4' }, cards.map(function (c, i) {
       return h(StatCard, merge(c, { key: i }));
     })),
+    h(Panel, {
+      title: 'Health check',
+      span2: true,
+      hint: hcReport ? ('score ' + hcReport.score + '/100' +
+        (hcReport.diff ? (' — ' + (hcReport.diff.new || []).length + ' new, ' + (hcReport.diff.resolved || []).length + ' resolved vs previous run') : '')) : 'runs every check in the engine now'
+    },
+      h('div', null,
+        h('button', { class: 'v-btn', onClick: runHealth, disabled: hcRunning === 'busy' },
+          hcRunning === 'busy' ? 'Running…' : 'Run health check now'),
+        hcReport ? h('div', { style: 'margin-top:10px' },
+          hcReport.diff && hcReport.diff.new && hcReport.diff.new.length
+            ? h('div', { class: 'v-empty' }, 'New since last run: ' + hcReport.diff.new.length) : null,
+          (hcReport.findings || []).map(function (f, i) {
+            return h('div', { key: i, style: 'margin-bottom:6px' },
+              h('span', { class: 'v-badge ' + (f.severity === 'critical' || f.severity === 'alert' ? 'v-badge-error' : f.severity === 'warning' ? 'v-badge-warning' : '') },
+                f.severity), ' ',
+              h('span', null, f.title));
+          }),
+          (hcReport.findings || []).length === 0 ? h('div', { class: 'v-empty' }, 'No findings — clean run.') : null)
+          : null)),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'CPU & Memory', span2: true, hint: pts.length + ' samples' },
         h(Chart, { series: cpuSeries, max: 100, height: 165, area: true, events: P.chartEvents,

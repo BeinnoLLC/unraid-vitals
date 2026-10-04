@@ -247,6 +247,20 @@ try {
     exit;
   }
 
+  if ($action === 'health_check') {
+    // GET (fetch, no state change beyond the results themselves — the checks
+    // run is the documented scan), but bind to POST too if sent that way.
+    require_once __DIR__ . '/diagnose.php';
+    echo json_encode(v_health_run_now(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'health_runs') {
+    require_once __DIR__ . '/diagnose.php';
+    echo json_encode(['ok' => true, 'runs' => v_health_runs(20)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'mover_start') {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
       http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
