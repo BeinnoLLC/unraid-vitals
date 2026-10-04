@@ -13,6 +13,9 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.09
+- Backups & restore panel: consistent DB backups (7 daily + 4 weekly), integrity-checked, same-pool warning, byte-accurate download, restore with automatic pre-restore safety copy, full state bundle (.zip: DB + rollups + config) reproducing a clean install
+- Daily 03:00 backup job with lock/timeout/quiet-hours guards
 ###2026.10.08
 - Schedules panel: every job's switch, schedule, last run + duration/exit, Run-now with lock/quiet/parity guards
 - Per-agent schedules (disks daily, thermal every 30 min, ...) — agents serialize on one lock
