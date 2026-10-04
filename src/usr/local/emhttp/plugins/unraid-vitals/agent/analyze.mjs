@@ -12,6 +12,7 @@
 import { randomUUID } from 'node:crypto';
 import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun, insertKbDocument, reapStaleRuns } from './lib/db.mjs';
 import { lastRunStats } from './agents/contract.mjs';
+import { distill } from './lib/distiller.mjs';
 import * as disks from './agents/disks.mjs';
 import * as thermal from './agents/thermal.mjs';
 import * as pools from './agents/pools.mjs';
@@ -155,11 +156,19 @@ async function main() {
     console.error(`no matching agents for: ${only.join(', ')} (known: ${allMods.map(m => m.AGENT_ID).join(', ')})`);
     process.exit(1);
   }
+  // P10-… (#36): distill resolved events into lessons/solutions — runs at the
+  // END of the pass (after findings may resolve events) and after reaps.
+  try {
+    const d = distill(25);
+    if (d.lessons || d.solutions) console.log(`[analyze] distilled ${d.lessons} lesson(s) / ${d.solutions} solution(s)`);
+  } catch (e) { console.warn('[analyze] distiller failed:', e.message); }
+
   for (const mod of fast) {
     if (outOfTime()) { console.warn(`[analyze] total run budget exhausted — skipping ${mod.AGENT_ID} (next pass retries it)`); continue; }
     // eslint-disable-next-line no-await-in-loop -- intentional: one LLM call at a time
     await runAgent(mod);
   }
+  try { const d2 = distill(25); if (d2.lessons || d2.solutions) console.log(`[analyze] distilled +${d2.lessons}/+${d2.solutions}`); } catch {}
   for (const { mod, intervalMinutes } of gated) {
     const interval = intervalMinutes();
     // --once-style explicit request bypasses the gate — a user asking for
