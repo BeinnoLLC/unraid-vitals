@@ -190,6 +190,7 @@ export async function runSpecialist({ agentName, behavior, systemRole, sections,
   }
 
   Object.assign(lastRunStats, {
+    retries: lastCallStats.retries ?? 0,
     prompt_tokens_est: tokens, trimmed, dropped: dropped.length,
     drop_reasons: dropped.map(d => d.reason),
     prompt_eval_count: lastCallStats.prompt_eval_count, eval_count: lastCallStats.eval_count,

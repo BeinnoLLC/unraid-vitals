@@ -2964,7 +2964,45 @@ function ResearchTab() {
                   class: 'v-btn xs', style: 'margin-left:6px', disabled: retryBusy,
                   onClick: function () { retryJob(j.id); },
                 }, h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), ' Retry') : null));
-          }))));
+          }))),
+    h(AgentRunsPanel, {}));
+}
+
+/* P20-14: AI run observability — per agent: last run, duration, token counts,
+ * endpoint, retries, findings kept/dropped. The runs rows come from
+ * action=findings (runs key); stats are additive columns written by
+ * finishRun(). */
+function AgentRunsPanel() {
+  var st = useState(null); var runs = st[0], setRuns = st[1];
+  var load = function () {
+    fetch(ENDPOINT + '?action=findings', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setRuns(j.runs || []); });
+  };
+  useEffect(load, []);
+  var durFmt = function (ms) { return ms == null ? '—' : ms >= 60000 ? Math.round(ms / 6000) / 10 + ' min' : Math.round(ms / 1000) + ' s'; };
+  return h(Panel, { title: 'Agent runs (observability)', span2: true,
+    hint: 'per-agent last run: wall time, prompt/output tokens, endpoint, retries, findings kept/dropped' },
+    !runs ? h('div', { class: 'v-empty' }, 'Loading…')
+      : runs.length === 0 ? h('div', { class: 'v-empty' }, 'No agent runs yet.')
+      : h(Table, null,
+        h('tr', null, h('th', null, 'Agent'), h('th', null, 'Last run'), h('th', null, 'Status'),
+          h('th', { class: 'num' }, 'Wall'), h('th', { class: 'num' }, 'Prompt tok'),
+          h('th', { class: 'num' }, 'Output tok'), h('th', null, 'Endpoint'), h('th', { class: 'num' }, 'Retries'),
+          h('th', { class: 'num' }, 'Kept/Dropped')),
+        runs.map(function (r, i) {
+          var wall = (r.finished_at && r.started_at) ? (r.finished_at - r.started_at) * 1000 : null;
+          return h('tr', { key: i },
+            h('td', { class: 'v-name' }, r.agent),
+            h('td', { class: 'muted' }, r.started_at ? ts(r.started_at) : '—'),
+            h('td', null, h('span', { class: r.status === 'ok' ? 'v-badge ok' : (r.status === 'running' ? 'v-badge' : 'v-badge warn') }, r.status)),
+            h('td', { class: 'num' }, durFmt(wall)),
+            h('td', { class: 'num' }, r.prompt_tokens == null ? '—' : String(r.prompt_tokens)),
+            h('td', { class: 'num' }, r.output_tokens == null ? '—' : String(r.output_tokens)),
+            h('td', { class: 'muted', style: 'font-size:0.85em' }, (r.endpoint || '—').replace(/^https?:\/\//, '')),
+            h('td', { class: 'num' }, r.retries == null ? '—' : String(r.retries)),
+            h('td', { class: 'num' }, r.findings_kept == null ? '—' : r.findings_kept + '/' + (r.findings_dropped ?? 0)));
+        })));
 }
 
 /* ------------------------------------------------------------- settings */

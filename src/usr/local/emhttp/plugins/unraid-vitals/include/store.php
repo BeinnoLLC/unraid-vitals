@@ -1632,7 +1632,16 @@ function v_ai_runs(): array {
   if (!is_file($dbFile) || !class_exists('SQLite3')) return [];
   try { $db = new SQLite3($dbFile, SQLITE3_OPEN_READONLY); } catch (Throwable $e) { return []; }
   $out = [];
-  $res = $db->query("SELECT agent, MAX(started_at) AS started_at, status, error, finished_at
+  // P20-14: per-run token/timing stats — additive columns that may not exist
+  // on a DB written by older agents only; detect via PRAGMA, select what's there.
+  $cols = ['agent', 'MAX(started_at) AS started_at', 'status', 'error', 'finished_at'];
+  $have = [];
+  $pragma = $db->query('PRAGMA table_info(runs)');
+  while (($c = $pragma->fetchArray(SQLITE3_ASSOC))) $have[] = $c['name'];
+  foreach (['prompt_tokens', 'output_tokens', 'model_ms', 'endpoint', 'retries', 'findings_kept', 'findings_dropped'] as $c) {
+    if (in_array($c, $have, true)) $cols[] = $c;
+  }
+  $res = $db->query("SELECT " . implode(', ', $cols) . "
                       FROM runs GROUP BY agent ORDER BY agent");
   while ($res && ($row = $res->fetchArray(SQLITE3_ASSOC))) $out[] = $row;
   $db->close();

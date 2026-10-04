@@ -279,10 +279,30 @@ export function startRun(agent, runId) {
   ).run(runId, agent, Math.floor(Date.now() / 1000));
 }
 
-export function finishRun(runId, status, error) {
-  getDb().prepare(
+export function finishRun(runId, status, error, stats = null) {
+  // P20-14: persist per-run observability — prompt/output tokens, model time,
+  // endpoint (+retries), kept/dropped finding counts. Additive columns via the
+  // runbook-style migration below; stats come from runSpecialist's
+  // lastRunStats + the orchestrator's own counters.
+  const db = getDb();
+  db.prepare(
     `UPDATE runs SET finished_at = ?, status = ?, error = ? WHERE run_id = ?`
   ).run(Math.floor(Date.now() / 1000), status, error || null, runId);
+  if (stats && typeof stats === 'object') {
+    const cols = new Set(db.prepare(`PRAGMA table_info(runs)`).all().map(c => c.name));
+    const ensure = (c, decl) => { if (!cols.has(c)) db.exec(`ALTER TABLE runs ADD COLUMN ${c} ${decl}`); };
+    ensure('prompt_tokens', 'INTEGER');
+    ensure('output_tokens', 'INTEGER');
+    ensure('model_ms', 'INTEGER');
+    ensure('endpoint', 'TEXT');
+    ensure('retries', 'INTEGER');
+    ensure('findings_kept', 'INTEGER');
+    ensure('findings_dropped', 'INTEGER');
+    db.prepare(`UPDATE runs SET prompt_tokens=?, output_tokens=?, model_ms=?, endpoint=?, retries=?, findings_kept=?, findings_dropped=? WHERE run_id=?`)
+      .run(stats.prompt_tokens ?? null, stats.output_tokens ?? null, stats.model_ms ?? null,
+           stats.endpoint ?? null, stats.retries ?? null, stats.findings_kept ?? null,
+           stats.findings_dropped ?? null, runId);
+  }
 }
 
 /**

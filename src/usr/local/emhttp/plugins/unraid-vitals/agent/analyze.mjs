@@ -11,6 +11,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { getDb, startRun, finishRun, replaceFindings, ingestFindingToKb, isDueForRun, insertKbDocument, reapStaleRuns } from './lib/db.mjs';
+import { lastRunStats } from './agents/contract.mjs';
 import * as disks from './agents/disks.mjs';
 import * as thermal from './agents/thermal.mjs';
 import * as pools from './agents/pools.mjs';
@@ -74,7 +75,16 @@ async function runAgent(mod) {
         severity: worst === 'critical' ? 'critical' : worst === 'error' ? 'high' : worst === 'warning' ? 'medium' : 'low',
       });
     }
-    finishRun(runId, 'ok', null);
+    // P20-14: persist token/timing/endpoint + kept/dropped for the runs UI
+    finishRun(runId, 'ok', null, {
+      prompt_tokens: lastRunStats.prompt_tokens_est ?? null,
+      output_tokens: lastRunStats.eval_count ?? null,
+      model_ms: Date.now() - t0,
+      endpoint: lastRunStats.endpoint ?? null,
+      retries: lastRunStats.retries ?? 0,
+      findings_kept: Array.isArray(findings) ? findings.length : 0,
+      findings_dropped: lastRunStats.drop_reasons?.length ?? 0
+    });
     console.log(`[${mod.AGENT_ID}] ok — ${findings.length} findings in ${Date.now() - t0}ms`);
   } catch (e) {
     finishRun(runId, 'error', String(e?.message || e));

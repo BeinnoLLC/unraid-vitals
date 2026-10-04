@@ -46,7 +46,7 @@ class OllamaError extends Error {
 /** Stats from the most recent successful model call — read by the
  *  orchestrator after each agent so runs can record prompt/response tokens
  *  and warn when the prompt got within 10% of num_ctx. */
-export const lastCallStats = { prompt_eval_count: null, eval_count: null, num_ctx: NUM_CTX, near_limit: false, endpoint: null, format: null };
+export const lastCallStats = { prompt_eval_count: null, eval_count: null, num_ctx: NUM_CTX, near_limit: false, endpoint: null, format: null, retries: 0 };
 
 export function estimateTokens(text) { return Math.ceil(String(text ?? '').length / CHARS_PER_TOKEN); }
 
@@ -114,7 +114,8 @@ async function callOnce(baseURL, systemPrompt, userPrompt, opts = {}) {
     num_ctx: numCtx,
     near_limit: json.prompt_eval_count != null && json.prompt_eval_count >= numCtx * 0.9,
     endpoint: baseURL,
-    format: opts.format ? 'json_schema' : null
+    format: opts.format ? 'json_schema' : null,
+    retries: lastCallStats.retries ?? 0
   });
   if (lastCallStats.near_limit) {
     console.warn(`[llm] prompt used ${json.prompt_eval_count}/${numCtx} context tokens — raise VITALS_AGENT_NUM_CTX or the prompt was truncated`);
@@ -136,8 +137,10 @@ async function promptOllama(systemPrompt, userPrompt, opts = {}) {
     () => callOnce(FALLBACK, systemPrompt, userPrompt, opts)
   ];
   const errors = [];
+  lastCallStats.retries = 0;
   for (let i = 0; i < attempts.length; i++) {
     try { return await attempts[i](); }
+    catch (e) { errors.push(e); lastCallStats.retries = i;
     catch (e) { errors.push(e); if (i < attempts.length - 1) await new Promise(r => setTimeout(r, 5000)); }
   }
   throw new OllamaError('both LLM studios unreachable after retry', {
