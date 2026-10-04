@@ -2780,6 +2780,8 @@ function KbTab() {
 
 /* --------------------------------------------------------------- research */
 
+function safeParse(v) { try { var j = JSON.parse(v); return Array.isArray(j) ? j : []; } catch (e) { return []; } }
+
 function ResearchTab() {
   var s1 = useState(''); var prompt = s1[0], setPrompt = s1[1];
   var s2 = useState([]); var jobs = s2[0], setJobs = s2[1];
@@ -2935,7 +2937,30 @@ function ResearchTab() {
             h('button', { class: 'v-btn xs', style: 'margin-top:8px', disabled: retryBusy,
                 onClick: function () { retryJob(activeJob.id); } },
               h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), retryBusy ? ' Retrying…' : ' Retry'))
-        : h('div', { class: 'v-kb-doc-body v-kb-doc-rich' }, renderMd(activeJob.answer))) : null,
+        : h('div', null,
+          // P20-10: the answer renders through the allow-list markdown
+          // renderer (never innerHTML of model output); citations land under
+          // the answer; a follow-up carries the previous question + answer.
+          h('div', { class: 'v-kb-doc-body v-kb-doc-rich' }, renderMd(activeJob.answer)),
+          (activeJob.sources && activeJob.sources.length)
+            ? h('div', { style: 'margin-top:10px' },
+                h('div', { class: 'muted', style: 'margin-bottom:4px' }, 'Sources (' + activeJob.sources.length + '):'),
+                h('div', null, (typeof activeJob.sources === 'string' ? safeParse(activeJob.sources) : activeJob.sources).map(function (sRef, i) {
+                  var id = typeof sRef === 'object' ? (sRef.id ?? sRef.doc_id ?? null) : sRef;
+                  var label = typeof sRef === 'object' ? (sRef.title ?? ('KB #' + id)) : ('KB doc #' + sRef);
+                  return h('button', { key: i, class: 'v-btn xs', style: 'margin:0 6px 6px 0', onClick: function () {
+                      fetch(ENDPOINT + '?action=kb_get&id=' + encodeURIComponent(id), { cache: 'no-store' })
+                        .then(function (r) { return r.json(); })
+                        .then(function (j) { if (j && j.ok) window.alert(j.doc ? (j.doc.title + '\n\n' + (j.doc.content || '').slice(0, 1500)) : (j.error || 'not found')); });
+                  } }, label);
+                })))
+            : null,
+          activeJob.status === 'done'
+            ? h('button', { class: 'v-btn xs', style: 'margin-top:6px', onClick: function () {
+                setPrompt('Follow-up on "' + activeJob.prompt.slice(0, 120) + (activeJob.prompt.length > 120 ? '…' : '') + '" — context: ' + String(activeJob.answer || '').slice(0, 400).replace(/\s+/g, ' ') + '…\n\nMy question: ');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              } }, h('i', { class: 'fa fa-comments' }), ' Follow up')
+            : null)) : null,
     h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
       !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
       : h(Table, null,
