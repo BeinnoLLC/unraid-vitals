@@ -35,8 +35,9 @@
     LLM endpoint is unreachable, the metrics dashboard and controls work exactly
     as before.
 
-    The stock dashboard is never modified — Vitals adds a page, a tile you can
-    place wherever you like, and an optional "make it my start page" switch.
+    The stock dashboard is never modified — Vitals adds a compact tile to it
+    (headline stats + the worst open finding), its own top-level navigation
+    tab, and an optional "make it my start page" switch.
   </Profile>
   <Icon>https://raw.githubusercontent.com/BeinnoLLC/unraid-vitals/main/assets/icon.png</Icon>
   <Screenshots>
