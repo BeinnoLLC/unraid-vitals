@@ -24,6 +24,7 @@ require_once __DIR__ . '/smart_selftest.php';
 require_once __DIR__ . '/job_control.php';
 require_once __DIR__ . '/agent_schedules.php';
 require_once __DIR__ . '/dbbackup.php';
+require_once __DIR__ . '/kb_curate.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -299,6 +300,47 @@ try {
     $force = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') && v_csrf_ok() && ($_POST['force'] ?? '') === 'yes';
     $n = v_kb_seed($force);
     echo json_encode(['ok' => true, 'seeded' => $n], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  // --- P12 KB workspace curation (#38) — all mutations CSRF-gated ------------
+  if ($action === 'kb_curate_list') {
+    echo json_encode(['ok' => true,
+      'lessons' => v_kb_lessons_list($_GET['kind'] ?? null),
+      'solutions' => v_kb_solutions_list(),
+      'events' => v_kb_events_list($_GET['kind'] ?? null, $_GET['status'] ?? null)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  $KB_MUT = [
+    'kb_lesson_edit' => function () { return v_kb_lesson_edit((int)$_POST['id'], (string)$_POST['text']); },
+    'kb_lesson_merge' => function () { return v_kb_lesson_merge((int)$_POST['id'], (int)$_POST['into']); },
+    'kb_lesson_delete' => function () { return v_kb_lesson_delete((int)$_POST['id']); },
+    'kb_lesson_pin' => function () { return v_kb_lesson_pin((int)$_POST['id'], (($_POST['pin'] ?? 'yes') === 'yes')); },
+    'kb_lesson_manual' => function () { $id = v_kb_lesson_manual((string)$_POST['entity'], (string)$_POST['text']); return $id !== null; },
+    'kb_solution_feedback' => function () { return v_kb_solution_feedback((int)$_POST['id'], (string)$_POST['outcome']); },
+  ];
+  if (isset($KB_MUT[$action])) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(['ok' => (bool)(($KB_MUT[$action])())], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'kb_export') {
+    $bundle = v_kb_export();
+    header('Content-Type: application/json');
+    header('Content-Disposition: attachment; filename="unraid-vitals-kb-' . date('Ymd-His') . '.json"');
+    echo $bundle ?: json_encode(['ok' => false, 'error' => 'no kb']);
+    exit;
+  }
+
+  if ($action === 'kb_import') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(v_kb_import((string)($_POST['bundle'] ?? '')), JSON_UNESCAPED_SLASHES);
     exit;
   }
 

@@ -2677,6 +2677,130 @@ var KB_SEVERITIES = ['critical', 'high', 'medium', 'low'];
 var KB_SEV_LABEL = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
 var KB_SEV_PILL = { critical: 'stop', high: 'warn', medium: 'info', low: 'run' };
 
+/* P12 (#38): KB workspace — Events / Lessons / Solutions views with curation
+ * (edit/merge/delete/pin lesson; outcome feedback on solutions), manual
+ * entries, and JSON bundle export/import. Filters feed the ajax layer. */
+function KbWorkspace() {
+  var s0 = useState(null); var data = s0[0], setData = s0[1];
+  var s1 = useState('lessons'); var view = s1[0], setView = s1[1];
+  var s2 = useState(null); var kindFilter = s2[0], setKindFilter = s2[1];
+  var s3 = useState(null); var statusFilter = s3[0], setStatusFilter = s3[1];
+  var s4 = useState(null); var editId = s4[0], setEditId = s4[1];
+  var s5 = useState(''); var editText = s5[0], setEditText = s5[1];
+  var s6 = useState(null); var mergeInto = s6[0], setMergeInto = s6[1];
+  var s7 = useState(''); var msg = s7[0], setMsg = s7[1];
+  var s8 = useState('idle'); var busy = s8[0], setBusy = s8[1];
+  var s9 = useState(false); var newLessonOpen = s9[0], setNewLessonOpen = s9[1];
+
+  var load = function () {
+    var qs = (kindFilter ? '&kind=' + encodeURIComponent(kindFilter) : '') +
+             (view === 'events' && statusFilter ? '&status=' + encodeURIComponent(statusFilter) : '');
+    fetch(ENDPOINT + '?action=kb_curate_list' + qs, { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setData(j); });
+  };
+  useEffect(load, [view, kindFilter, statusFilter]);
+
+  var act = function (action, body, after) {
+    setBusy('busy');
+    fetch(ENDPOINT + '?action=' + action, { method: 'POST', body: new URLSearchParams(body) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setBusy('idle');
+        setMsg(j && j.ok ? 'Saved.' : ((j && j.error) || 'failed'));
+        load();
+        if (after) after(j);
+      }).catch(function () { setBusy('idle'); setMsg('failed'); });
+  };
+
+  var LESSON_KINDS = ['smart', 'temp', 'fill', 'memory', 'container', 'vm', 'net', 'fan_stall', 'finding', 'research', 'manual'];
+
+  return h(Panel, { title: 'KB workspace', span2: true,
+      hint: 'Events (what happened) · Lessons (what we learned) · Solutions (what was done) — curated here' },
+    h('div', { class: 'v-seg', role: 'group', style: 'margin-bottom:8px' },
+      [['events', 'Events'], ['lessons', 'Lessons'], ['solutions', 'Solutions']].map(function (o) {
+        return h('button', { key: o[0], class: 'v-seg-btn' + (view === o[0] ? ' active' : ''),
+          onClick: function () { setView(o[0]); } }, o[1]);
+      }),
+      h('select', { class: 'v-select', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); },
+        style: 'margin-left:8px' },
+        h('option', { value: '' }, 'all kinds'),
+        LESSON_KINDS.map(function (k) { return h('option', { key: k, value: k }, k); })),
+      view === 'events' ? h('select', { class: 'v-select', value: statusFilter || '', onChange: function (e) { setStatusFilter(e.target.value || null); },
+        style: 'margin-left:6px' },
+        h('option', { value: '' }, 'all statuses'),
+        ['open', 'resolved', 'superseded'].map(function (k) { return h('option', { key: k, value: k }, k); })) : null,
+      h('button', { class: 'v-btn xs', style: 'margin-left:8px', onClick: function () { setNewLessonOpen(!newLessonOpen); } }, '+ manual lesson'),
+      h('a', { class: 'v-btn xs', style: 'margin-left:6px', href: ENDPOINT + '?action=kb_export' }, 'Export KB')),
+    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    newLessonOpen ? h('div', { style: 'margin-bottom:10px' },
+      h('input', { class: 'v-input', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); }, style: 'margin-bottom:4px' }),
+      h('textarea', { class: 'v-input', rows: 2, placeholder: 'your lesson text', style: 'margin-bottom:4px', onInput: function (e) { setEditText(e.target.value); } }),
+      h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () {
+        act('kb_lesson_manual', { entity: editText, text: editText }, function () { setEditText(''); setNewLessonOpen(false); });
+      } }, 'Save manual lesson')) : null,
+    !data ? h('div', { class: 'v-empty' }, 'Loading…')
+      : view === 'events'
+        ? h(Table, null,
+          h('tr', null, h('th', null, 'When'), h('th', null, 'Kind'), h('th', null, 'Entity'), h('th', null, 'Severity'), h('th', null, 'Status'), h('th', null, 'Summary')),
+          (data.events || []).map(function (e, i) {
+            return h('tr', { key: i },
+              h('td', { class: 'muted' }, ts(e.started_at)),
+              h('td', null, e.kind), h('td', { class: 'v-name' }, e.entity),
+              h('td', null, h('span', { class: 'v-badge v-chip-sev-' + e.severity }, e.severity)),
+              h('td', null, h('span', { class: e.status === 'open' ? 'v-badge warn' : 'v-badge ok' }, e.status)),
+              h('td', null, String(e.summary || '').slice(0, 120)));
+          }))
+      : view === 'lessons'
+        ? h('div', null,
+          (data.lessons || []).map(function (l, i) {
+            return h('div', { key: i, class: 'v-panel', style: 'padding:8px;margin-bottom:6px' },
+              h('div', null,
+                h('div', null,
+                  h('b', { class: 'v-name' }, l.kind + ' · ' + l.entity),
+                  ' ',
+                  h('span', { class: 'muted' }, 'seen ×' + l.times_seen + ' · confidence ' + Math.round((l.confidence ?? 0) * 100) + '%'),
+                  l.confidence >= 0.9 ? h('span', { class: 'v-badge ok', style: 'margin-left:6px' }, 'pinned') : null),
+                editId === l.id
+                  ? h('div', { style: 'margin-top:6px' },
+                      h('textarea', { class: 'v-input', rows: 3, value: editText, onInput: function (e) { setEditText(e.target.value); } }),
+                      h('button', { class: 'v-btn xs', style: 'margin-top:4px', disabled: busy !== 'idle', onClick: function () {
+                        act('kb_lesson_edit', { id: l.id, text: editText }, function () { setEditId(null); });
+                      } }, 'Save'))
+                  : h('div', { class: 'muted', style: 'white-space:pre-wrap;margin-top:4px' }, l.lesson),
+                h('div', { style: 'margin-top:6px' },
+                  h('button', { class: 'v-btn xs', onClick: function () { setEditId(l.id); setEditText(l.lesson); } }, 'Edit'),
+                  ' ',
+                  mergeInto === null ? h('button', { class: 'v-btn xs', onClick: function () { setMergeInto(l.id); } }, 'Merge into…')
+                    : h('select', { class: 'v-select', onChange: function (e) {
+                        if (e.target.value && e.target.value !== String(l.id)) act('kb_lesson_merge', { id: l.id, into: e.target.value });
+                        setMergeInto(null);
+                      } },
+                      h('option', { value: '' }, 'target lesson…'),
+                      (data.lessons || []).filter(function (x) { return x.id !== l.id; }).map(function (x) {
+                        return h('option', { key: x.id, value: x.id }, x.kind + ' · ' + x.entity);
+                      })),
+                  ' ',
+                  h('button', { class: 'v-btn xs', onClick: function () { act('kb_lesson_pin', { id: l.id, pin: l.confidence >= 0.9 ? 'no' : 'yes' }); } },
+                    l.confidence >= 0.9 ? 'Unpin' : 'Pin'),
+                  ' ',
+                  h('button', { class: 'v-btn xs', style: 'color:#c00', onClick: function () { if (window.confirm('Delete lesson #' + l.id + '?')) act('kb_lesson_delete', { id: l.id }); } }, 'Delete'))));
+          }))
+        : h(Table, null,
+          h('tr', null, h('th', null, 'Event'), h('th', null, 'Detection'), h('th', null, 'Action taken'), h('th', null, 'Outcome'), h('th', null, '')),
+          (data.solutions || []).map(function (s, i) {
+            return h('tr', { key: i },
+              h('td', { class: 'v-name' }, (s.kind || '?') + ' · ' + (s.entity || '?')),
+              h('td', null, String(s.detection || '').slice(0, 90)),
+              h('td', null, String(s.action_taken || '').slice(0, 90)),
+              h('td', null, h('span', { class: s.outcome === 'worked' ? 'v-badge ok' : s.outcome === 'did_not_work' ? 'v-badge warn' : 'v-badge' }, s.outcome)),
+              h('td', null,
+                h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () { act('kb_solution_feedback', { id: s.id, outcome: 'worked' }); } }, 'Worked'),
+                ' ',
+                h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () { act('kb_solution_feedback', { id: s.id, outcome: 'did_not_work' }); } }, 'Didn\'t work')));
+          })));
+}
+
 function KbTab() {
   var s1 = useState(''); var q = s1[0], setQ = s1[1];
   var s2 = useState([]); var results = s2[0], setResults = s2[1];
@@ -3630,3 +3754,4 @@ function SettingsTab() {
 
 if (mountEl) render(h('div', null, h(App), h(ToastStack)), mountEl);
 })();
+    h(KbWorkspace, {})
