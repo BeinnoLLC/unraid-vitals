@@ -16,6 +16,7 @@ require_once __DIR__ . '/cleanup.php';
 require_once __DIR__ . '/cleanup_orphan.php';
 require_once __DIR__ . '/cleanup_ctrlogs.php';
 require_once __DIR__ . '/cleanup_recycle.php';
+require_once __DIR__ . '/cleanup_mover.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -237,6 +238,27 @@ try {
 
   if ($action === 'cleanup_audit') {
     echo json_encode(['ok' => true, 'audit' => v_cleanup_audit_list(100)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'mover_status') {
+    echo json_encode(v_mover_status(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'mover_start') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(v_mover_start(v_latest(), (string)($_POST['confirm_parity'] ?? '')), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'mover_stop') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(v_mover_stop(), JSON_UNESCAPED_SLASHES);
     exit;
   }
 

@@ -2836,6 +2836,36 @@ function CleanupTab() {
   var s3 = useState('idle'), applyState = s3[0], setApplyState = s3[1];
   var s4 = useState(null), applyResult = s4[0], setApplyResult = s4[1];
   var s5 = useState(false), confirm2 = s5[0], setConfirm2 = s5[1];
+  var s6 = useState(null), mover = s6[0], setMover = s6[1];
+  var s7 = useState('idle'), moverState = s7[0], setMoverState = s7[1];
+  var s8 = useState(false), moveParityConfirm = s8[0], setMoveParityConfirm = s8[1];
+
+  var reloadMover = function () {
+    fetch(ENDPOINT + '?action=mover_status', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setMover(j); });
+  };
+  useEffect(reloadMover, []);
+
+  var moverStart = function () {
+    setMoverState('starting');
+    var body = new URLSearchParams({ confirm_parity: moveParityConfirm ? 'yes' : '' });
+    fetch(ENDPOINT + '?action=mover_start', { method: 'POST', body: body })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setMoverState(j && j.ok ? 'started' : (j && j.confirm_required ? 'confirm' : 'error'));
+        if (j && j.ok) { reloadMover(); setTimeout(reloadMover, 4000); }
+        if (j && !j.ok) setMover(j); // surface error or confirm_required flag
+      })
+      .catch(function () { setMoverState('error'); });
+  };
+  var moverStop = function () {
+    setMoverState('stopping');
+    fetch(ENDPOINT + '?action=mover_stop', { method: 'POST', body: new URLSearchParams({}) })
+      .then(function (r) { return r.json(); })
+      .then(function () { setMoverState('idle'); reloadMover(); })
+      .catch(function () { setMoverState('error'); });
+  };
 
   var reloadAudit = function () {
     fetch(ENDPOINT + '?action=cleanup_audit', { cache: 'no-store' })
@@ -2876,6 +2906,28 @@ function CleanupTab() {
   var fmt = function (n) { return (n == null ? '—' : bytes(n, 1)); };
 
   return h('div', null,
+    h(Panel, { title: 'Mover', hint: 'Starts /usr/local/sbin/mover; refuses during a parity check unless confirmed' },
+      !mover ? h('div', { class: 'v-empty' }, 'Loading…')
+        : h('div', null,
+            h('div', { style: 'margin-bottom:8px' },
+              h('span', { class: mover.running ? 'v-badge ok' : 'v-badge' },
+                mover.running ? ('running (pid ' + mover.pid + ')' + (mover.parity_busy ? ' — parity busy' : '')) : 'not running'),
+              mover.parity_busy && !mover.running ? h('span', { class: 'v-badge warn', style: 'margin-left:8px' }, 'parity check/sync active') : null),
+            h('button', { class: 'v-btn', onClick: moverStart, disabled: moverState === 'starting' || mover.running },
+              mover.running ? 'Mover already running' : 'Run mover now'),
+            ' ',
+            h('button', { class: 'v-btn xs', onClick: moverStop, disabled: moverState === 'stopping' || !mover.running },
+              'Stop'),
+            mover.confirm_required && moverState === 'confirm'
+              ? h('label', { style: 'display:block;margin-top:8px' },
+                  h('input', { type: 'checkbox', checked: moveParityConfirm,
+                    onChange: function (e) { setMoveParityConfirm(e.target.checked); } }),
+                  ' Run anyway during the parity ' + '(rebuild/sync slows both down)')
+              : null,
+            mover.log && mover.log.length
+              ? h('pre', { class: 'v-pre', style: 'max-height:180px;overflow:auto;margin-top:8px' },
+                  mover.log.slice(-12).join('\n'))
+              : null)),
     h(Panel, { title: 'Cleanup', hint: 'Preview first — apply only runs exactly what the preview listed' },
       h('table', null,
         h('tr', null, h('th', null, 'Kind'), h('th', null, 'What it does'), h('th', null, '')),
