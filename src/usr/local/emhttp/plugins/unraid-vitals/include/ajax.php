@@ -293,6 +293,15 @@ try {
     exit;
   }
 
+  if ($action === 'kb_seed') {
+    // idempotent weekly seeding of trusted Unraid docs (P20-11); POST+CSRF for --force.
+    require_once __DIR__ . '/kb_seed.php';
+    $force = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') && v_csrf_ok() && ($_POST['force'] ?? '') === 'yes';
+    $n = v_kb_seed($force);
+    echo json_encode(['ok' => true, 'seeded' => $n], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'smart_tests') {
     echo json_encode(['ok' => true, 'disks' => v_smart_test_overview()], JSON_UNESCAPED_SLASHES);
     exit;

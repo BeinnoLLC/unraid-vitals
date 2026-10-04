@@ -1674,47 +1674,68 @@ function v_share_comment(string $share): ?array {
  * the comment itself, exactly like ShareEdit.page's hidden form fields do,
  * so this can't accidentally reset any other share setting.
  */
+/**
+ * P20-19 — apply an AI-generated share comment to the REAL Unraid share
+ * comment field, not a separate plugin-only column (user: "when we have
+ * AI comment here, it should just update comment field instead").
+ *
+ * Mechanism (read from emhttp on the reference box): /update.php → update.php
+ * is a generic ini writer — ShareEdit POSTs #file=/boot/config/shares/<share>.cfg
+ * with the full share* field set, plus a leading csrf token (var.ini's own
+ * value IS the server-side token; forwarding it is the same trust root Unraid's
+ * own POSTs use). A 302 to /login means the request was rejected — the first
+ * version treated any <400 as success and silently no-oped; probe the cfg file
+ * after the POST and report honestly.
+ */
 function v_apply_share_comment(string $share, string $comment): bool {
-  $shares = v_ini('/var/local/emhttp/shares.ini');
-  $s = $shares[$share] ?? null;
-  if (!is_array($s)) return false;
+  if (!preg_match('/^[\w.\- ]{1,60}$/', $share)) return false;
+  $cfgFile = '/boot/config/shares/' . $share . '.cfg';
+  if (!is_file($cfgFile)) return false;
 
-  $fields = [
-    'shareNameOrig' => $share,
-    'shareName' => $share,
-    'shareComment' => $comment,
-    'shareAllocator' => $s['allocator'] ?? 'highwater',
-    'shareSplitLevel' => $s['splitLevel'] ?? '',
-    'shareInclude' => $s['include'] ?? '',
-    'shareExclude' => $s['exclude'] ?? '',
-    'shareUseCache' => $s['useCache'] ?? 'no',
-    'shareCachePool' => $s['cachePool'] ?? '',
-    'shareCachePool2' => $s['cachePool2'] ?? '',
-    'shareCOW' => $s['cow'] ?? 'auto',
-    'shareFloor' => (string)($s['floor'] ?? ''),
-    '#file' => 'share',
-    '#arg' => 'edit',
-    'cmdEditShare' => 'Apply',
-  ];
+  // Rebuild the cfg's exact key=value content with the new comment (parse the
+  // existing file so nothing else can drift — shares.ini may lag the cfg).
+  $raw = @parse_ini_file($cfgFile) ?: [];
+  if (!$raw) return false;
+  $raw['shareComment'] = (string)$comment;
+  $text = '';
+  foreach ($raw as $k => $v) $text .= $k . '="' . str_replace('"', '', (string)$v) . "\"\n";
 
-  // Forward the caller's own webGUI session cookie so /update.htm treats
-  // this as the logged-in admin doing it (same trust model as everything
-  // else the plugin does through emhttp's own CSRF-checked request path).
+  $var = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+  $csrf = (string)($var['csrf_token'] ?? '');
+
+  $fields = ['csrf_token' => $csrf, '#file' => $cfgFile, '#arg' => 'edit'];
+  foreach ($raw as $k => $v) $fields[$k] = (string)$v;
+
   $cookieHeader = '';
   foreach ($_COOKIE as $k => $v) $cookieHeader .= $k . '=' . urlencode($v) . '; ';
 
-  $ch = curl_init('http://127.0.0.1/update.htm');
+  $ch = curl_init('http://127.0.0.1/update.php');
   curl_setopt_array($ch, [
     CURLOPT_POST => true,
     CURLOPT_POSTFIELDS => http_build_query($fields),
     CURLOPT_HTTPHEADER => ['Cookie: ' . rtrim($cookieHeader, '; ')],
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_TIMEOUT => 10,
+    CURLOPT_FOLLOWLOCATION => false,
   ]);
   $resp = curl_exec($ch);
-  $ok = $resp !== false && curl_getinfo($ch, CURLINFO_HTTP_CODE) < 400;
+  $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
   curl_close($ch);
-  return $ok;
+  if ($code >= 300 || $resp === false) {
+    syslog(LOG_WARNING, "unraid-vitals: apply share comment to $share rejected by webGui (HTTP $code) — a signed-in admin session is required");
+    return false;
+  }
+
+  // verify the write landed before declaring success (external_state rule)
+  $now = @parse_ini_file($cfgFile)['shareComment'] ?? null;
+  if ($now !== (string)$comment) {
+    syslog(LOG_WARNING, "unraid-vitals: share comment on $share did not land (cfg still shows " . var_export($now, true) . ')');
+    return false;
+  }
+  // emhttp notices shares/*.cfg changes on its own event loop; ask for an
+  // explicit share reread so the GUI's shares.ini picks it up immediately.
+  @shell_exec('timeout 5 /usr/local/emhttp/plugins/dynamix/scripts/share_size ' . escapeshellarg($share) . ' >/dev/null 2>&1 &');
+  return true;
 }
 
 /* --------------------------------------------------------------------- KB */

@@ -75,5 +75,9 @@ if ($tbl2) {
   $out['check_results'] = $db->changes();
 }
 
+// P20-11: keep the trusted doc seed fresh (idempotent, weekly).
+require '/usr/local/emhttp/plugins/unraid-vitals/include/kb_seed.php';
+try { $out['kb_seeded_new'] = v_kb_seed(false); } catch (Throwable $e) { $out['kb_seeded_new'] = 'err:' . substr($e->getMessage(), 0, 60); }
+
 fwrite(STDOUT, 'vitals-prune: ' . json_encode($out) . "\n");
 exit(0);
