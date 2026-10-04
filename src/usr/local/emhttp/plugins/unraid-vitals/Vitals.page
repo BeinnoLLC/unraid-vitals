@@ -1,11 +1,16 @@
-Menu="Dashboard"
-Title="Vitals"
-Icon="heartbeat"
+Menu="Tasks:65"
+Name="Vitals"
 Type="xmenu"
+Code="f21e"
+Tabs="false"
 ---
 <?PHP
-/* unraid-vitals — full dashboard page. Self-contained: all JS/CSS is served
-   from the plugin directory, no CDN, no build step at runtime. */
+/* unraid-vitals — top-level nav tab. Menu="Tasks:<rank>" is what puts a page in
+   the Unraid navbar (DefaultPageLayout.php builds the nav from find_pages('Tasks'));
+   Menu="Dashboard" would instead register a tile on the stock Dashboard page.
+   Rank 65 sits between Docker (60) and VMs (70) — a monitoring tab, next to the
+   other ops tabs. Name=" pins the label; Code=" is the FontAwesome glyph shown
+   next to it. Icon= is only read for Buttons pages, never for Tasks pages. */
 $plugin = '/plugins/unraid-vitals';
 ?>
 <link rel="stylesheet" type="text/css" href="<?=$plugin?>/css/uPlot.min.css">

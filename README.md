@@ -142,8 +142,7 @@ delete them manually if you want a clean slate.
 
 | Path | Role |
 |---|---|
-| `Vitals.page` | Main dashboard page (Unraid `Dashboard` menu); Settings is a tab on this page, not a separate `.page` |
-| `Vitals.Dashboard.page` | Compact tile for the stock dashboard |
+| `Vitals.page` | The plugin's own top-level navbar tab (`Menu="Tasks:65"`, `/Vitals`); Settings is a tab on this page, not a separate `.page` |
 | `js/vitals.js` | The entire UI — Preact + uPlot, vendored (no CDN) |
 | `include/collect.php` | One sample of every metric source, incl. hwmon sensors |
 | `include/store.php` | Ring buffer, flash rollups, alert engine, event store, KB reads |
