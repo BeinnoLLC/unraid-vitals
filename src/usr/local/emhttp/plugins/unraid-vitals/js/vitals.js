@@ -1287,7 +1287,21 @@ function DashTab(P) {
             return h('div', { key: i, style: 'margin-bottom:6px' },
               h('span', { class: 'v-badge ' + (f.severity === 'critical' || f.severity === 'alert' ? 'v-badge-error' : f.severity === 'warning' ? 'v-badge-warning' : '') },
                 f.severity), ' ',
-              h('span', null, f.title));
+              h('span', null, f.title), ' ',
+              h('button', { class: 'v-btn xs', onClick: function () {
+                  fetch(ENDPOINT + '?action=playbook&check=' + encodeURIComponent(f.check_id), { cache: 'no-store' })
+                    .then(function (r) { return r.json(); })
+                    .then(function (j) {
+                      if (!(j && j.ok)) return;
+                      // inline playbook: replace the button with a pre block
+                      setHcReport(function (rep) {
+                        var copy = rep.findings.slice();
+                        copy[i] = merge(copy[i], { playbook: j.title + '\n\n' + j.body });
+                        return merge(rep, { findings: copy });
+                      });
+                    });
+                } }, 'Fix guide'),
+            f.playbook ? h('pre', { class: 'v-pre', style: 'white-space:pre-wrap;max-height:300px;overflow:auto;background:transparent' }, f.playbook) : null);
           }),
           (hcReport.findings || []).length === 0 ? h('div', { class: 'v-empty' }, 'No findings — clean run.') : null)
           : null)),

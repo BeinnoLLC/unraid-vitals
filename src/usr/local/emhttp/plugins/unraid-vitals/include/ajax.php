@@ -18,6 +18,7 @@ require_once __DIR__ . '/cleanup_ctrlogs.php';
 require_once __DIR__ . '/cleanup_recycle.php';
 require_once __DIR__ . '/cleanup_mover.php';
 require_once __DIR__ . '/cleanup_junk.php';
+require_once __DIR__ . '/playbooks.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -258,6 +259,17 @@ try {
   if ($action === 'health_runs') {
     require_once __DIR__ . '/diagnose.php';
     echo json_encode(['ok' => true, 'runs' => v_health_runs(20)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'playbook') {
+    $checkId = (string)($_GET['check'] ?? '');
+    if (!preg_match('/^[a-z0-9_]{1,64}$/', $checkId)) {
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'bad check id']); exit;
+    }
+    $pb = v_playbook_for($checkId);
+    echo json_encode($pb ? ['ok' => true, 'check' => $checkId, 'title' => $pb['title'], 'body' => $pb['body']]
+                          : ['ok' => false, 'error' => 'no playbook for ' . $checkId], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
