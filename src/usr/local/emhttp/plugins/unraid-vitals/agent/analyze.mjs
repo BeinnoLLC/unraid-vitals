@@ -87,6 +87,13 @@ async function main() {
   // Clear rows left behind by killed processes before deciding what is due —
   // otherwise an abandoned run makes its agent look permanently overdue.
   reapStaleRuns();
+  // P20-15: bind the TOTAL run time. Each agent also has its own timeout, but
+  // the sum of N slow agents on an overloaded box still cannot run away — the
+  // remaining agents are marked cancelled (the next cron pass re-tries them
+  // with the same interval gating).
+  const totalDeadlineMs = Number(process.env.VITALS_RUN_BUDGET_MINUTES || 55) * 60 * 1000;
+  const deadline = Date.now() + totalDeadlineMs;
+  const outOfTime = () => Date.now() >= deadline;
   const only = process.argv.slice(2);
   const allMods = [...FAST_REGISTRY, ...GATED_REGISTRY.map(g => g.mod)];
   const fast = only.length ? FAST_REGISTRY.filter(m => only.includes(m.AGENT_ID)) : FAST_REGISTRY;
@@ -96,6 +103,7 @@ async function main() {
     process.exit(1);
   }
   for (const mod of fast) {
+    if (outOfTime()) { console.warn(`[analyze] total run budget exhausted — skipping ${mod.AGENT_ID} (next pass retries it)`); continue; }
     // eslint-disable-next-line no-await-in-loop -- intentional: one LLM call at a time
     await runAgent(mod);
   }
@@ -104,6 +112,7 @@ async function main() {
     // --once-style explicit request bypasses the gate — a user asking for
     // one agent by name wants it to actually run, not silently skip
     // because it ran 20 minutes ago.
+    if (outOfTime() && !only.length) { console.warn(`[analyze] total run budget exhausted — skipping ${mod.AGENT_ID}`); continue; }
     if (only.length || isDueForRun(mod.AGENT_ID, interval)) {
       // eslint-disable-next-line no-await-in-loop
       await runAgent(mod);
