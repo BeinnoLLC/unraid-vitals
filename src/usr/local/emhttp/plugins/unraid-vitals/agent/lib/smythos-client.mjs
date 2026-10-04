@@ -199,10 +199,24 @@ export async function makeAnalysisAgent(name, behavior, opts = {}) {
   return agent;
 }
 
-/** Thin call wrapper — agent.call() returns {data: <skill return value>}. */
+/** Thin call wrapper — agent.call() returns {data: <skill return value>}.
+ *
+ *  When an exception escapes a skill's process(), the SmythOS SDK swallows it
+ *  and resolves with {data:{_error:'…'}} instead of rejecting. Callers then
+ *  receive an OBJECT where they expect a string, and the first thing they do
+ *  is `.trim()` — which throws "(intermediate value).trim is not a function"
+ *  and buries the actual cause. Observed live: a studio outage surfaced in the
+ *  log as a trim() TypeError, sending the investigation after a non-existent
+ *  parsing bug. Re-throw here so every caller sees the real error. */
 export async function callAnalyze(agent, system, user) {
   const res = await agent.call('analyze', { system, user });
-  return res?.data ?? res;
+  const data = res?.data ?? res;
+  if (data && typeof data === 'object' && typeof data._error === 'string') {
+    const err = new OllamaError(data._error, { swallowedBy: 'smythos-skill' });
+    err.causes = data;
+    throw err;
+  }
+  return data;
 }
 
 export const config = { PRIMARY, FALLBACK, MODEL, TIMEOUT_MS, NUM_CTX };
