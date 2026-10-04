@@ -22,6 +22,7 @@ require_once __DIR__ . '/playbooks.php';
 require_once __DIR__ . '/timeline.php';
 require_once __DIR__ . '/smart_selftest.php';
 require_once __DIR__ . '/job_control.php';
+require_once __DIR__ . '/agent_schedules.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -178,6 +179,10 @@ try {
     foreach (array_keys(v_sched_registry()) as $jobId) {
       $allowed[] = 'SCHED_' . strtoupper($jobId);
       $allowed[] = 'SCHED_' . strtoupper($jobId) . '_ENABLED';
+    }
+    foreach (array_keys(v_agent_jobs()) as $agentName) {
+      $allowed[] = 'SCHED_AGENTS_' . strtoupper($agentName);
+      $allowed[] = 'SCHED_AGENTS_' . strtoupper($agentName) . '_ENABLED';
     }
     foreach (array_keys(v_checks_defaults()) as $checkId) {
       $allowed[] = 'CHECK_' . strtoupper($checkId) . '_ENABLED';

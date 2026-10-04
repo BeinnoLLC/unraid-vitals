@@ -14,13 +14,15 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/agent_schedules.php';
+
 const V_JOBCONTROL_DIR = '/var/tmp/unraid-vitals';
 
 /**
  * @return array<string, array{id:string,label:string,sched:string,cmd:string,env:array<string,string>,needs_node:bool,log:string}>
  */
 function v_sched_registry(): array {
-  return [
+  $reg = [
     'collector' => [
       'label' => 'Metrics collector', 'sched' => '* * * * *',
       'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-collect.php --quiet',
@@ -81,6 +83,20 @@ function v_sched_registry(): array {
       'heavy' => true, 'default_lock' => true,
     ],
   ];
+
+  // P18-03: per-agent jobs (disks/thermal/pools/network/general/updates/
+  // unraid-release) share the agents.lock so they still serialize; each
+  // carries its own SCHED_AGENTS_<NAME> override + ENABLED switch. When any
+  // per-agent job is enabled, the legacy umbrella agents job is removed —
+  // the two must not double-run the same agent.
+  $cfg = @parse_ini_file(VITALS_FLASH . '/vitals.cfg') ?: [];
+  $anyPerAgent = false;
+  foreach (v_sched_agent_registry() as $id => $job) {
+    $reg[$id] = $job;
+    if (($cfg['SCHED_' . strtoupper($id) . '_ENABLED'] ?? '1') === '1') $anyPerAgent = true;
+  }
+  if ($anyPerAgent) unset($reg['agents']);
+  return $reg;
 }
 
 /**

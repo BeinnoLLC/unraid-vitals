@@ -29,9 +29,18 @@ $rbFile = V_JOBCONTROL_DIR . '/runbook.' . $id . '.json';
 $started = time();
 $timeout = (int)($job['timeout'] ?? 14400);
 
-// flock -n refuses overlap; timeout kills runaway; both surfaces share this.
-$full = '/usr/bin/flock -n ' . escapeshellarg(V_JOBCONTROL_DIR . '/' . $id . '.lock')
-      . ' /usr/bin/timeout ' . $timeout . ' ' . $cmd;
+// Order matters: VAR=… prefixes come OUTSIDE the flock/timeout wrapper —
+// 'timeout 600 VAR=1 cmd' makes timeout(1) treat VAR=1 as the binary
+// (caught live: "failed to run command 'VITALS_UPDATE_INTERVAL_MINUTES=1440'").
+$full = $cmd;
+// inject flock+timeout right after a leading run of VAR=... tokens
+if (preg_match('/^((?:[A-Za-z_][A-Za-z0-9_]*="[^"]*" )+)(.*)$/', $cmd, $m)) {
+  $full = $m[1] . '/usr/bin/flock -n ' . escapeshellarg(V_JOBCONTROL_DIR . '/' . $id . '.lock')
+        . ' /usr/bin/timeout ' . $timeout . ' ' . $m[2];
+} else {
+  $full = '/usr/bin/flock -n ' . escapeshellarg(V_JOBCONTROL_DIR . '/' . $id . '.lock')
+        . ' /usr/bin/timeout ' . $timeout . ' ' . $cmd;
+}
 $code = 0;
 passthru($full, $code);
 

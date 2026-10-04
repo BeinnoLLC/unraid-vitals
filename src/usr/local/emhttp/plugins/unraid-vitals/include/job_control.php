@@ -12,6 +12,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/store.php';
 require_once __DIR__ . '/schedule_registry.php';
+require_once __DIR__ . '/agent_schedules.php';
 
 if (!defined('V_JOBCONTROL_DIR')) {
   define('V_JOBCONTROL_DIR', '/var/tmp/unraid-vitals');
