@@ -233,6 +233,7 @@ export async function runSpecialist({ agentName, behavior, systemRole, sections,
   }
 
   Object.assign(lastRunStats, {
+    endpoint: lastCallStats.endpoint ?? null,
     retries: lastCallStats.retries ?? 0,
     prompt_tokens_est: tokens, trimmed, dropped: dropped.length,
     drop_reasons: dropped.map(d => d.reason),
