@@ -280,6 +280,25 @@ try {
     exit;
   }
 
+  if ($action === 'diag_summary') {
+    require_once __DIR__ . '/diagnostics.php';
+    echo json_encode(['ok' => true, 'summary' => v_diag_forum_summary(true)], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'diag_bundle') {
+    // Triggers Unraid's diagnostics; returns the bundle path for the UI to
+    // turn into a download link. Heavier op — bound behind POST + CSRF.
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    require_once __DIR__ . '/diagnostics.php';
+    $zip = v_diag_unraid_bundle();
+    echo json_encode($zip ? ['ok' => true, 'bundle' => $zip]
+                          : ['ok' => false, 'error' => 'diagnostics bundle not produced (check /boot/logs free space)'], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
   if ($action === 'mover_start') {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
       http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;

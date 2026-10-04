@@ -1795,6 +1795,26 @@ function SysTab(P) {
   var mem = d.mem || {}, load = d.load || {}, sys = d.system || {};
   var sCpu = [{ name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) }];
   var sMem = [{ name: 'Mem %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) }];
+  // P17-03: diagnostics export — Unraid bundle + anonymized forum summary.
+  var diagState = useState(null); var diag = diagState[0], setDiag = diagState[1];
+  var dgState = useState('idle'); var diagBusy = dgState[0], setDiagBusy = dgState[1];
+  var loadDiag = function () {
+    fetch(ENDPOINT + '?action=diag_summary', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setDiag(j.summary); });
+  };
+  useEffect(loadDiag, []);
+  var trigBundle = function () {
+    setDiagBusy('busy');
+    fetch(ENDPOINT + '?action=diag_bundle', { method: 'POST', body: new URLSearchParams({}) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setDiagBusy('idle');
+        if (j && j.ok) window.alert('Diagnostics bundle created: ' + j.bundle + '\n(attach this file to your support post)');
+        else window.alert((j && j.error) || 'bundle failed');
+      })
+      .catch(function () { setDiagBusy('idle'); });
+  };
 
   return h('div', null,
     h('div', { class: 'v-cards' },
@@ -1832,7 +1852,16 @@ function SysTab(P) {
       h(Panel, { title: 'Top processes', hint: 'by CPU' }, h(TopTable, { d: d }))),
     h(Panel, { title: 'CPU cores', span2: true,
       hint: (d.cpu_topology || {}).sockets ? d.cpu_topology.sockets + ' socket · ' + d.cpu_topology.cores + ' cores · ' + d.cpu_topology.threads + ' threads' : '' },
-      h(CoreGrid, { d: d })));
+      h(CoreGrid, { d: d })),
+    h(Panel, { title: 'Diagnostics export', span2: true,
+      hint: 'Diagnostics bundle for support threads + an anonymized summary safe to paste in a forum post' },
+      h('div', null,
+        h('button', { class: 'v-btn', onClick: trigBundle, disabled: diagBusy === 'busy' },
+          diagBusy === 'busy' ? 'Collecting…' : 'Collect Unraid diagnostics (.zip)'),
+        h('div', { class: 'muted', style: 'margin-top:10px;margin-bottom:4px' },
+          'Anonymized summary (shares, host, IPs, serials masked) — paste this in a forum post:'),
+        h('pre', { class: 'v-pre', style: 'white-space:pre-wrap;max-height:280px;overflow:auto;background:transparent' },
+          diag || 'Loading…'))));
 }
 
 /** Per-thread load grid cross-referenced with live VM vcpupin so a hot core
