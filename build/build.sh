@@ -69,12 +69,20 @@ MD5=$(md5sum "$TXZ" | awk '{print $1}')
 SIZE=$(stat -c %s "$TXZ")
 
 # ------------------------------------------------------------------- .plg ---
+# Two copies, and they must not drift:
+#   dist/<name>.plg          the release asset
+#   plugins/<name>.plg       the tracked manifest, and what &pluginURL points at
+# The second is the address in this script's own install instructions (and the
+# one users paste into `plugin install`). For a while the build only wrote the
+# first, so the tracked manifest sat frozen at an old version and every release
+# after it installed the older payload. Write both, from one build.
 PLG="$DIST/$NAME.plg"
 sed -e "s|@VERSION@|$VERSION|g" \
     -e "s|@MD5@|$MD5|g" \
     -e "s|@GITHUB@|$GITHUB|g" \
     -e "s|@PKGNAME@|$PKGNAME|g" \
     "$ROOT/build/plugin.plg.template" > "$PLG"
+cp "$PLG" "$ROOT/plugins/$NAME.plg"
 
 # ---------------------------------------------------------------- checksums -
 (

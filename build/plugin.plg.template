@@ -13,6 +13,11 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.11
+- Health findings no longer go quiet when the model's prompt is trimmed: threshold checks (a pool past 90%, a disk at 55°C) are enforced from the sampled data itself, so a breach is reported even when the data scrolled out of the model's view
+- One device is one finding — the model's "cache (ssd)" and the check's "cache" are recognised as the same disk instead of being listed twice
+- The findings eval reports n/a for a run that errored, instead of a perfect 100%
+- Test suites now run in CI (npm run check); it was lint-only, which is how a behavioural regression shipped with every suite green
 ###2026.10.10
 - KB workspace: Events/Lessons/Solutions views with curation (edit, merge, delete, pin), outcome feedback that moves confidence, manual entries, JSON export/import
 - Distiller: resolved events become lessons + solutions automatically; recurrence strengthens the lesson

@@ -2,25 +2,58 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-vitals">
 <!ENTITY author    "hazemhagrass">
-<!ENTITY version   "2026.09.28">
-<!ENTITY md5       "0dd2203d67b136209d1f383e4abcf447">
+<!ENTITY version   "2026.10.11">
+<!ENTITY md5       "88d1bb6c78dcecba41b019ed82578562">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY github    "BeinnoLLC/unraid-vitals">
-<!ENTITY pkgname   "unraid-vitals-2026.09.28-x86_64-1">
+<!ENTITY pkgname   "unraid-vitals-2026.10.11-x86_64-1">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/plugins/&name;.plg">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;"
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
-###2026.09.28
-- Vitals dashboard: 8 live stat cards, sparkline history for CPU / memory / network / temperatures
-- Full array table with per-disk fill, temperature and error counters
-- Docker container breakdown with per-container CPU and memory
-- SMART health table (reallocated / pending / CRC sectors, power-on hours)
-- GPU and UPS panels, auto-detected when the hardware is present
-- Local metric collection every minute, 24h RAM ring buffer plus hourly flash rollups
-- Configurable sample interval and retention on the settings page
+###2026.10.11
+- Health findings no longer go quiet when the model's prompt is trimmed: threshold checks (a pool past 90%, a disk at 55°C) are enforced from the sampled data itself, so a breach is reported even when the data scrolled out of the model's view
+- One device is one finding — the model's "cache (ssd)" and the check's "cache" are recognised as the same disk instead of being listed twice
+- The findings eval reports n/a for a run that errored, instead of a perfect 100%
+- Test suites now run in CI (npm run check); it was lint-only, which is how a behavioural regression shipped with every suite green
+###2026.10.10
+- KB workspace: Events/Lessons/Solutions views with curation (edit, merge, delete, pin), outcome feedback that moves confidence, manual entries, JSON export/import
+- Distiller: resolved events become lessons + solutions automatically; recurrence strengthens the lesson
+- Hybrid retrieval: local embeddings + RRF + LLM reranker — recall@5 40%→90% on the golden set; graceful BM25-only fallback
+- Research: read-only tools (metric history, log search, container tail, SMART, KB search, check results), citations open docs, follow-ups carry context
+- AI agents: prompt redaction (opt-in), untrusted-input framing, eval harness with deterministic threshold floors, run budget, per-run observability (tokens/endpoint/retries)
+###2026.10.09
+- Backups & restore panel: consistent DB backups (7 daily + 4 weekly), integrity-checked, same-pool warning, byte-accurate download, restore with automatic pre-restore safety copy, full state bundle (.zip: DB + rollups + config) reproducing a clean install
+- Daily 03:00 backup job with lock/timeout/quiet-hours guards
+###2026.10.08
+- Schedules panel: every job's switch, schedule, last run + duration/exit, Run-now with lock/quiet/parity guards
+- Per-agent schedules (disks daily, thermal every 30 min, ...) — agents serialize on one lock
+- Retention engine prunes flash rollups, KB docs, research jobs and check results (each with its own keep window)
+- Every job has a lock + timeout; the collector no longer stacks slow runs
+- Dashboard time ranges filter by real timestamps at any sample interval; UI polling pauses on hidden tabs
+###2026.10.07
+- One-click full health check: score out of 100, severity-sorted findings, diff vs your previous run (#84)
+- Fix playbooks for every check, one click away from any finding (#85)
+- Diagnostics export: Unraid's own bundle + an anonymized summary safe for forum posts (#86)
+- SMART self-tests per disk from the Hardware tab, with progress and history (#87)
+- "What changed?" 14-day timeline: container image tags, plugins, Unraid version, share settings, disk assignments (#88)
+###2026.10.06
+- Cleanup tab: preview→apply framework with audit log; kinds — plugin logs, tmp, orphaned appdata folders (move-to-held), oversized container logs (truncate), recycle bins (age-filtered), junk files (opted-in shares), docker prune (dangling/unused images, stopped containers, build cache, unused volumes with double confirm)
+- Run mover now from the UI: start/stop/status, refuses during parity unless confirmed
+- Daily log rotation for the plugin's own logs (5 MiB cap)
+###2026.10.05
+- Two new diagnosis checks: system maintenance (update checks / NTP / SSD TRIM) and share permissions (files not owned by nobody:users)
+- Checks engine: 18 checks; 28 findings live on the reference box, falsification-tested
+###2026.10.04
+- Vitals is now its own top-level navigation tab, plus a compact tile on the stock Dashboard (headline stats + worst finding)
+- Checks engine: 16 built-in health checks with results stored per run
+- Agent runtime hardened for headless/reboot: deps auto-provisioned via npm ci,
+  SRE vault stub written on install (/root is tmpfs on Unraid and wipes it)
+- Plugin payload slimmed to ~250 KB (agent node_modules no longer shipped)
+- Durable agent database at /mnt/user/appdata/unraid-vitals/vitals.db
+- MVVM agent architecture: service-agnostic sources/providers/core layers
   </CHANGES>
 
   <!-- Remove any older packaged version before installing the new one. -->
