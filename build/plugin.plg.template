@@ -13,14 +13,14 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
-###@VERSION@
-- Vitals dashboard: 8 live stat cards, sparkline history for CPU / memory / network / temperatures
-- Full array table with per-disk fill, temperature and error counters
-- Docker container breakdown with per-container CPU and memory
-- SMART health table (reallocated / pending / CRC sectors, power-on hours)
-- GPU and UPS panels, auto-detected when the hardware is present
-- Local metric collection every minute, 24h RAM ring buffer plus hourly flash rollups
-- Configurable sample interval and retention on the settings page
+###2026.10.04
+- Vitals is now its own top-level navigation tab (no longer a dashboard tile)
+- Checks engine: 16 built-in health checks with results stored per run
+- Agent runtime hardened for headless/reboot: deps auto-provisioned via npm ci,
+  SRE vault stub written on install (/root is tmpfs on Unraid and wipes it)
+- Plugin payload slimmed to ~250 KB (agent node_modules no longer shipped)
+- Durable agent database at /mnt/user/appdata/unraid-vitals/vitals.db
+- MVVM agent architecture: service-agnostic sources/providers/core layers
   </CHANGES>
 
   <!-- Remove any older packaged version before installing the new one. -->
