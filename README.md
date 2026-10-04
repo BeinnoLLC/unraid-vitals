@@ -10,7 +10,8 @@ external API keys required.
 
 ## What you get
 
-**10 tabs**, one nav entry (`Dashboard → Vitals`):
+**10 tabs** under one top-level nav tab (`Vitals` in the main navbar, next to
+Docker/VMs), **plus a compact tile on the stock Dashboard**:
 
 | Tab | What's there |
 |---|---|
@@ -80,8 +81,10 @@ History lives in a 24-hour RAM ring buffer plus hourly rollups on flash.
 The AI agents' knowledge base (`vitals.db`, SQLite) persists in your appdata
 share (survives reboots) — never in RAM, never off-box.
 
-The stock Unraid dashboard is never modified: Vitals adds its own page, an
-optional dashboard tile, and an optional start-page switch.
+The stock Unraid dashboard is never modified — Vitals adds a compact
+read-only **Dashboard tile** (5 headline numbers + the worst open finding,
+linking to the full app; refreshes every 60 s, shipped by default), its own
+top-level **Vitals tab**, and an optional start-page switch.
 
 ## Requirements
 

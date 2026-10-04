@@ -14,7 +14,7 @@
 
   <CHANGES>
 ###2026.10.04
-- Vitals is now its own top-level navigation tab (no longer a dashboard tile)
+- Vitals is now its own top-level navigation tab, plus a compact tile on the stock Dashboard (headline stats + worst finding)
 - Checks engine: 16 built-in health checks with results stored per run
 - Agent runtime hardened for headless/reboot: deps auto-provisioned via npm ci,
   SRE vault stub written on install (/root is tmpfs on Unraid and wipes it)

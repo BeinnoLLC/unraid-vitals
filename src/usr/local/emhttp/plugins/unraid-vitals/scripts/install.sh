@@ -221,16 +221,10 @@ else
   echo "unraid-vitals: node/agent deps not found — background AI agents disabled (run 'cd $PLUGDIR/agent && npm install' to enable)"
 fi
 
-# --- drop the retired dashboard-tile page ------------------------------------
-# Vitals used to ship two .page files, both Menu="Dashboard". The plugin now
-# registers a single top-level navbar tab instead (Menu="Tasks:65"), so the old
-# tile page is dead weight that would still register a page named
-# "Vitals.Dashboard" and show up as a stray entry. Upgrades ship the new
-# Vitals.page but not a deletion, so remove it here or it lingers forever.
-if [ -f "$PLUGDIR/Vitals.Dashboard.page" ]; then
-  rm -f "$PLUGDIR/Vitals.Dashboard.page"
-  echo "$PLUGIN: removed retired Vitals.Dashboard.page (now a navbar tab)"
-fi
+# --- dashboard tile ----------------------------------------------------------
+# The compact dashboard tile (Menu="Dashboard") ships again as of 2026.10.04 —
+# user decision #44: keep the top-level navbar tab AND restore the tile. The
+# payload overwrites any legacy copy on upgrade; no deletion needed here.
 
 # --- apply start-page preference --------------------------------------------
 # Two-way: "yes" points START_PAGE at Vitals; "no" only reverts it if WE set it,

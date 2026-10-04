@@ -1,0 +1,131 @@
+Menu="Dashboard"
+Title="Vitals"
+---
+<?php /* unraid-vitals
+  Compact Vitals tile for the stock Dashboard grid. Menu="Dashboard" is the
+  additive-only registration key: emhttp's build_pages() parses every
+  plugins/*/*.page and the Dashboard tab renders find_pages('Dashboard') —
+  exactly how DashStats, Tailscale, fanctrlplus, folder.view2 and USB manager
+  register their tiles. Dedup key is the basename ("Vitals.Dashboard"), so it
+  can never collide with the full-app tab in Vitals.page (Menu="Tasks:65").
+  Tile = remote control, NOT a copy of the app: 5 verified headline numbers
+  from include/ajax.php?action=data + worst finding from ?action=checks +
+  one link. Both endpoints are read-only GET (ajax.php's CSRF gate covers
+  state-changing POSTs only). Inline styles on purpose: fully self-contained
+  (no css/js file deps), 60 s refresh — cheaper than the collector cadence
+  it mirrors. */ ?>
+<div id="vitals-tile" class="vitals-tile">
+  <div class="vt-head">
+    <span class="vt-name"><i class="fa fa-heartbeat" aria-hidden="true"></i> Vitals</span>
+    <span id="vt-status" class="vt-status">…</span>
+  </div>
+  <div class="vt-grid">
+    <div class="vt-cell"><span class="vt-label">CPU</span><span class="vt-num" id="vt-cpu">—</span></div>
+    <div class="vt-cell"><span class="vt-label">Memory</span><span class="vt-num" id="vt-mem">—</span></div>
+    <div class="vt-cell"><span class="vt-label">Max temp</span><span class="vt-num" id="vt-temp">—</span></div>
+    <div class="vt-cell"><span class="vt-label">Array used</span><span class="vt-num" id="vt-disk">—</span></div>
+    <div class="vt-cell"><span class="vt-label">Containers</span><span class="vt-num" id="vt-docker">—</span></div>
+  </div>
+  <div id="vt-finding" class="vt-finding"></div>
+  <a class="vt-link" href="/Vitals">Open Vitals &rarr;</a>
+</div>
+<style>
+#vitals-tile{padding:12px;display:flex;flex-direction:column;gap:8px}
+.vitals-tile .vt-head{display:flex;justify-content:space-between;align-items:baseline}
+.vitals-tile .vt-name{font-weight:600}
+.vitals-tile .vt-status{font-size:11px;color:#888}
+.vitals-tile .vt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:6px}
+.vitals-tile .vt-cell{display:flex;flex-direction:column;gap:2px}
+.vitals-tile .vt-label{font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#888}
+.vitals-tile .vt-num{font-size:18px;font-variant-numeric:tabular-nums}
+.vitals-tile .vt-num.warn{color:#b8860b}
+.vitals-tile .vt-num.crit{color:#c0392b}
+.vitals-tile .vt-finding{font-size:12px;line-height:1.35;color:#666}
+.vitals-tile .vt-finding .vt-sev-critical{color:#c0392b;font-weight:600}
+.vitals-tile .vt-finding .vt-sev-warning{color:#b8860b;font-weight:600}
+.vitals-tile .vt-link{font-size:12px;align-self:flex-start}
+</style>
+<script>
+(function () {
+  var base = '/plugins/unraid-vitals/include/ajax.php';
+  var N = function (id) { return document.getElementById(id); };
+
+  function cls(v, warn, crit) {
+    if (v == null || isNaN(v)) return '';
+    return v >= crit ? 'crit' : v >= warn ? 'warn' : '';
+  }
+  function set(id, text, c) {
+    var n = N(id);
+    if (n) { n.textContent = text; n.className = 'vt-num' + (c ? ' ' + c : ''); }
+  }
+  function maxTemp(s) {
+    var arr = s.array || {}, temps = [];
+    ['parity', 'data', 'cache'].forEach(function (k) {
+      var rows = arr[k];
+      if (Array.isArray(rows)) rows.forEach(function (d) { if (d && d.temp != null) temps.push(d.temp); });
+    });
+    return temps.length ? Math.max.apply(null, temps) : null;
+  }
+
+  function paintData(j) {
+    // ajax.php?action=data returns the collector snapshot under key "data".
+    var s = (j && j.data) || {}, arr = s.array || {};
+    var cpu = s.cpu ? s.cpu.total : null;
+    var mem = s.mem ? s.mem.pct : null;
+    var used = arr.totals ? arr.totals.used_pct : null;
+    var t = maxTemp(s);
+    var d = s.docker || {};
+    var dock = typeof d.count === 'number' && typeof d.running === 'number'
+      ? d.running + '/' + d.count
+      : (Array.isArray(d.containers) ? String(d.containers.length) : null);
+    set('vt-cpu', cpu == null ? '—' : Math.round(cpu) + '%', cls(cpu, 80, 95));
+    set('vt-mem', mem == null ? '—' : Math.round(mem) + '%', cls(mem, 80, 92));
+    set('vt-temp', t == null ? '—' : t + '°', cls(t, 45, 55));
+    set('vt-disk', used == null ? '—' : Math.round(used) + '%', cls(used, 85, 95));
+    set('vt-docker', dock == null ? '—' : dock, '');
+  }
+
+  function paintChecks(j, ok) {
+    // ?action=checks returns ['ok'=>true] + v_checks_latest():
+    // { run_at, findings: [{check_id,severity,subject,title,detail,...}] }.
+    var host = N('vt-finding');
+    if (!host) return;
+    while (host.firstChild) host.removeChild(host.firstChild);
+    if (!ok) { host.textContent = 'Checks unavailable'; return; }
+    var f = (j && j.findings) || [];
+    if (!f.length) { host.textContent = 'All checks passing'; return; }
+    var ord = { critical: 0, warning: 1, info: 2 };
+    f.sort(function (a, b) {
+      var sa = (a.severity in ord) ? ord[a.severity] : 3;
+      var sb = (b.severity in ord) ? ord[b.severity] : 3;
+      return sa - sb;
+    });
+    var worst = f[0];
+    var sev = document.createElement('span');
+    sev.className = 'vt-sev-' + worst.severity;
+    sev.textContent = String(worst.severity).toUpperCase();
+    host.appendChild(sev);
+    host.appendChild(document.createTextNode(' · ' + (worst.title || worst.check_id)
+      + ' · ' + f.length + ' finding' + (f.length === 1 ? '' : 's')));
+  }
+
+  function tick() {
+    var st = N('vt-status');
+    var pending = 2, dataOk = false;
+    function settle() { if (--pending === 0 && st) st.textContent = dataOk ? 'live' : 'unreachable'; }
+    fetch(base + '?action=data', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { dataOk = true; paintData(j); })
+      .catch(function () {})
+      .then(settle);
+    fetch(base + '?action=checks', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { paintChecks(j, true); })
+      .catch(function () { paintChecks(null, false); })
+      .then(settle);
+  }
+
+  tick();
+  setInterval(tick, 60000);
+})();
+</script>
