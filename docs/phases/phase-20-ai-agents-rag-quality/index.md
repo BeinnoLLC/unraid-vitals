@@ -2,7 +2,7 @@
 
 [All phases](../index.md) · [Milestone on GitHub](https://github.com/BeinnoLLC/unraid-vitals/milestone/21)
 
-**Progress:** `[██████████████████████░░░░░░░░] 73%` — **14 / 19** tickets done (5 open)
+**Progress:** `[████████████████████████████░░] 94%` — **18 / 19** tickets done (1 open)
 
 > Ticket detail (type, priority, discussion) lives on GitHub. This file is a summary: progress and links only.
 
@@ -14,11 +14,11 @@
 | `P20-04` | [Give agents trends, not one snapshot](https://github.com/BeinnoLLC/unraid-vitals/issues/109) | done |
 | `P20-05` | [Give agents log evidence](https://github.com/BeinnoLLC/unraid-vitals/issues/110) | done |
 | `P20-06` | [Grounding validator](https://github.com/BeinnoLLC/unraid-vitals/issues/111) | done |
-| `P20-07` | [Research context chosen by the question](https://github.com/BeinnoLLC/unraid-vitals/issues/112) | open |
-| `P20-08` | [Research agent with read-only tools](https://github.com/BeinnoLLC/unraid-vitals/issues/113) | open |
-| `P20-09` | [Research job queue](https://github.com/BeinnoLLC/unraid-vitals/issues/114) | open |
+| `P20-07` | [Research context chosen by the question](https://github.com/BeinnoLLC/unraid-vitals/issues/112) | done |
+| `P20-08` | [Research agent with read-only tools](https://github.com/BeinnoLLC/unraid-vitals/issues/113) | done |
+| `P20-09` | [Research job queue](https://github.com/BeinnoLLC/unraid-vitals/issues/114) | done |
 | `P20-10` | [Research answers: rendering, citations, follow-ups](https://github.com/BeinnoLLC/unraid-vitals/issues/115) | done |
-| `P20-11` | [Seed the knowledge base with Unraid troubleshooting knowledge](https://github.com/BeinnoLLC/unraid-vitals/issues/116) | open |
+| `P20-11` | [Seed the knowledge base with Unraid troubleshooting knowledge](https://github.com/BeinnoLLC/unraid-vitals/issues/116) | done |
 | `P20-12` | [Agent evaluation harness](https://github.com/BeinnoLLC/unraid-vitals/issues/117) | done |
 | `P20-13` | [AI settings panel](https://github.com/BeinnoLLC/unraid-vitals/issues/118) | done |
 | `P20-14` | [AI run observability](https://github.com/BeinnoLLC/unraid-vitals/issues/119) | done |
