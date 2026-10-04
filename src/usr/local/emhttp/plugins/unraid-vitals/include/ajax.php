@@ -12,6 +12,7 @@
 require_once __DIR__ . '/store.php';
 require_once __DIR__ . '/research-plan.php';
 require_once __DIR__ . '/checks.php';
+require_once __DIR__ . '/cleanup.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -188,6 +189,47 @@ try {
 
   if ($action === 'checks') {
     echo json_encode(['ok' => true] + v_checks_latest(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'cleanup_kinds') {
+    echo json_encode(['ok' => true, 'fs' => ['logs', 'tmp'], 'docker' => array_keys(v_cleanup_docker_kinds())], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'cleanup_preview') {
+    // Read-only scan building a preview. Kind whitelist enforced inside.
+    $kind = (string)($_GET['kind'] ?? '');
+    v_cleanup_gc();
+    $res = v_cleanup_preview($kind);
+    echo json_encode($res, JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'cleanup_apply') {
+    // Destructive: POST + CSRF + preview-id-only (never client path lists).
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    $previewId = (string)($_POST['preview_id'] ?? '');
+    if (!preg_match('/^pv_[0-9a-f]{16}$/', $previewId)) {
+      v_cleanup_audit($previewId, '?', 0, 0, 'rejected', 'malformed preview_id');
+      http_response_code(400); echo json_encode(['ok' => false, 'error' => 'malformed preview_id']); exit;
+    }
+    // Second confirmation for kinds flagged confirm2 (P16-02 unused volumes).
+    $load = v_cleanup_load($previewId);
+    if ($load['ok']) {
+      $spec = v_cleanup_docker_kinds()[$load['kind']] ?? null;
+      if (($spec['confirm2'] ?? false) && ($_POST['confirm2'] ?? '') !== 'yes') {
+        http_response_code(400); echo json_encode(['ok' => false, 'error' => 'second confirmation required for this kind']); exit;
+      }
+    }
+    echo json_encode(v_cleanup_apply($previewId), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'cleanup_audit') {
+    echo json_encode(['ok' => true, 'audit' => v_cleanup_audit_list(100)], JSON_UNESCAPED_SLASHES);
     exit;
   }
 

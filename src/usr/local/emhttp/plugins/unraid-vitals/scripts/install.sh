@@ -66,6 +66,18 @@ CHECKSCRONEOF
 chmod 644 "$CHECKS_CRON"
 cp -f "$CHECKS_CRON" "$FLASH/checks.cron" 2>/dev/null || true
 
+# --- log rotation cron (P16-08) ------------------------------------------------
+# Daily size caps on the plugin's own logs (collector/agents/checks/study/…):
+# anything over 5 MiB is copied to <name>.log.1 and the live file truncated.
+# Single generation keeps worst-case disk use at 2× cap per file.
+LOGROT_CRON=/etc/cron.d/${PLUGIN}-logrotate
+cat > "$LOGROT_CRON" <<LOGROTCRONEOF
+# unraid-vitals log rotation — installed by $PLUGIN.plg
+25 4 * * * /usr/bin/php $PLUGDIR/scripts/vitals-logrotate.php >> $STATE/logrotate.log 2>&1
+LOGROTCRONEOF
+chmod 644 "$LOGROT_CRON"
+cp -f "$LOGROT_CRON" "$FLASH/logrotate.cron" 2>/dev/null || true
+
 # --- storage analyzer cron (P15-05) --------------------------------------------
 # Nightly at 03:10 (after most other maintenance windows), low I/O priority
 # (nice/ionice inside the script itself) — a full `du` pass across every
