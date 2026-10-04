@@ -140,7 +140,7 @@ export const lastRunStats = { prompt_tokens_est: 0, trimmed: [], dropped: 0, dro
  * longer. The RESPONSE_CONTRACT is appended to the system prompt, so it is
  * never subject to trimming.
  */
-export async function runSpecialist({ agentName, behavior, systemRole, sections, knownSubjects = [], maxTokens = 900 }) {
+export async function runSpecialist({ agentName, behavior, systemRole, sections, knownSubjects = [], maxTokens = 900, mandatoryHook = null }) {
   const system = `${systemRole} ${RESPONSE_CONTRACT}`;
   const { text: user, trimmed, tokens } = budgetPrompt(sections, system, maxTokens);
   if (trimmed.length) console.warn(`[${agentName}] prompt over budget — trimmed: ${trimmed.join(', ')}`);
@@ -164,6 +164,30 @@ export async function runSpecialist({ agentName, behavior, systemRole, sections,
   }
   const { kept, dropped } = groundFindings(parsed, knownSubjects, user);
   for (const d of dropped) console.warn(`[${agentName}] dropped ungrounded finding "${d.finding.title}": ${d.reason}`);
+
+  // #117 (P20-12) floorFindings: threshold-class facts are enforced HERE, not
+  // left to model arithmetic — a disk at 97.8% used is over 90 no matter how
+  // the model counts. `mandatory` = [{severity, title, detail, recommendation,
+  // subject, when(data)}]; `when` is evaluated against the budgeted prompt
+  // data context the caller closures over. A model "healthy" reply cannot
+  // erase a deterministic breach: the finding is appended (max one per rule,
+  // deduped against model output by subject-overlap).
+  if (typeof mandatoryHook === 'function') {
+    for (const m of mandatoryHook(user)) {
+      if (!m) continue;
+      const dup = kept.some(k => (k.subject ?? '') === (m.subject ?? '') &&
+        String(k.title).toLowerCase().includes(String(m.subject ?? '').toLowerCase()));
+      if (!dup) {
+        kept.push(m);
+        console.warn(`[${agentName}] floorFindings appended: ${m.title} (model missed or under-called it)`);
+      } else if (SEVERITIES.indexOf(m.severity) > SEVERITIES.indexOf(kept.find(k => (k.subject ?? '') === (m.subject ?? '')).severity)) {
+        // model called it at a lower severity than the rule demands — raise it
+        const idx = kept.findIndex(k => (k.subject ?? '') === (m.subject ?? ''));
+        kept[idx] = { ...kept[idx], severity: m.severity, title: m.title, detail: kept[idx].detail };
+        console.warn(`[${agentName}] floorFindings raised severity: ${m.title}`);
+      }
+    }
+  }
 
   Object.assign(lastRunStats, {
     prompt_tokens_est: tokens, trimmed, dropped: dropped.length,

@@ -50,8 +50,29 @@ export async function run() {
   const temps = sensors?.temps || [];
   const fans = sensors?.fans || [];
 
+  // #117 floorFindings for thermal: deterministic temp/wear rules.
+  const mandatoryHook = (promptText) => {
+    const out = [];
+    const disksSnap = snap.disks || [];
+    for (const d of disksSnap) {
+      if (typeof d.temp === 'number' && d.temp >= 55) {
+        // thermal's disk rows read "sdY=61C (data)" — gate on that shape so a
+        // trimmed row never re-appears as a floor finding without its data.
+        if (!promptText.includes(`${d.name}=`) || !promptText.includes(`${d.temp}C`)) continue;
+        out.push({ severity: d.temp >= 60 ? 'error' : 'warning', title: `${d.name}: ${d.temp}°C hot`, detail: `${d.name} is running at ${d.temp}°C — over the 55°C threshold. Check cooling/airflow; sustained heat shortens drive life.`, recommendation: 'Verify fans/airflow and the drive position.', subject: d.name });
+      }
+    }
+    for (const s of Object.values(snap.smart || {})) {
+      if (typeof s.nvme_media_errors === 'number' && s.nvme_media_errors > 0) {
+        out.push({ severity: 'error', title: `${s.name}: NVMe media errors`, detail: `${s.name} reports ${s.nvme_media_errors} media/data integrity error(s) — hardware-detected corruption events.`, recommendation: 'Back up and test the drive.', subject: s.name });
+      }
+    }
+    return out;
+  };
+
   return runSpecialist({
     agentName: 'Vitals-Thermal',
+    mandatoryHook,
     behavior: 'You are the thermal-management specialist inside Unraid Vitals, a background health-monitoring agent. You are given current temperature and load data and must return structured findings, nothing else.',
     systemRole: 'You are a thermal-management specialist for an Unraid server. You watch CPU load vs. temperature relationships and disk/pool temperature trends to catch cooling problems before they cause throttling or shortened drive life.',
     maxTokens: 700,
