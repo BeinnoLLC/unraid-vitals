@@ -1,10 +1,15 @@
 name: check
 
-# unraid-vitals — plan 106 P13-07.
+# unraid-vitals — plan 106 P13-07; extended for #117 (P20-12).
 # Nothing ran on push before this: a syntax error (PHP, JS/mjs, or shell)
 # could sit on main until the next manual `npm run check`. This runs the
 # same check on every push and pull request that a developer would run
 # locally, so CI and local dev never disagree about what "clean" means.
+#
+# `npm run check` is lint AND tests. It was lint-only for a long time, which is
+# how a behavioural regression (floor findings switching themselves off when a
+# prompt row got trimmed) sat on main: every suite in the tree passed, and
+# nothing ran them. Lint proves a file parses, not that it does what it claims.
 
 on:
   push:

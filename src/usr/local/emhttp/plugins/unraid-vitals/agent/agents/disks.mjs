@@ -5,6 +5,40 @@ import { peaks, changes } from '../viewmodels/health.mjs';
 
 export const AGENT_ID = 'disks';
 
+/**
+ * #117 (P20-12) floorFindings for disks: deterministic threshold rules — no
+ * model arithmetic.
+ *
+ * Reads the SNAPSHOT only. It must never be gated on a row surviving
+ * budgetPrompt(): a trimmed row is precisely the case where the model can no
+ * longer see the breach and the floor is the only reporter left. Gating on the
+ * prompt text here silently converted "prompt got big" into "no finding" — the
+ * full-pool fixture missed deterministically whenever trimming kicked in and
+ * passed whenever it didn't, which is what made it look flaky.
+ *
+ * Exported (not trapped in run()) so tests can pin the rules without an LLM.
+ */
+export function diskFloorFindings(disks = [], smart = {}) {
+  const out = [];
+  for (const d of disks) {
+    if (typeof d.usedPct === 'number' && d.usedPct >= 90) {
+      out.push({ severity: 'warning', title: `${d.name}: ${d.usedPct.toFixed(1)}% full`, detail: `${d.name} (${d.type}) is ${d.usedPct.toFixed(1)}% full — over the 90% threshold. Free space or grow the pool before writes fail.`, recommendation: 'Clean up (Cleanup tab) or grow the pool.', subject: d.name });
+    }
+    if ((d.numErrors ?? 0) > 0) {
+      out.push({ severity: 'error', title: `${d.name}: ${d.numErrors} device errors`, detail: `${d.name} reports ${d.numErrors} device error(s) — scrub and test.`, recommendation: 'Run a scrub; if errors grow, replace the disk.', subject: d.name });
+    }
+  }
+  for (const s of Object.values(smart)) {
+    const health = String(s.health || '').toUpperCase();
+    if (health === 'FAILED' || String(s.smart_status || '').toUpperCase() === 'FAILED') {
+      out.push({ severity: 'critical', title: `${s.name}: SMART reports FAILED`, detail: `${s.name}'s SMART overall status is FAILED — back up and replace the disk.`, recommendation: 'Back up immediately; replace.', subject: s.name });
+    } else if ((s.reallocated ?? 0) > 0) {
+      out.push({ severity: 'error', title: `${s.name}: ${s.reallocated} reallocated sectors`, detail: `${s.name} has ${s.reallocated} reallocated sectors (remapped bad sectors) — watch growth.`, recommendation: 'Monitor growth weekly; back up.', subject: s.name });
+    }
+  }
+  return out.filter((m) => m);
+}
+
 export async function run() {
   const source = activeSource();
   const snap = source.snapshot();
@@ -12,28 +46,7 @@ export async function run() {
   const smart = snap.smart || {};
   const disks = [...(a.parity || []), ...(a.data || []), ...(a.cache || [])];
 
-  // #117 floorFindings: deterministic threshold rules — no model arithmetic.
-  const mandatoryHook = (promptText) => {
-    const out = [];
-    for (const d of disks) {
-      if (typeof d.usedPct === 'number' && d.usedPct >= 90) {
-        if (!promptText.includes(`used=${d.usedPct?.toFixed?.(1) ?? d.usedPct}%`)) continue; // row got trimmed
-        out.push({ severity: 'warning', title: `${d.name}: ${d.usedPct.toFixed(1)}% full`, detail: `${d.name} (${d.type}) is ${d.usedPct.toFixed(1)}% full — over the 90% threshold. Free space or grow the pool before writes fail.`, recommendation: 'Clean up (Cleanup tab) or grow the pool.', subject: d.name });
-      }
-      if ((d.numErrors ?? 0) > 0) {
-        out.push({ severity: 'error', title: `${d.name}: ${d.numErrors} device errors`, detail: `${d.name} reports ${d.numErrors} device error(s) — scrub and test.`, recommendation: 'Run a scrub; if errors grow, replace the disk.', subject: d.name });
-      }
-    }
-    for (const s of Object.values(smart)) {
-      const health = String(s.health || '').toUpperCase();
-      if (health === 'FAILED' || String(s.smart_status || '').toUpperCase() === 'FAILED') {
-        out.push({ severity: 'critical', title: `${s.name}: SMART reports FAILED`, detail: `${s.name}'s SMART overall status is FAILED — back up and replace the disk.`, recommendation: 'Back up immediately; replace.', subject: s.name });
-      } else if ((s.reallocated ?? 0) > 0) {
-        out.push({ severity: 'error', title: `${s.name}: ${s.reallocated} reallocated sectors`, detail: `${s.name} has ${s.reallocated} reallocated sectors (remapped bad sectors) — watch growth.`, recommendation: 'Monitor growth weekly; back up.', subject: s.name });
-      }
-    }
-    return out.filter(m => m);
-  };
+  const mandatoryHook = () => diskFloorFindings(disks, smart);
 
   return runSpecialist({
     agentName: 'Vitals-Disks',

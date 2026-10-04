@@ -15,6 +15,7 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
+import { scoreLine } from '../lib/eval-scoring.mjs';
 
 const AGENT_DIR = new URL('../agents/', import.meta.url);
 const FIXTURES_DIR = new URL('../eval/fixtures/', import.meta.url);
@@ -105,10 +106,10 @@ for (const file of fixtureFiles) {
 
 console.log('\n=== agent-eval report ===');
 for (const [fixture, R] of Object.entries(results)) {
-  const total = R.detected + R.missed;
-  const recall = (R.detected + R.missed === 0) ? (R.okOnly ? 1 : 0) : R.detected / total;
-  const falseRate = R.runs ? R.false / R.runs : 0;
-  console.log(`${fixture.padEnd(14)} agent=${(R.agent || '').padEnd(8)} detected=${R.detected} missed=${R.missed} false=${R.false} recall=${(recall * 100).toFixed(0)}% falseRate=${(falseRate * 100).toFixed(0)}%${R.error ? '  ERROR: ' + R.error : ''}${R.examples.length ? '  e.g. ' + R.examples.join(' | ') : ''}`);
+  // Scoring lives in lib/eval-scoring.mjs so it is unit-tested. An errored run
+  // reports recall=n/a: no answer is not a correct answer.
+  const { recallStr, falseRate } = scoreLine(R);
+  console.log(`${fixture.padEnd(14)} agent=${(R.agent || '').padEnd(8)} detected=${R.detected} missed=${R.missed} false=${R.false} recall=${recallStr} falseRate=${(falseRate * 100).toFixed(0)}%${R.error ? '  ERROR: ' + R.error : ''}${R.examples.length ? '  e.g. ' + R.examples.join(' | ') : ''}`);
 }
 if (exitOk) console.log('PASS: all fixtures reproduce their expectations, healthy fixture clean, no false findings');
 else { console.log('FAIL'); process.exit(1); }

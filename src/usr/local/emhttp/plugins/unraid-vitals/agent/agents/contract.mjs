@@ -105,8 +105,55 @@ const SMALL_TALK_NUMBERS = new Set([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20
  * Returns { kept, dropped: [{finding, reason}] } so the run can log and
  * count what it refused.
  */
+
+/**
+ * Normalise a subject for comparison: strip qualifiers and punctuation so
+ * "cache (ssd)", "cache — SSD" and "cache" all compare equal. Used by both the
+ * grounding check and the floor dedupe — they MUST agree, or the same device
+ * gets reported twice (model finding kept under "cache (ssd)" + floor finding
+ * under "cache").
+ */
+export function normSubject(s) {
+  return String(s).trim().toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/**
+ * Does `part` refer to the known subject `known`? True on equality, or when the
+ * normalised known subject prefixes the part on a word boundary — so
+ * "cache (ssd)" and "sdq — SSD" match "cache"/"sdq", while a fabricated "disk9"
+ * does not match "disk1" (no boundary after "disk").
+ */
+export function subjectMatches(part, known) {
+  const a = normSubject(part), b = normSubject(known);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  return a.length > b.length && a.startsWith(b) && !/[a-z0-9]/.test(a[b.length]);
+}
+
+/**
+ * Do two findings refer to the same device? Used by the floor dedupe. Must
+ * agree with the grounding rule above, in BOTH directions: the model may write
+ * the qualifier and the floor the bare name, or vice versa.
+ */
+export function sameSubject(a, b) {
+  return subjectMatches(a, b) || subjectMatches(b, a);
+}
+
 export function groundFindings(findings, knownSubjects = [], inputText = '') {
-  const subjects = new Set((knownSubjects || []).filter(Boolean).map(s => String(s).trim().toLowerCase()));
+  // Subjects arrive from the model as free text and carry qualifiers the
+  // snapshot never had: "cache (ssd)", "sdc — SSD". A bare exact-match against
+  // the known list dropped those as "ungrounded" even though the subject was
+  // real and correct (observed: the model's correct pool-fill finding was
+  // discarded, and only the deterministic floor re-created it). Normalise both
+  // sides — strip parentheticals/punctuation — and accept a known subject that
+  // prefixes the part on a word boundary, so "cache (ssd)" matches "cache"
+  // while a fabricated "disk9" still fails (no boundary after "disk").
+  const subjects = new Set((knownSubjects || []).filter(Boolean).map(normSubject).filter(Boolean));
+  const subjectOk = (part) => {
+    if (!normSubject(part)) return true; // empty subject = whole-snapshot finding, always allowed
+    for (const s of subjects) if (subjectMatches(part, s)) return true;
+    return false;
+  };
   const inputNums = numbersIn(inputText);
   const complements = inputNums.map(n => 100 - n);
   const close = (a, b) => Math.abs(a - b) <= (Math.abs(b) > 10 ? 0.5 : 0.05);
@@ -127,7 +174,7 @@ export function groundFindings(findings, knownSubjects = [], inputText = '') {
     // 8-disk box mixed in with real names).
     if (f.subject && subjects.size) {
       const parts = String(f.subject).split(',').map(s => s.trim()).filter(Boolean);
-      const unknown = parts.filter(p => !subjects.has(p.toLowerCase()));
+      const unknown = parts.filter(p => !subjectOk(p));
       if (unknown.length) {
         dropped.push({ finding: f, reason: `unknown subject "${unknown.join(', ')}"` });
         continue;
@@ -149,10 +196,47 @@ export function groundFindings(findings, knownSubjects = [], inputText = '') {
 export const lastRunStats = { prompt_tokens_est: 0, trimmed: [], dropped: 0, drop_reasons: [] };
 
 /**
+ * #117 (P20-12) floorFindings: threshold-class facts are enforced HERE, not
+ * left to model arithmetic — a disk at 97.8% used is over 90 no matter how the
+ * model counts. A model "healthy" reply cannot erase a deterministic breach.
+ *
+ * `mandatoryHook()` is called with NO arguments and reads the snapshot it
+ * closes over. It must never be gated on the prompt text: a row trimmed out of
+ * an over-budget prompt is exactly when the model can no longer see the breach
+ * and the floor is the only reporter left. (Gating on it made the `full-pool`
+ * eval fixture miss deterministically whenever trimming kicked in.)
+ *
+ * Deduped against model output by `sameSubject`, so the model's "cache (ssd)"
+ * and the floor's "cache" are recognised as one device rather than two.
+ *
+ * Mutates `kept` in place; returns it for convenience/testing.
+ */
+export function applyFloorFindings(kept, mandatoryHook, agentName = 'agent') {
+  if (typeof mandatoryHook !== 'function') return kept;
+  const findings = mandatoryHook();
+  if (Array.isArray(findings)) {
+    for (const m of findings) {
+      if (!m) continue;
+      const dupIdx = kept.findIndex((k) => sameSubject(k.subject, m.subject));
+      if (dupIdx === -1) {
+        kept.push(m);
+        console.warn(`[${agentName}] floorFindings appended: ${m.title} (model missed or under-called it)`);
+      } else if (SEVERITIES.indexOf(m.severity) > SEVERITIES.indexOf(kept[dupIdx].severity)) {
+        // model called it at a lower severity than the rule demands — raise it
+        kept[dupIdx] = { ...kept[dupIdx], severity: m.severity, title: m.title, detail: kept[dupIdx].detail };
+        console.warn(`[${agentName}] floorFindings raised severity: ${m.title}`);
+      }
+    }
+  }
+  return kept;
+}
+
+/**
  * One call path for every specialist:
  *   sections  -> budgetPrompt()   (trim low-priority data, never the contract)
  *   Ollama    -> format: schema   (structured output)
  *   response  -> extractJson + safeParseFindings + groundFindings
+ *                 + applyFloorFindings
  *
  * `sections` is [{ name, text, priority }] — higher priority survives
  * longer. The RESPONSE_CONTRACT is appended to the system prompt, so it is
@@ -198,29 +282,7 @@ export async function runSpecialist({ agentName, behavior, systemRole, sections,
   const { kept, dropped } = groundFindings(parsed, knownSubjects, user);
   for (const d of dropped) console.warn(`[${agentName}] dropped ungrounded finding "${d.finding.title}": ${d.reason}`);
 
-  // #117 (P20-12) floorFindings: threshold-class facts are enforced HERE, not
-  // left to model arithmetic — a disk at 97.8% used is over 90 no matter how
-  // the model counts. `mandatory` = [{severity, title, detail, recommendation,
-  // subject, when(data)}]; `when` is evaluated against the budgeted prompt
-  // data context the caller closures over. A model "healthy" reply cannot
-  // erase a deterministic breach: the finding is appended (max one per rule,
-  // deduped against model output by subject-overlap).
-  if (typeof mandatoryHook === 'function') {
-    for (const m of mandatoryHook(user)) {
-      if (!m) continue;
-      const dup = kept.some(k => (k.subject ?? '') === (m.subject ?? '') &&
-        String(k.title).toLowerCase().includes(String(m.subject ?? '').toLowerCase()));
-      if (!dup) {
-        kept.push(m);
-        console.warn(`[${agentName}] floorFindings appended: ${m.title} (model missed or under-called it)`);
-      } else if (SEVERITIES.indexOf(m.severity) > SEVERITIES.indexOf(kept.find(k => (k.subject ?? '') === (m.subject ?? '')).severity)) {
-        // model called it at a lower severity than the rule demands — raise it
-        const idx = kept.findIndex(k => (k.subject ?? '') === (m.subject ?? ''));
-        kept[idx] = { ...kept[idx], severity: m.severity, title: m.title, detail: kept[idx].detail };
-        console.warn(`[${agentName}] floorFindings raised severity: ${m.title}`);
-      }
-    }
-  }
+  applyFloorFindings(kept, mandatoryHook, agentName);
 
   // P20-17: unmap placeholders back to the real names before persisting
   if (redactor) {

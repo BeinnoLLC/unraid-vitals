@@ -13,6 +13,30 @@ import { UnsupportedError } from '../core/ports.mjs';
 
 export const AGENT_ID = 'thermal';
 
+/**
+ * #117 (P20-12) floorFindings for thermal: deterministic temp/wear rules.
+ *
+ * Reads the SNAPSHOT only — never gated on the row surviving budgetPrompt().
+ * A trimmed row is precisely when the model can no longer see the hot disk and
+ * the floor is the only reporter left. Exported so tests can pin the rules
+ * without an LLM.
+ */
+export function thermalFloorFindings(snap = {}) {
+  const out = [];
+  for (const d of snap.disks || []) {
+    if (typeof d.temp === 'number' && d.temp >= 55) {
+      out.push({ severity: d.temp >= 60 ? 'error' : 'warning', title: `${d.name}: ${d.temp}°C hot`, detail: `${d.name} is running at ${d.temp}°C — over the 55°C threshold. Check cooling/airflow; sustained heat shortens drive life.`, recommendation: 'Verify fans/airflow and the drive position.', subject: d.name });
+    }
+  }
+  for (const s of Object.values(snap.smart || {})) {
+    if (typeof s.nvme_media_errors === 'number' && s.nvme_media_errors > 0) {
+      out.push({ severity: 'error', title: `${s.name}: NVMe media errors`, detail: `${s.name} reports ${s.nvme_media_errors} media/data integrity error(s) — hardware-detected corruption events.`, recommendation: 'Back up and test the drive.', subject: s.name });
+    }
+  }
+  return out;
+}
+
+
 /** Sensor rows, when the source can supply them. Returns null otherwise. */
 function sensorRows(source) {
   let raw;
@@ -51,24 +75,7 @@ export async function run() {
   const fans = sensors?.fans || [];
 
   // #117 floorFindings for thermal: deterministic temp/wear rules.
-  const mandatoryHook = (promptText) => {
-    const out = [];
-    const disksSnap = snap.disks || [];
-    for (const d of disksSnap) {
-      if (typeof d.temp === 'number' && d.temp >= 55) {
-        // thermal's disk rows read "sdY=61C (data)" — gate on that shape so a
-        // trimmed row never re-appears as a floor finding without its data.
-        if (!promptText.includes(`${d.name}=`) || !promptText.includes(`${d.temp}C`)) continue;
-        out.push({ severity: d.temp >= 60 ? 'error' : 'warning', title: `${d.name}: ${d.temp}°C hot`, detail: `${d.name} is running at ${d.temp}°C — over the 55°C threshold. Check cooling/airflow; sustained heat shortens drive life.`, recommendation: 'Verify fans/airflow and the drive position.', subject: d.name });
-      }
-    }
-    for (const s of Object.values(snap.smart || {})) {
-      if (typeof s.nvme_media_errors === 'number' && s.nvme_media_errors > 0) {
-        out.push({ severity: 'error', title: `${s.name}: NVMe media errors`, detail: `${s.name} reports ${s.nvme_media_errors} media/data integrity error(s) — hardware-detected corruption events.`, recommendation: 'Back up and test the drive.', subject: s.name });
-      }
-    }
-    return out;
-  };
+  const mandatoryHook = () => thermalFloorFindings(snap);
 
   return runSpecialist({
     agentName: 'Vitals-Thermal',
