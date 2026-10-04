@@ -19,6 +19,7 @@ require_once __DIR__ . '/cleanup_recycle.php';
 require_once __DIR__ . '/cleanup_mover.php';
 require_once __DIR__ . '/cleanup_junk.php';
 require_once __DIR__ . '/playbooks.php';
+require_once __DIR__ . '/timeline.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -270,6 +271,12 @@ try {
     $pb = v_playbook_for($checkId);
     echo json_encode($pb ? ['ok' => true, 'check' => $checkId, 'title' => $pb['title'], 'body' => $pb['body']]
                           : ['ok' => false, 'error' => 'no playbook for ' . $checkId], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'timeline') {
+    v_timeline_tick(); // refresh today's snapshot, then diff against history
+    echo json_encode(['ok' => true, 'days' => v_timeline_diffs(14)], JSON_UNESCAPED_SLASHES);
     exit;
   }
 

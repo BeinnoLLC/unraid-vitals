@@ -2886,6 +2886,14 @@ function CleanupTab() {
   var s6 = useState(null), mover = s6[0], setMover = s6[1];
   var s7 = useState('idle'), moverState = s7[0], setMoverState = s7[1];
   var s8 = useState(false), moveParityConfirm = s8[0], setMoveParityConfirm = s8[1];
+  var s9 = useState(null), timeline = s9[0], setTimeline = s9[1];
+
+  var reloadTimeline = function () {
+    fetch(ENDPOINT + '?action=timeline', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setTimeline(j); });
+  };
+  useEffect(reloadTimeline, []);
 
   var reloadMover = function () {
     fetch(ENDPOINT + '?action=mover_status', { cache: 'no-store' })
@@ -3032,6 +3040,30 @@ function CleanupTab() {
             }))
           : null))
       : null,
+    h(Panel, { title: 'What changed? (14-day timeline)', hint: 'Diffs of the daily identity snapshot: containers/images, plugins, Unraid version, share settings, disk assignments' },
+      timeline && timeline.ok && timeline.days && timeline.days.length
+        ? h('div', null,
+            timeline.days.map(function (dayRow, di) {
+              var ch = dayRow.changes || {};
+              var rows = [];
+              ['unraid', 'images', 'containers', 'plugins', 'shares', 'disks'].forEach(function (k) {
+                (ch[k] || []).forEach(function (c, i) {
+                  rows.push(h('tr', { key: di + '-' + k + '-' + i },
+                    h('td', { class: 'muted' }, dayRow.day),
+                    h('td', { class: 'v-name' },
+                      ((k === 'unraid') ? 'Unraid OS' : (k === 'images' ? (c.name || '?') : (c.name || '?')))),
+                    h('td', null,
+                      k === 'images'
+                        ? ((c.kind === 'updated' ? 'image: ' + (c.old || '∅') + ' → ' + (c.new || '∅') : c.kind))
+                        : k === 'unraid'
+                          ? ((c.old || '?') + ' → ' + (c.new || '?'))
+                          : ((c.kind || '?') + (c.kind === 'changed' ? ((typeof c.old === 'object' ? JSON.stringify(c.old) : (c.old || '')) + ' → ' + (typeof c.new === 'object' ? JSON.stringify(c.new) : (c.new || ''))) : '')))));
+                });
+              });
+              return rows.length ? rows : h('tr', { key: di }, h('td', { class: 'muted' }, dayRow.day), h('td', { colspan: 2, class: 'muted' }, 'no changes'));
+            }).flat(),
+            h('div', { class: 'v-empty', style: 'margin-top:6px' }, 'Acceptance-worthy row: updating a container image shows old tag → new tag.'))
+        : h('div', { class: 'v-empty' }, 'Timeline builds from daily snapshots — check again after the next day rolls over.')),
     h(Panel, { title: 'Audit log', hint: 'Every apply/reject is recorded — who, when, what, bytes' },
       !audit ? h('div', { class: 'v-empty' }, 'Loading…')
         : audit.length === 0 ? h('div', { class: 'v-empty' }, 'No cleanup actions yet.')
