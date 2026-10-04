@@ -62,6 +62,13 @@ function v_sched_registry(): array {
       'env' => [], 'needs_node' => false, 'log' => 'prune.log', 'timeout' => 600,
       'heavy' => true, 'default_lock' => true,
     ],
+    'dbbackup' => [
+      'label' => 'Consistent DB backup (daily 3am, 7 daily + 4 weekly kept)',
+      'sched' => '0 3 * * *',
+      'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-dbbackup.php',
+      'env' => [], 'needs_node' => false, 'log' => 'dbbackup.log', 'timeout' => 1800,
+      'heavy' => true, 'default_lock' => true,
+    ],
     'vmwatch' => [
       'label' => 'VM event listener (every 2 min)', 'sched' => '*/2 * * * *',
       'cmd' => '/usr/bin/flock -n /var/tmp/unraid-vitals/vmwatch.lock NODE_BIN_PLACEHOLDER /usr/local/emhttp/plugins/unraid-vitals/agent/vmwatch.mjs',

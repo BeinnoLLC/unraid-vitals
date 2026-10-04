@@ -3262,6 +3262,84 @@ function SchedulesPanel() {
       : null);
 }
 
+/* P19: backups — list/run/restore/download/bundle, destination pool warning. */
+function BackupsPanel() {
+  var st = useState(null); var data = st[0], setData = st[1];
+  var s2 = useState('idle'); var state = s2[0], setState = s2[1];
+  var s3 = useState(''); var msg = s3[0], setMsg = s3[1];
+  var s4 = useState(null); var confirmRestore = s4[0], setConfirmRestore = s4[1];
+  var load = function () {
+    fetch(ENDPOINT + '?action=backups', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.ok) setData(j); });
+  };
+  useEffect(load, []);
+  var runNow = function () {
+    setState('backing');
+    fetch(ENDPOINT + '?action=backup_run', { method: 'POST', body: new URLSearchParams({}) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setState('idle');
+        setMsg(j && j.ok ? ('Backup created: ' + j.file + ' (' + bytes(j.bytes, 1) + ') — kept ' + j.kept_daily + ' daily + ' + j.kept_weekly + ' weekly.')
+                         : ((j && j.error) || 'backup failed'));
+        load();
+      }).catch(function () { setState('idle'); setMsg('backup failed'); });
+  };
+  var restore = function (f) {
+    setState('restoring');
+    fetch(ENDPOINT + '?action=backup_restore', { method: 'POST', body: new URLSearchParams({ file: f }) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setState('idle'); setConfirmRestore(null);
+        setMsg(j && j.ok ? ('Restored ' + j.restored + ' — pre-restore safety copy: ' + j.pre_restore + '.') : ((j && j.error) || 'restore failed'));
+        load();
+      }).catch(function () { setState('idle'); setMsg('restore failed'); });
+  };
+  var bundle = function () {
+    setState('bundling');
+    fetch(ENDPOINT + '?action=backup_bundle', { method: 'POST', body: new URLSearchParams({}) })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        setState('idle');
+        setMsg(j && j.ok ? ('State bundle ready: ' + j.bundle + ' (' + bytes(j.bytes, 1) + ') — contains DB + rollups + config.') : ((j && j.error) || 'bundle failed'));
+      }).catch(function () { setState('idle'); });
+  };
+
+  return h(Panel, {
+    title: 'Backups & restore', span2: true,
+    hint: data && data.same_pool ? '⚠ backup destination is on the SAME pool as the DB — set BACKUP_DIR to another pool/array for real safety' : 'destination: ' + ((data && data.dest) || '…')
+  },
+    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    data && data.integrity && data.integrity !== 'ok'
+      ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' },
+        h('b', { class: 'crit' }, 'Live DB integrity: '), data.integrity, ' — restore advised; existing backups are NOT pruned while this shows.')
+      : null,
+    data && data.schema && data.schema.migrated
+      ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' }, 'Schema upgraded to v' + data.schema.version + ' — pre-upgrade backup ' + data.schema.pre_upgrade + ' kept.')
+      : null,
+    h('div', { style: 'margin-bottom:10px' },
+      h('button', { class: 'v-btn', onClick: runNow, disabled: state !== 'idle' }, state === 'backing' ? 'Backing up…' : 'Back up now'),
+      ' ',
+      h('button', { class: 'v-btn xs', onClick: bundle, disabled: state !== 'idle' }, state === 'bundling' ? 'Bundling…' : 'Full state bundle (.zip)')),
+    !data ? h('div', { class: 'v-empty' }, 'Loading backups…')
+      : !(data.backups || []).length ? h('div', { class: 'v-empty' }, 'No backups yet — the daily 03:00 job creates the first one.')
+      : h(Table, null,
+        h('tr', null, h('th', null, 'Backup'), h('th', null, 'When'), h('th', { class: 'num' }, 'Size'), h('th', null, 'Integrity'), h('th', null, '')),
+        data.backups.map(function (b, i) {
+          return h('tr', { key: i },
+            h('td', { class: 'v-name' }, b.file, b.tag !== 'auto' ? h('span', { class: 'v-badge', style: 'margin-left:6px' }, b.tag) : null),
+            h('td', { class: 'muted' }, ts(b.at)),
+            h('td', { class: 'num' }, bytes(b.bytes, 1)),
+            h('td', null, b.integrity || h('span', { class: 'muted' }, '—')),
+            h('td', null,
+              h('a', { class: 'v-btn xs', href: ENDPOINT + '?action=backup_download&file=' + encodeURIComponent(b.file) }, 'Download'),
+              ' ',
+              h('button', { class: 'v-btn xs', onClick: function () { confirmRestore === b.file ? restore(b.file) : setConfirmRestore(b.file); } },
+                confirmRestore === b.file ? 'Confirm restore' : 'Restore')));
+        })),
+    confirmRestore ? h('div', { class: 'v-empty' }, 'Restoring replaces the live DB (a pre-restore backup is taken automatically). Click Confirm restore again.') : null);
+}
+
 function SettingsTab() {
   var s1 = useState(null), cfg = s1[0], setCfg = s1[1];
   var s2 = useState(null), meta = s2[0], setMeta = s2[1];
@@ -3342,6 +3420,7 @@ function SettingsTab() {
 
   return h('div', null,
     h(SchedulesPanel, {}),
+    h(BackupsPanel, {}),
     h(Panel, { title: 'Collector status' },
       h('table', null, [
         ['Last sample', meta.last_run ? ts(meta.last_run) : '—'],

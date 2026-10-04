@@ -23,6 +23,7 @@ require_once __DIR__ . '/timeline.php';
 require_once __DIR__ . '/smart_selftest.php';
 require_once __DIR__ . '/job_control.php';
 require_once __DIR__ . '/agent_schedules.php';
+require_once __DIR__ . '/dbbackup.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -175,7 +176,7 @@ try {
                 'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP', 'UI_REFRESH_SECONDS',
                 'VITALS_DIAG_INTERVAL_MINUTES', 'VITALS_DIAG_WINDOW_HOURS', 'VITALS_DIAG_MODELS',
                 'VITALS_UPDATE_INTERVAL_MINUTES', 'PRICE_PER_KWH',
-                'QUIET_START', 'QUIET_END', 'KB_KEEP_DAYS', 'RESEARCH_KEEP_DAYS'];
+                'QUIET_START', 'QUIET_END', 'KB_KEEP_DAYS', 'RESEARCH_KEEP_DAYS', 'BACKUP_DIR'];
     foreach (array_keys(v_sched_registry()) as $jobId) {
       $allowed[] = 'SCHED_' . strtoupper($jobId);
       $allowed[] = 'SCHED_' . strtoupper($jobId) . '_ENABLED';
@@ -320,6 +321,53 @@ try {
     $id = (string)($_POST['job'] ?? '');
     if (!preg_match('/^[a-z0-9_]{1,64}$/', $id)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'bad job id']); exit; }
     echo json_encode(v_job_run_now($id, ($_POST['force'] ?? '') === 'yes'), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'backups') {
+    echo json_encode(['ok' => true, 'backups' => v_backup_list(3),
+      'same_pool' => v_backup_same_pool(v_db_path(), v_backup_dir()),
+      'dest' => v_backup_dir(), 'integrity' => v_backup_integrity(),
+      'schema' => v_backup_schema_check()], JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'backup_run') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(v_backup_run(), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'backup_restore') {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    echo json_encode(v_backup_restore((string)($_POST['file'] ?? '')), JSON_UNESCAPED_SLASHES);
+    exit;
+  }
+
+  if ($action === 'backup_download') {
+    $f = (string)($_GET['file'] ?? '');
+    if (!preg_match('/^vitals-[a-z0-9-]+\.db$/', $f)) { http_response_code(400); echo json_encode(['ok' => false, 'error' => 'bad name']); exit; }
+    $p = v_backup_dir() . '/' . $f;
+    if (!is_file($p)) { http_response_code(404); echo json_encode(['ok' => false, 'error' => 'not found']); exit; }
+    header('Content-Type: application/octet-stream');
+    header('Content-Disposition: attachment; filename="' . $f . '"');
+    header('Content-Length: ' . filesize($p));
+    readfile($p);
+    exit;
+  }
+
+  if ($action === 'backup_bundle') {
+    // full state bundle (#105): heavier op, POST+CSRF.
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    $z = v_backup_bundle();
+    echo json_encode($z ? ['ok' => true, 'bundle' => $z, 'bytes' => filesize($z)]
+                        : ['ok' => false, 'error' => 'bundle failed'], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
