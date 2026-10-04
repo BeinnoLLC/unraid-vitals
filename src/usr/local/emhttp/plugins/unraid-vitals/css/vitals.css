@@ -603,6 +603,12 @@
 .vitals .v-pill {
   display: inline-flex; align-items: center; gap: 4px; font-size: var(--v-fs-xs); font-weight: 600;
   padding: 2px 9px; border-radius: 999px; background: var(--v-card); border: 1px solid var(--v-border);
+  /* Some Unraid themes force td{display:flex;flex-direction:column}; in that
+     context flex children stretch across the cell and a 4-char "auto" pill
+     rendered ~1400px wide (user: "badges like auto are too wide").
+     align-self is ignored in inline contexts and stops the stretch in flex
+     parents — safe in both. */
+  align-self: flex-start;
 }
 .vitals .v-pill.run  {
   background: color-mix(in srgb, var(--v-ok) 15%, transparent);
