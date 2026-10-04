@@ -13,6 +13,12 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.08
+- Schedules panel: every job's switch, schedule, last run + duration/exit, Run-now with lock/quiet/parity guards
+- Per-agent schedules (disks daily, thermal every 30 min, ...) — agents serialize on one lock
+- Retention engine prunes flash rollups, KB docs, research jobs and check results (each with its own keep window)
+- Every job has a lock + timeout; the collector no longer stacks slow runs
+- Dashboard time ranges filter by real timestamps at any sample interval; UI polling pauses on hidden tabs
 ###2026.10.07
 - One-click full health check: score out of 100, severity-sorted findings, diff vs your previous run (#84)
 - Fix playbooks for every check, one click away from any finding (#85)
