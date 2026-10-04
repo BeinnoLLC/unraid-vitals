@@ -56,24 +56,10 @@ if [ -n "$NODE_BIN" ] && command -v npm >/dev/null 2>&1 && [ ! -d "$PLUGDIR/agen
     || echo "unraid-vitals: npm ci failed — background AI agents disabled until manually run"
 fi
 
-# flash retention script (KEEP_DAYS prune) — payload file, not a cron job;
-# its cron file comes from the registry below.
-cat > "$FLASH/prune.php" <<'PRUNE'
-<?php
-// Delete rollup files older than KEEP_DAYS. Called once a day.
-$cfg = @parse_ini_file('/boot/config/plugins/unraid-vitals/vitals.cfg') ?: [];
-$keep = (int)($cfg['KEEP_DAYS'] ?? 90);
-$dir  = '/boot/config/plugins/unraid-vitals/history';
-if ($keep < 1 || !is_dir($dir)) exit(0);
-$cutoff = strtotime('-' . $keep . ' days');
-foreach (glob($dir . '/*.jsonl') ?: [] as $f) {
-  if (preg_match('/(\d{4})-(\d{2})\.jsonl$/', $f, $m)) {
-    // keep a month file if any day in it is still inside the window
-    $monthEnd = strtotime($m[1] . '-' . $m[2] . '-01 +1 month');
-    if ($monthEnd < $cutoff) @unlink($f);
-  }
-}
-PRUNE
+# flash retention script is now scripts/vitals-prune.php (P18-04) — a normal
+# payload file; the registry's prune job points at it. Remove the old
+# heredoc-generated /boot copy so it can't shadow the real one:
+rm -f "$FLASH/prune.php" 2>/dev/null || true
 
 # --- scheduled jobs (P18-01: single registry) ---------------------------------
 # Every /etc/cron.d/unraid-vitals-* file is written from the schedule registry

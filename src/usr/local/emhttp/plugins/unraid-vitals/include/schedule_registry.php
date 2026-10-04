@@ -56,9 +56,11 @@ function v_sched_registry(): array {
       'env' => [], 'needs_node' => false, 'log' => 'weekly-report.log', 'timeout' => 1800,
     ],
     'prune' => [
-      'label' => 'Retention prune (nightly)', 'sched' => '17 4 * * *',
-      'cmd' => '/usr/bin/php /boot/config/plugins/unraid-vitals/prune.php',
+      'label' => 'Retention prune (nightly — rollups, KB, research jobs)',
+      'sched' => '17 4 * * *',
+      'cmd' => '/usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-prune.php',
       'env' => [], 'needs_node' => false, 'log' => 'prune.log', 'timeout' => 600,
+      'heavy' => true, 'default_lock' => true,
     ],
     'vmwatch' => [
       'label' => 'VM event listener (every 2 min)', 'sched' => '*/2 * * * *',
