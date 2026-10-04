@@ -2820,6 +2820,7 @@ function ResearchTab() {
 var CLEANUP_KINDS = [
   { kind: 'logs',                      label: 'Plugin logs (var/tmp)',  docker: false, confirm2: false, hint: 'Rotated/truncated plugin-owned logs' },
   { kind: 'tmp',                       label: 'Plugin tmp files',       docker: false, confirm2: false, hint: 'Files the plugin left under /tmp' },
+  { kind: 'orphan_appdata',            label: 'Orphaned appdata folders', docker: false, confirm2: false, hint: 'No container maps them — moved to a dated held folder, delete later if truly unwanted' },
   { kind: 'docker_dangling_images',    label: 'Dangling images',        docker: true,  confirm2: false, hint: '<none> image layers from rebuilds' },
   { kind: 'docker_unused_images',      label: 'Unused images (>24h)',   docker: true,  confirm2: false, hint: 'Images no container has used in 24h' },
   { kind: 'docker_stopped_containers', label: 'Stopped containers',     docker: true,  confirm2: false, hint: 'Containers in exited/created state' },

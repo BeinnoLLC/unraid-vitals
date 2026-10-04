@@ -41,6 +41,8 @@ function v_cleanup_roots(string $kind): ?array {
     case 'docker_build_cache':
     case 'docker_unused_volumes':
       return null; // docker kinds go through the docker CLI, not fs paths
+    case 'orphan_appdata':
+      return ['__ORPHAN__']; // marker kind: real gating inside v_cleanup_orphan_appdata_apply
     case 'logs':
       return ['/var/log', '/var/tmp/unraid-vitals'];
     case 'tmp':
@@ -94,7 +96,11 @@ function v_cleanup_preview(string $kind): array {
   $dockerKinds = v_cleanup_docker_kinds();
   $items = [];
 
-  if (isset($dockerKinds[$kind])) {
+  if ($kind === 'orphan_appdata') {
+    $res = v_cleanup_orphan_appdata_preview();
+    if (!$res['ok']) return $res;
+    $items = $res['items'];
+  } elseif (isset($dockerKinds[$kind])) {
     $spec = $dockerKinds[$kind];
     if ($kind === 'docker_unused_volumes') {
       $bytes = (int)trim((string)@shell_exec('timeout 15 docker system df --format "{{.Type}}|{{.Size}}" 2>/dev/null | grep -i volume | cut -d"|" -f2') ?: '0B');
@@ -203,6 +209,16 @@ function v_cleanup_apply(string $previewId): array {
   $dockerKinds = v_cleanup_docker_kinds();
 
   $done = 0; $bytes = 0; $results = [];
+
+  if ($kind === 'orphan_appdata') {
+    $res = v_cleanup_orphan_appdata_apply($items);
+    if ($res['ok']) {
+      v_cleanup_audit($previewId, $kind, $res['removed'], $res['bytes_reclaimed'], 'applied', substr(json_encode($res['results']), 0, 4000));
+      return $res;
+    }
+    v_cleanup_audit($previewId, $kind, $res['partial_done'] ?? 0, 0, 'rejected', (string)($res['error'] ?? '?'));
+    return $res;
+  }
 
   if (isset($dockerKinds[$kind])) {
     $spec = $dockerKinds[$kind];
