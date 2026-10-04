@@ -17,6 +17,7 @@ require_once __DIR__ . '/cleanup_orphan.php';
 require_once __DIR__ . '/cleanup_ctrlogs.php';
 require_once __DIR__ . '/cleanup_recycle.php';
 require_once __DIR__ . '/cleanup_mover.php';
+require_once __DIR__ . '/cleanup_junk.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -197,7 +198,7 @@ try {
   }
 
   if ($action === 'cleanup_kinds') {
-    echo json_encode(['ok' => true, 'fs' => ['logs', 'tmp', 'orphan_appdata', 'container_logs', 'recycle'], 'docker' => array_keys(v_cleanup_docker_kinds())], JSON_UNESCAPED_SLASHES);
+    echo json_encode(['ok' => true, 'fs' => ['logs', 'tmp', 'orphan_appdata', 'container_logs', 'recycle', 'junk'], 'docker' => array_keys(v_cleanup_docker_kinds())], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
