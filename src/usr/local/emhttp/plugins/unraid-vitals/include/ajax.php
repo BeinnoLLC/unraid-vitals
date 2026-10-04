@@ -15,6 +15,7 @@ require_once __DIR__ . '/checks.php';
 require_once __DIR__ . '/cleanup.php';
 require_once __DIR__ . '/cleanup_orphan.php';
 require_once __DIR__ . '/cleanup_ctrlogs.php';
+require_once __DIR__ . '/cleanup_recycle.php';
 
 header('Content-Type: application/json');
 header('Cache-Control: no-store');
@@ -195,7 +196,7 @@ try {
   }
 
   if ($action === 'cleanup_kinds') {
-    echo json_encode(['ok' => true, 'fs' => ['logs', 'tmp', 'orphan_appdata', 'container_logs'], 'docker' => array_keys(v_cleanup_docker_kinds())], JSON_UNESCAPED_SLASHES);
+    echo json_encode(['ok' => true, 'fs' => ['logs', 'tmp', 'orphan_appdata', 'container_logs', 'recycle'], 'docker' => array_keys(v_cleanup_docker_kinds())], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
@@ -217,6 +218,10 @@ try {
     if (!preg_match('/^pv_[0-9a-f]{16}$/', $previewId)) {
       v_cleanup_audit($previewId, '?', 0, 0, 'rejected', 'malformed preview_id');
       http_response_code(400); echo json_encode(['ok' => false, 'error' => 'malformed preview_id']); exit;
+    }
+    // optional filters (recycle kind): keep entries newer than N days
+    if (isset($_POST['older_days'])) {
+      $GLOBALS['v_cleanup_recycle_older_than'] = max(0, (int)$_POST['older_days']) * 86400;
     }
     // Second confirmation for kinds flagged confirm2 (P16-02 unused volumes).
     $load = v_cleanup_load($previewId);

@@ -104,6 +104,10 @@ function v_cleanup_preview(string $kind): array {
     $res = v_cleanup_container_logs_preview();
     if (!$res['ok']) return $res;
     $items = $res['items'];
+  } elseif ($kind === 'recycle') {
+    $res = v_cleanup_recycle_preview();
+    if (!$res['ok']) return $res;
+    $items = $res['items'];
   } elseif (isset($dockerKinds[$kind])) {
     $spec = $dockerKinds[$kind];
     if ($kind === 'docker_unused_volumes') {
@@ -231,6 +235,17 @@ function v_cleanup_apply(string $previewId): array {
       return $res;
     }
     v_cleanup_audit($previewId, $kind, $res['partial_done'] ?? 0, 0, 'rejected', (string)($res['error'] ?? '?'));
+    return $res;
+  }
+
+  if ($kind === 'recycle') {
+    $olderThan = (int)($GLOBALS['v_cleanup_recycle_older_than'] ?? 0);
+    $res = v_cleanup_recycle_apply($items, $olderThan);
+    if ($res['ok']) {
+      v_cleanup_audit($previewId, $kind, $res['removed'], $res['bytes_reclaimed'], 'applied', substr(json_encode($res['results']), 0, 4000));
+      return $res;
+    }
+    v_cleanup_audit($previewId, $kind, 0, 0, 'rejected', (string)($res['error'] ?? '?'));
     return $res;
   }
 
