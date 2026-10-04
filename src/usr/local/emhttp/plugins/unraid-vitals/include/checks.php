@@ -49,6 +49,8 @@ function v_checks_defaults(): array {
     'pool_health' => 'warning',
     'net_health' => 'warning',
     'flash_health' => 'warning',
+    'system_maintenance' => 'warning',
+    'share_permissions' => 'warning',
     'docker_hygiene' => 'warning',
     'vm_storage' => 'warning',
     'capacity_forecast' => 'warning',
