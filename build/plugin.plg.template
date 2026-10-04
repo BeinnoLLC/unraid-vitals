@@ -13,6 +13,12 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.10
+- KB workspace: Events/Lessons/Solutions views with curation (edit, merge, delete, pin), outcome feedback that moves confidence, manual entries, JSON export/import
+- Distiller: resolved events become lessons + solutions automatically; recurrence strengthens the lesson
+- Hybrid retrieval: local embeddings + RRF + LLM reranker — recall@5 40%→90% on the golden set; graceful BM25-only fallback
+- Research: read-only tools (metric history, log search, container tail, SMART, KB search, check results), citations open docs, follow-ups carry context
+- AI agents: prompt redaction (opt-in), untrusted-input framing, eval harness with deterministic threshold floors, run budget, per-run observability (tokens/endpoint/retries)
 ###2026.10.09
 - Backups & restore panel: consistent DB backups (7 daily + 4 weekly), integrity-checked, same-pool warning, byte-accurate download, restore with automatic pre-restore safety copy, full state bundle (.zip: DB + rollups + config) reproducing a clean install
 - Daily 03:00 backup job with lock/timeout/quiet-hours guards
