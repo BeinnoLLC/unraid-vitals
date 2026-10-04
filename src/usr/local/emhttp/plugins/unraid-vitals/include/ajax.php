@@ -176,7 +176,7 @@ try {
                 'LLM_STUDIO_PRIMARY', 'LLM_STUDIO_BACKUP', 'UI_REFRESH_SECONDS',
                 'VITALS_DIAG_INTERVAL_MINUTES', 'VITALS_DIAG_WINDOW_HOURS', 'VITALS_DIAG_MODELS',
                 'VITALS_UPDATE_INTERVAL_MINUTES', 'PRICE_PER_KWH',
-                'QUIET_START', 'QUIET_END', 'KB_KEEP_DAYS', 'RESEARCH_KEEP_DAYS', 'BACKUP_DIR'];
+                'QUIET_START', 'QUIET_END', 'KB_KEEP_DAYS', 'RESEARCH_KEEP_DAYS', 'BACKUP_DIR', 'VITALS_RUN_BUDGET_MINUTES'];
     foreach (array_keys(v_sched_registry()) as $jobId) {
       $allowed[] = 'SCHED_' . strtoupper($jobId);
       $allowed[] = 'SCHED_' . strtoupper($jobId) . '_ENABLED';

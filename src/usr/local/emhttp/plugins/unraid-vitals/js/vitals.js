@@ -3546,6 +3546,9 @@ function SettingsTab() {
         h('tr', null, h('td', { class: 'muted' }, 'Look-back window'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 1, max: 72,
             value: cfg.VITALS_DIAG_WINDOW_HOURS, onInput: set('VITALS_DIAG_WINDOW_HOURS') }), ' hours')),
+        h('tr', null, h('td', { class: 'muted' }, 'Agent run budget'),
+          h('td', null, h('input', { class: 'v-input', type: 'number', min: 5, max: 240,
+            value: cfg.VITALS_RUN_BUDGET_MINUTES || '55', onInput: set('VITALS_RUN_BUDGET_MINUTES') }), ' minutes / pass')),
         h('tr', null, h('td', { class: 'muted', style: 'vertical-align:top;padding-top:6px' }, 'Models (multi-model corroboration)'),
           h('td', null,
             !modelInfo ? h('div', { class: 'muted' }, 'Loading model list from your LLM studios…')
