@@ -18,6 +18,12 @@ require_once __DIR__ . '/agent_schedules.php';
 
 const V_JOBCONTROL_DIR = '/var/tmp/unraid-vitals';
 
+// Where cron files land. Redefinable before include, the same seam the tests
+// already use for VITALS_STATE/VITALS_FLASH (see include/collect.php and
+// include/store.php): v_sched_apply() writes and deletes real scheduling state
+// on the user's box, so without this it cannot be executed by a test at all.
+if (!defined('V_CROND_DIR')) define('V_CROND_DIR', '/etc/cron.d');
+
 /**
  * @return array<string, array{id:string,label:string,sched:string,cmd:string,env:array<string,string>,needs_node:bool,log:string}>
  */
@@ -146,7 +152,7 @@ function v_sched_apply(string $stateDir, string $flashDir, array $envVars = []):
   $nodeMissing = $nodeBin === '';
 
   foreach (v_sched_registry() as $id => $job) {
-    $file = '/etc/cron.d/unraid-vitals' . (($id === 'collector') ? '' : '-' . $id);
+    $file = V_CROND_DIR . '/unraid-vitals' . (($id === 'collector') ? '' : '-' . $id);
     $key = 'SCHED_' . strtoupper($id);
 
     if ($job['needs_node'] && $nodeMissing) {
@@ -178,7 +184,7 @@ function v_sched_apply(string $stateDir, string $flashDir, array $envVars = []):
     // duration/exit into runbook.<id>.json (read by the schedules panel).
     $lines = [
       '# unraid-vitals — ' . $job['label'],
-      '# schedule: ' . ($cfg[$key] ?? 'default') . ($cfg[$key] ? '' : ' (default)'),
+      '# schedule: ' . ($cfg[$key] ?? 'default') . (($cfg[$key] ?? null) ? '' : ' (default)'),
       $sched . ' /usr/bin/php /usr/local/emhttp/plugins/unraid-vitals/scripts/vitals-jobwrap.php ' . escapeshellarg($id) . ' >> /var/tmp/unraid-vitals/jobwrap.log 2>&1',
     ];
     @file_put_contents($file, implode("\n", $lines) . "\n");
@@ -191,7 +197,7 @@ function v_sched_apply(string $stateDir, string $flashDir, array $envVars = []):
 
   // remove orphans — files for jobs no longer in the registry (glob cleanup;
   // remove.sh relies on the same glob, so nothing can be left behind)
-  foreach (glob('/etc/cron.d/unraid-vitals*') ?: [] as $f) {
+  foreach (glob(V_CROND_DIR . '/unraid-vitals*') ?: [] as $f) {
     if (!in_array($f, $written, true)) { @unlink($f); $removed++; }
   }
   return ['applied' => $applied, 'removed' => $removed, 'skipped' => $skipped];

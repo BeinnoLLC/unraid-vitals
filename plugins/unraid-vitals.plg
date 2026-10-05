@@ -2,17 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-vitals">
 <!ENTITY author    "hazemhagrass">
-<!ENTITY version   "2026.10.11">
-<!ENTITY md5       "2392c706a531d0b14620d06392ecfd96">
+<!ENTITY version   "2026.10.12">
+<!ENTITY md5       "97514e901d0288479c31f4247cca6144">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY github    "BeinnoLLC/unraid-vitals">
-<!ENTITY pkgname   "unraid-vitals-2026.10.11-x86_64-1">
+<!ENTITY pkgname   "unraid-vitals-2026.10.12-x86_64-1">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/plugins/&name;.plg">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;"
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.12
+- The scheduler can no longer leave a dead cron job behind: the cron directory is resolved through a constant (V_CROND_DIR), so the code that writes and removes scheduling state is now executed by a test against a real directory instead of only being string-matched — 35 assertions reading the cron files back off disk
+- No more "Undefined array key" PHP warnings from schedule apply on a box with no per-job overrides set (vitals.log)
+- CI runs the PHP acceptance suites too — 25 test-*.php suites had never been executed by anything; one (test-checks.php) was failing and is fixed
 ###2026.10.11
 - Health findings no longer go quiet when the model's prompt is trimmed: threshold checks (a pool past 90%, a disk at 55°C) are enforced from the sampled data itself, so a breach is reported even when the data scrolled out of the model's view
 - One device is one finding — the model's "cache (ssd)" and the check's "cache" are recognised as the same disk instead of being listed twice
