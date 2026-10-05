@@ -93,6 +93,12 @@ top-level **Vitals tab**, and an optional start-page switch.
 - AI agents need Node.js on the box (or a reachable local Ollama endpoint —
   configurable in Settings) — the core dashboard works without either; agents
   simply disable themselves with a clear hint if Node isn't available
+- Node **22.13+, 23.4+, or 24 LTS** for the agents. The findings store uses the
+  `node:sqlite` builtin, which shipped in 22.5 but only left
+  `--experimental-sqlite` at 23.4 / 22.13. The installer probes the binary
+  rather than the version string, so an older Node is detected on the spot: the
+  dashboard runs, the agent cron jobs are removed rather than left failing, and
+  the install log names the version found
 
 ## Install
 

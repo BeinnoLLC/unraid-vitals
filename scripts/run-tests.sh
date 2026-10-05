@@ -28,5 +28,6 @@ fi
 echo "run-tests: ${#SUITES[@]} suite(s)"
 printf '  - %s\n' "${SUITES[@]}"
 
-# --test with explicit paths: node 20 (the CI version) supports this.
+# --test with explicit paths: supported since node 18; the required floor is
+# set by the agent's own node:sqlite use (see Node >= 22.5 in install.sh).
 exec node --test "${SUITES[@]}"

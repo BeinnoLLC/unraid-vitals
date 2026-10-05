@@ -48,7 +48,32 @@ fi
 # The txz ships agent/ source without node_modules (386 MB does not belong in
 # a plugin payload). npm ci runs once here so cron jobs pointing at agent
 # entrypoints don't die with MODULE_NOT_FOUND. NODE_BIN feeds the registry.
+#
+# The capability check matters as much as the presence check. The agent reads
+# and writes its findings store through the node:sqlite builtin (lib/db.mjs),
+# which arrived in Node 22.5.0 but stayed behind --experimental-sqlite until
+# 23.4.0 / 22.13.0 — and nothing here passes that flag. node 20, and 22.x up to
+# 22.12, are common on Unraid boxes. Without the check the plugin schedules
+# agent crons that then die on an unresolved import every single run — and the
+# README promises the opposite, that agents "disable themselves with a clear
+# hint if Node isn't available".
+# >>> v_node_gate — extracted and exercised by tests/node-version-gate.test.mjs.
+# Keep these markers: the test finds this block by them and fails loudly if gone.
 NODE_BIN="$(command -v node 2>/dev/null || true)"
+if [ -n "$NODE_BIN" ]; then
+  NODE_VER="$("$NODE_BIN" -v 2>/dev/null || echo 'unknown')"
+  # Probe, don't compare version numbers. node:sqlite appeared in 22.5.0 but sat
+  # behind --experimental-sqlite until 23.4.0 / 22.13.0, and nothing here passes
+  # that flag — so a 22.5–22.12 box has the module and still cannot load it. A
+  # table of ranges would be wrong again at the next backport; this asks the
+  # binary on the box what it can actually do, and fails closed if it can't.
+  if ! "$NODE_BIN" -e 'const s = require("node:sqlite"); if (!s || typeof s.DatabaseSync !== "function") process.exit(1)' >/dev/null 2>&1; then
+    echo "unraid-vitals: this box has node $NODE_VER, which can't load node:sqlite (need >= 22.13, or Node 24 LTS)."
+    echo "unraid-vitals: the dashboard works; background AI agents stay disabled until Node is updated."
+    NODE_BIN=""
+  fi
+fi
+# <<< v_node_gate
 if [ -n "$NODE_BIN" ] && command -v npm >/dev/null 2>&1 && [ ! -d "$PLUGDIR/agent/node_modules" ] && [ -f "$PLUGDIR/agent/package.json" ]; then
   echo "unraid-vitals: installing agent deps (one-time, may take a minute)…"
   (cd "$PLUGDIR/agent" && npm ci --no-audit --no-fund --loglevel=error) \
