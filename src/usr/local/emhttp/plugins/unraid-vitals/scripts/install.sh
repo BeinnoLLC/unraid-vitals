@@ -73,13 +73,30 @@ if [ -n "$NODE_BIN" ]; then
     NODE_BIN=""
   fi
 fi
-# <<< v_node_gate
-if [ -n "$NODE_BIN" ] && command -v npm >/dev/null 2>&1 && [ ! -d "$PLUGDIR/agent/node_modules" ] && [ -f "$PLUGDIR/agent/package.json" ]; then
-  echo "unraid-vitals: installing agent deps (one-time, may take a minute)…"
-  (cd "$PLUGDIR/agent" && npm ci --no-audit --no-fund --loglevel=error) \
-    && echo "unraid-vitals: agent deps installed" \
-    || echo "unraid-vitals: npm ci failed — background AI agents disabled until manually run"
+# NODE_BIN means "the background agents can actually run": a node that loads
+# node:sqlite, plus their dependencies. The registry treats an empty NODE_BIN as
+# node-missing and removes the agent cron files, so anything that stops the
+# agents working has to clear it — otherwise they stay scheduled and fail on an
+# unresolved import every run, which is the dead-job-in-/etc/cron.d case the
+# registry comment exists to avoid. The npm ci failure branch used to announce
+# "agents disabled" and then leave them scheduled anyway.
+if [ -n "$NODE_BIN" ]; then
+  if [ -d "$PLUGDIR/agent/node_modules" ]; then
+    : # deps already present; the plugin dir lives on flash and survives updates
+  elif command -v npm >/dev/null 2>&1 && [ -f "$PLUGDIR/agent/package.json" ]; then
+    echo "unraid-vitals: installing agent deps (one-time, may take a minute)…"
+    if (cd "$PLUGDIR/agent" && npm ci --no-audit --no-fund --loglevel=error); then
+      echo "unraid-vitals: agent deps installed"
+    else
+      echo "unraid-vitals: npm ci failed (no network?) — background AI agents disabled until you install deps by hand."
+      NODE_BIN=""
+    fi
+  else
+    echo "unraid-vitals: npm not found — background AI agents disabled; the dashboard is unaffected."
+    NODE_BIN=""
+  fi
 fi
+# <<< v_node_gate
 
 # flash retention script is now scripts/vitals-prune.php (P18-04) — a normal
 # payload file; the registry's prune job points at it. Remove the old

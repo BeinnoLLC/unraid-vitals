@@ -21,7 +21,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, mkdtempSync, chmodSync, rmSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync, chmodSync, rmSync, mkdirSync, existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -53,31 +53,47 @@ const haveBash = (() => {
  * sqliteExit: what the capability probe should report (0 = capable).
  * fakeVer: what `node -v` should print.
  * withNode: false puts no node on PATH at all.
+ * withNpm: false puts no npm on PATH (tests the "npm not found" branch).
+ * deps: 'present' | 'missing' — whether agent/node_modules exists.
+ * npmExit: exit status of the stubbed npm.
  */
-function runGate({ sqliteExit = 0, fakeVer = 'v22.5.1', withNode = true } = {}) {
+function runGate({
+  sqliteExit = 0, fakeVer = 'v22.5.1', withNode = true,
+  withNpm = true, deps = 'present', npmExit = 0,
+} = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'vitals-gate-'));
   const bin = join(dir, 'bin');
+  const plugdir = join(dir, 'plug');
   mkdirSync(bin);
-  if (withNode) {
-    const p = join(bin, 'node');
-    // -v answers the version; anything else is the probe.
-    writeFileSync(p, `#!/bin/sh\nif [ "$1" = "-v" ]; then echo ${fakeVer}; exit 0; fi\nexit ${sqliteExit}\n`);
+  mkdirSync(join(plugdir, 'agent'), { recursive: true });
+  writeFileSync(join(plugdir, 'agent', 'package.json'), '{}');
+  if (deps === 'present') mkdirSync(join(plugdir, 'agent', 'node_modules'));
+  // Record that npm ran, so "did it even try" is observable rather than inferred.
+  const npmLog = join(dir, 'npm.ran');
+  const mkstub = (name, body) => {
+    const p = join(bin, name);
+    writeFileSync(p, body);
     chmodSync(p, 0o755);
+  };
+  if (withNode) {
+    mkstub('node', `#!/bin/sh\nif [ "$1" = "-v" ]; then echo ${fakeVer}; exit 0; fi\nexit ${sqliteExit}\n`);
   }
+  if (withNpm) mkstub('npm', `#!/bin/sh\necho ran >> ${JSON.stringify(npmLog)}\nexit ${npmExit}\n`);
   try {
-    // With no stub, drop the rest of PATH entirely rather than appending it —
-    // otherwise the real node on this machine answers `command -v` and the
-    // no-node case silently tests the opposite of what it claims. The gate uses
-    // only shell builtins (`command -v`, `echo`), so a bare PATH is enough.
-    const path = withNode ? `${JSON.stringify(bin)}:"$PATH"` : JSON.stringify(bin);
+    // PATH holds ONLY the stub dir. Appending the real PATH looked harmless and
+    // was not: the withNpm:false case still found this machine's npm and ran a
+    // real install, so the test exercised the opposite of its own scenario. The
+    // gate uses only shell builtins (`command -v`, `[`, `echo`), so a bare PATH
+    // is enough to run it.
     const out = execFileSync('bash', ['-c', [
-      `export PATH=${path}`,
+      `export PATH=${JSON.stringify(bin)}`,
+      `export PLUGDIR=${JSON.stringify(plugdir)}`,
       gate(),
       'echo "NODE_BIN=[$NODE_BIN]"',
     ].join('\n')], { encoding: 'utf8' });
     const m = out.match(/NODE_BIN=\[(.*)\]/);
     assert.ok(m, `gate produced no NODE_BIN line:\n${out}`);
-    return { nodeBin: m[1], out };
+    return { nodeBin: m[1], out, npmRan: existsSync(npmLog) };
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -136,4 +152,39 @@ test('the gate clears NODE_BIN so the scheduler drops node-backed jobs', { skip:
     'the scheduler must derive "node missing" from an empty NODE_BIN');
   assert.match(registry, /needs_node.*\$nodeMissing|if \(\$job\['needs_node'\] && \$nodeMissing\)/,
     'an empty NODE_BIN must skip the node jobs, or the gate disables nothing');
+});
+
+test('a failed npm ci disables the agents instead of leaving dead cron jobs', { skip: !haveBash }, () => {
+  // The bug this pins: the failure branch printed "background AI agents
+  // disabled" and then left NODE_BIN set, so the registry wrote the agent crons
+  // anyway — every one of them dying on an unresolved import, forever, while
+  // the install log claimed they were off. NODE_BIN has to mean "the agents can
+  // actually run", not merely "a capable node exists".
+  const { nodeBin, npmRan, out } = runGate({ deps: 'missing', npmExit: 1 });
+  assert.ok(npmRan, 'with deps missing, npm ci should have been attempted');
+  assert.equal(nodeBin, '', 'a failed npm ci must clear NODE_BIN');
+  assert.match(out, /disabled/i, 'the log must say the agents are off');
+});
+
+test('a successful npm ci keeps the agents enabled', { skip: !haveBash }, () => {
+  // The mirror of the above: the fix must not disable working installs.
+  const { nodeBin, npmRan } = runGate({ deps: 'missing', npmExit: 0 });
+  assert.ok(npmRan, 'with deps missing, npm ci should have been attempted');
+  assert.ok(nodeBin.endsWith('/node'), 'a successful npm ci must leave the agents enabled');
+});
+
+test('existing node_modules means npm is never re-run, even with no npm on the box', { skip: !haveBash }, () => {
+  // agent/node_modules lives in the plugin dir on flash and survives updates,
+  // so the common re-install path must not depend on npm existing at all. This
+  // is the case a naive "always npm ci" would break on an offline box.
+  const { nodeBin, npmRan } = runGate({ deps: 'present', withNpm: false });
+  assert.equal(npmRan, false, 'deps already present — npm must not run');
+  assert.ok(nodeBin.endsWith('/node'), 'present deps must keep the agents enabled without npm');
+});
+
+test('no npm and no deps disables the agents with a hint', { skip: !haveBash }, () => {
+  const { nodeBin, out } = runGate({ deps: 'missing', withNpm: false });
+  assert.equal(nodeBin, '', 'without npm and without deps the agents cannot run');
+  assert.match(out, /npm not found/i, 'the log must explain why');
+  assert.match(out, /dashboard/i, 'and that the dashboard is unaffected');
 });
