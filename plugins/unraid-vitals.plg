@@ -3,7 +3,7 @@
 <!ENTITY name      "unraid-vitals">
 <!ENTITY author    "hazemhagrass">
 <!ENTITY version   "2026.10.11">
-<!ENTITY md5       "88d1bb6c78dcecba41b019ed82578562">
+<!ENTITY md5       "2b06736c9ad7a715f7478f3140f0106e">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY github    "BeinnoLLC/unraid-vitals">
 <!ENTITY pkgname   "unraid-vitals-2026.10.11-x86_64-1">
