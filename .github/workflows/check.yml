@@ -34,6 +34,11 @@ jobs:
           node-version: "24"
 
       - name: Install PHP CLI
-        run: sudo apt-get update && sudo apt-get install -y php-cli
+        # php-sqlite3 is not optional. The engine persists findings and events
+        # through SQLite3 (include/db.php, include/checks.php); without the
+        # extension the DB helpers return null and every suite that touches
+        # persistence fails for a reason that has nothing to do with the code
+        # under test. The runner checks for it up front and says so instead.
+        run: sudo apt-get update && sudo apt-get install -y php-cli php-sqlite3
 
       - run: npm run check

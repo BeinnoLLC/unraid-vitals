@@ -10,8 +10,10 @@
     "build": "bash build/build.sh",
     "lint:php": "find src -name '*.php' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 php -l",
     "lint:js": "find src \\( -name '*.js' -o -name '*.mjs' \\) -not -path '*/node_modules/*' -print0 | xargs -0 -n1 node --check",
-    "lint:shell": "find src build -name '*.sh' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 bash -n",
-    "test": "bash scripts/run-tests.sh",
+    "lint:shell": "find src build scripts -name '*.sh' -not -path '*/node_modules/*' -print0 | xargs -0 -n1 bash -n",
+    "test:node": "bash scripts/run-tests.sh",
+    "test:php": "bash scripts/run-php-tests.sh",
+    "test": "npm run test:node && npm run test:php",
     "check": "npm run lint:php && npm run lint:js && npm run lint:shell && npm test"
   }
 }
