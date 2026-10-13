@@ -2,11 +2,11 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name      "unraid-vitals">
 <!ENTITY author    "hazemhagrass">
-<!ENTITY version   "2026.10.12">
-<!ENTITY md5       "97514e901d0288479c31f4247cca6144">
+<!ENTITY version   "2026.10.14">
+<!ENTITY md5       "c229f6f27e46e7a9aa7e464ad26efd19">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY github    "BeinnoLLC/unraid-vitals">
-<!ENTITY pkgname   "unraid-vitals-2026.10.12-x86_64-1">
+<!ENTITY pkgname   "unraid-vitals-2026.10.14-x86_64-1">
 <!ENTITY pluginURL "https://raw.githubusercontent.com/&github;/main/plugins/&name;.plg">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&pluginURL;"

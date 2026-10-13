@@ -964,12 +964,13 @@ function App() {
   var s7 = useState(false), drawerOpen = s7[0], setDrawerOpen = s7[1];
   var s8 = useState(false), findingsOpen = s8[0], setFindingsOpen = s8[1];
   var s9 = useState([]), chartEvents = s9[0], setChartEvents = s9[1];
+  var s10 = useState(null), settings = s10[0], setSettings = s10[1];
 
   var load = function (force) {
     setStatus(function (s) { return s === 'loading' ? s : 'busy'; });
     fetch(ENDPOINT + '?action=' + (force ? 'refresh' : 'data'), { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setPayload(j); setStatus('ok'); } })
+      .then(function (j) { if (j && j.ok) { setPayload(j); setStatus('ok'); } else setStatus('error'); })
       .catch(function () { setStatus('error'); });
   };
 
@@ -1021,7 +1022,14 @@ function App() {
     fetch(ENDPOINT + '?action=daily&days=30', { cache: 'no-store' })
       .then(function (r) { return r.json(); })
       .then(function (j) { setDaily((j && j.daily) || []); })
-      .catch(function () { setDaily([]); });
+      .catch(function () { setDaily({ error: true }); });
+  }, []);
+
+  useEffect(function () {
+    fetch(ENDPOINT + '?action=settings', { cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { if (j && j.cfg) setSettings(j.cfg); })
+      .catch(function () { });
   }, []);
 
   // P15-04: event markers, refreshed on the same cadence as findings —
@@ -1047,7 +1055,7 @@ function App() {
   var rangeT = newestT - range * 60;             // range is in minutes
   var pts = ring.filter(function (p) { return p.t >= rangeT; });
   if (!pts.length && ring.length) pts = [ring[ring.length - 1]]; // sparse ring: keep the last sample
-  var props = { d: d, pts: pts, range: range, daily: daily, findings: findings, chartEvents: chartEvents };
+  var props = { d: d, pts: pts, range: range, daily: daily, findings: findings, chartEvents: chartEvents, settings: settings };
 
   return h('div', null,
     h('div', { class: 'v-hero' },
@@ -1068,8 +1076,9 @@ function App() {
                 onClick: function () { setRange(o[0]); } }, o[1]);
             })),
           h('div', { class: 'v-iconbar' },
-            h('button', { class: 'v-ibtn', title: 'Refresh now', onClick: function () { load(true); } },
-              h('i', { class: 'fa fa-refresh' })),
+            h('button', { class: 'v-ibtn' + (status === 'busy' ? ' disabled' : ''), title: status === 'busy' ? 'Refreshing…' : 'Refresh now', 
+              disabled: status === 'busy', onClick: function () { if (status !== 'busy') load(true); } },
+              h('i', { class: 'fa ' + (status === 'busy' ? 'fa-spinner fa-spin' : 'fa-refresh') })),
             h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
             h('button', { class: 'v-ibtn' + (drawerOpen ? ' on' : ''), title: 'Critical system logs',
               onClick: function () { setDrawerOpen(!drawerOpen); } },
@@ -1177,6 +1186,10 @@ function LogDrawer(P) {
 
 function DashTab(P) {
   var d = P.d, pts = P.pts, a = d.array || {}, t = a.totals || {}, load = d.load || {};
+  var settings = P.settings || {};
+  var alertTemp = parseFloat(settings.ALERT_TEMP) || 55;
+  var alertFill = parseFloat(settings.ALERT_FILL) || 90;
+  var alertLoad = parseFloat(settings.ALERT_LOAD) || 90;
   var temps = [];
   (a.data || []).concat(a.parity || [], a.cache || []).forEach(function (x) {
     if (x.temp != null) temps.push(x.temp);
@@ -1254,7 +1267,7 @@ function DashTab(P) {
       level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), ring: t.used_pct },
     merge(merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
       value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
-      level: tMax == null ? '' : lvl(tMax, 45, 55), sub: temps.length + ' disks reporting' },
+      level: tMax == null ? '' : lvl(tMax, alertTemp - 10, alertTemp), sub: temps.length + ' disks reporting' },
       sparkOf(function (p) { return p.temp_max; }, PAL['v-temp'])),
       deltaOf(function (p) { return p.temp_max; }, '°')),
     { label: 'Containers', icon: 'fa-cubes', color: PAL['v-ok-fg'],
@@ -1335,13 +1348,13 @@ function DashTab(P) {
           yFmt: function (v) { return v + '%'; } })),
       h(Panel, { title: 'Network flow', hint: 'stacked RX + TX' },
         h(Chart, { series: netSeries, height: 165, stack: true, area: true, yFmt: bytes })),
-      h(Panel, { title: 'Disk temperature', hint: 'alert at 55°C' },
+      h(Panel, { title: 'Disk temperature', hint: 'alert at ' + alertTemp + '°C' },
         h(Chart, { series: [{ name: 'Hottest °C', color: PAL['v-temp'],
             points: pick(function (p) { return p.temp_max; }) }],
           floor: tMax == null ? 0 : Math.max(0, Math.floor(tMax - 10)), height: 165,
-          thresholds: [{ v: 55, color: '#f87171', label: 'alert 55°' }],
+          thresholds: [{ v: alertTemp, color: '#f87171', label: 'alert ' + alertTemp + '°' }],
           events: P.chartEvents,
-          onEventClick: function (e) { window.alert(new Date(e.t * 1000).toLocaleString() + '\n' + e.label); },
+          onEventClick: function (e) { window.alert(new Date(e.t * 1000).toLocaleString() + '\\n' + e.label); },
           yFmt: function (v) { return v + '°'; } }))),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Container CPU', hint: ctrTop.length ? 'top ' + ctrTop.length : '' },
