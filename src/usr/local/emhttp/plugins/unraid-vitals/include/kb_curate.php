@@ -1,13 +1,4 @@
 <?php
-/* unraid-vitals — include/kb_curate.php (P12 / #38)
- *
- * KB workspace curation: edit, merge, delete, pin lessons; solution outcome
- * (worked/did-not-work) feeding lesson confidence; manual entries
- * (source='manual'); export/import as a single JSON bundle.
- *
- * Written against the AGENT's own schema (kb_documents too), all endpoints
- * CSRF-gated at the ajax layer; every mutation re-checks the row exists.
- */
 
 declare(strict_types=1);
 
@@ -20,7 +11,6 @@ function v_kb_db(): ?SQLite3 {
   catch (Throwable $e) { return null; }
 }
 
-/** Lessons: list w/ confidence + times_seen (already columns); kind/entity filters. */
 function v_kb_lessons_list(?string $kind = null, int $limit = 60): array {
   $db = v_kb_db();
   if (!$db) return [];
@@ -34,7 +24,6 @@ function v_kb_lessons_list(?string $kind = null, int $limit = 60): array {
   return $out;
 }
 
-/** Solutions with their event linkage. */
 function v_kb_solutions_list(int $limit = 60): array {
   $db = v_kb_db();
   if (!$db) return [];
@@ -48,7 +37,6 @@ function v_kb_solutions_list(int $limit = 60): array {
   return $out;
 }
 
-/** Events with status pills data (kind/entity/status filters). */
 function v_kb_events_list(?string $kind = null, ?string $status = null, int $limit = 80): array {
   $out = [];
   $dbFile = v_db_path();
@@ -68,7 +56,6 @@ function v_kb_events_list(?string $kind = null, ?string $status = null, int $lim
   return $out;
 }
 
-/** Curation: edit lesson text. */
 function v_kb_lesson_edit(int $lessonId, string $text): bool {
   $db = v_kb_db(); if (!$db) return false;
   $st = $db->prepare('UPDATE kb_lessons SET lesson = :t WHERE id = :id');
@@ -80,7 +67,6 @@ function v_kb_lesson_edit(int $lessonId, string $text): bool {
   return $ok;
 }
 
-/** Curation: merge two lessons (higher-confidence text survives; counts combine). */
 function v_kb_lesson_merge(int $lessonId, int $intoId): bool {
   if ($lessonId === $intoId) return false;
   $db = v_kb_db(); if (!$db) return false;
@@ -100,7 +86,7 @@ function v_kb_lesson_merge(int $lessonId, int $intoId): bool {
   $del = $db->prepare('DELETE FROM kb_lessons WHERE id = :id');
   $del->bindValue(':id', $lessonId, SQLITE3_INTEGER);
   $del->execute();
-  // keep provenance
+  
   $mf = $db->prepare('UPDATE kb_lessons SET merged_from = COALESCE(merged_from || ",", "") || :mf WHERE id = :into');
   $mf->bindValue(':mf', (string)$lessonId, SQLITE3_TEXT);
   $mf->bindValue(':into', $intoId, SQLITE3_INTEGER);
@@ -109,7 +95,6 @@ function v_kb_lesson_merge(int $lessonId, int $intoId): bool {
   return true;
 }
 
-/** Curation: delete a lesson (its solutions stay, lesson_id orphaned to NULL). */
 function v_kb_lesson_delete(int $lessonId): bool {
   $db = v_kb_db(); if (!$db) return false;
   $db->exec('UPDATE kb_solutions SET lesson_id = NULL WHERE lesson_id = ' . (int)$lessonId);
@@ -121,9 +106,8 @@ function v_kb_lesson_delete(int $lessonId): bool {
   return $ok;
 }
 
-/** Curation: pin/unpin (pinned lessons sort first in the UI; pinned = times_seen won't prune). */
 function v_kb_lesson_pin(int $lessonId, bool $pin): bool {
-  // pinned is expressed as confidence floor + a first_class marker via merged_from prefix
+  
   $db = v_kb_db(); if (!$db) return false;
   $cur = (int)($db->querySingle("SELECT times_seen FROM kb_lessons WHERE id = $lessonId") ?? 0);
   if (!$cur) { $db->close(); return false; }
@@ -136,7 +120,6 @@ function v_kb_lesson_pin(int $lessonId, bool $pin): bool {
   return $ok;
 }
 
-/** Feedback: did the fix work? — outcome feeds the lesson's confidence. */
 function v_kb_solution_feedback(int $solutionId, string $outcome): bool {
   if (!in_array($outcome, ['worked', 'did_not_work'], true)) return false;
   $db = v_kb_db(); if (!$db) return false;
@@ -147,7 +130,7 @@ function v_kb_solution_feedback(int $solutionId, string $outcome): bool {
   $st->bindValue(':id', $solutionId, SQLITE3_INTEGER);
   $st->execute();
   if ($s['lesson_id']) {
-    // worked ⇒ +0.1 confidence (max 0.95); did_not_work ⇒ −0.15 (min 0.1)
+    
     $delta = $outcome === 'worked' ? +0.10 : -0.15;
     $db->exec("UPDATE kb_lessons SET confidence = MAX(0.1, MIN(0.95, confidence + ($delta))) WHERE id = " . (int)$s['lesson_id']);
   }
@@ -156,7 +139,6 @@ function v_kb_solution_feedback(int $solutionId, string $outcome): bool {
   return $ok;
 }
 
-/** Manual entries (source='manual'): lessons. */
 function v_kb_lesson_manual(string $entity, string $text): ?int {
   $db = v_kb_db(); if (!$db) return null;
   $st = $db->prepare("INSERT INTO kb_lessons (kind, entity, lesson, confidence, times_seen, first_seen_at, last_seen_at)
@@ -171,7 +153,6 @@ function v_kb_lesson_manual(string $entity, string $text): ?int {
   return (int)$id;
 }
 
-/** Export: the whole KB as one JSON bundle. */
 function v_kb_export(): ?string {
   $dbFile = v_db_path();
   if (!$dbFile || !is_file($dbFile)) return null;
@@ -186,7 +167,6 @@ function v_kb_export(): ?string {
   return is_string($json) ? $json : null;
 }
 
-/** Import: merge a bundle (seeded/manual rows updated, learning rows insert-if-new). */
 function v_kb_import(string $json): array {
   $b = json_decode($json, true);
   if (!is_array($b)) return ['ok' => false, 'error' => 'bad bundle json'];

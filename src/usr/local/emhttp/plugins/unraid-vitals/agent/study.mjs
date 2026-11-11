@@ -1,31 +1,5 @@
 #!/usr/bin/env node
-/**
- * unraid-vitals agent — study-mode runner.
- *
- * A "study job" is not a one-shot question, it's a standing observation
- * request: "study the system for the next 12 hours and let me know what is
- * going on". Instead of one inference call, this runs on a cron tick
- * (installed by install.sh as ${PLUGIN}-study, every 5 min) and for every
- * job in mode='study'/status='studying':
- *
- *   1. If due for a sample (dueStudyJobs — respects each job's own
- *      tick_minutes so a "12h, check every hour" job doesn't sample every
- *      5 min just because the cron does), take a lightweight look at the
- *      current snapshot + recent alerts + recent findings and append one
- *      short observation line to the job's running journal. This is
- *      intentionally cheap (a short prompt, low maxTokens) — it happens
- *      many times over the study window and must not compound into a
- *      multi-hour queue of slow CPU inference calls.
- *   2. If the study window has closed (expiredStudyJobs), synthesize every
- *      observation collected into one full write-up and finish the job
- *      exactly like a one-shot research job (finishResearchJob) — the UI
- *      does not need to know the difference between a study result and a
- *      research result, only the KB entry's `kind` differs ('study').
- *
- * Usage: node study.mjs           (processes every due/expired job once —
- *                                  called by cron on a fixed interval)
- *        node study.mjs --once <jobId>   (force a single tick, for testing)
- */
+
 import {
   dueStudyJobs, expiredStudyJobs, appendStudyObservation,
   finishResearchJob, failResearchJob, insertKbDocument, getResearchJob,
@@ -62,9 +36,9 @@ async function tickOne(job) {
       flash: snap.flash,
     };
 
-    // What changed since the LAST tick, not just what the snapshot says now —
-    // the tick interval is the window, so a 5-min study reads 5 min of
-    // ring data and a 60-min study reads an hour of it.
+    
+    
+    
     const sinceTick = Math.max(1, Math.ceil((job.tick_minutes || 5) / 60 * 1.2));
     const tl = timelineWindow(sinceTick);
     const prompt = `Study goal: ${job.prompt}\n\nPrior observations (most recent last):\n${recentObs}\n\n` +
@@ -79,8 +53,8 @@ async function tickOne(job) {
     appendStudyObservation(job.id, note);
     console.log(`[study#${job.id}] tick: ${note.slice(0, 120)}`);
   } catch (e) {
-    // A single failed tick should not fail the whole study window — log it
-    // as the observation itself so the final report can see the gap.
+    
+    
     appendStudyObservation(job.id, `(tick failed: ${e?.message || e})`);
     console.error(`[study#${job.id}] tick FAILED: ${e?.message || e}`);
   }
@@ -93,8 +67,8 @@ async function finishOne(job) {
       ? obs.map(o => `- ${new Date(o.at * 1000).toISOString()}: ${o.note}`).join('\n')
       : '(no observations were recorded during the window — the study ran but nothing changed enough to note, or all ticks failed; say so honestly rather than inventing findings)';
 
-    // The whole study window's hard numbers, so the report's Timeline and
-    // Findings sections rest on aggregated data as well as the journal.
+    
+    
     const hours = Math.max(1, Math.ceil((job.study_until - job.created_at) / 3600));
     const tl = timelineWindow(hours);
     const prompt = `Study goal: ${job.prompt}\n\nStudy window: ${new Date(job.created_at * 1000).toISOString()} ` +
@@ -111,8 +85,8 @@ async function finishOne(job) {
     const headline = typeof parsed?.headline === 'string' ? parsed.headline : job.prompt;
     const SEVERITIES = new Set(['low', 'medium', 'high', 'critical']);
     const severity = SEVERITIES.has(parsed?.severity) ? parsed.severity : 'medium';
-    // LLM-proposed categories go through the same normalize + vocabulary
-    // scoring funnel in db.insertKbDocument (no new one-off tags on a whim).
+    
+    
     const llmTags = Array.isArray(parsed?.tags) ? parsed.tags.map(String) : [];
 
     finishResearchJob(job.id, report, []);
@@ -142,8 +116,8 @@ async function main() {
     return;
   }
 
-  // Finish expired windows first — a job that is both due for a tick and
-  // past its end time should get its closing report, not one more tick.
+  
+  
   const expired = expiredStudyJobs();
   for (const job of expired) await finishOne(job);
 

@@ -1,25 +1,11 @@
 <?php
-/**
- * unraid-vitals — scripts/vitals-dup-scan.php (P15-06)
- *
- * Duplicate file finder: size match -> head+tail hash match -> full hash
- * confirm, only within array/cache shares (not appdata/system/domains,
- * which are full of one-off binaries that coincidentally share sizes).
- * Report-only; no deletion here (per the ticket, deletion is a separate
- * cleanup framework in P16-01).
- *
- * Same low-I/O-priority, spun-down-skip discipline as the storage
- * analyzer — a full-tree walk + hashing pass is easily the heaviest
- * single job this plugin runs, so it shares the storage scan's nightly
- * cron slot logic (own cron entry, but same care).
- */
 
 require_once __DIR__ . '/../include/store.php';
 
 $quiet = in_array('--quiet', $argv, true);
 $force = in_array('--force', $argv, true);
-$maxFiles = 200000;   // hard cap on files walked, so a runaway share can't hang the box overnight
-$minSize = 1048576;   // 1 MiB floor -- small files aren't worth a hashing pass, and dwarf the DB with noise
+$maxFiles = 200000;   
+$minSize = 1048576;   
 
 $log = function (string $m) use ($quiet) { if (!$quiet) echo $m . "\n"; };
 
@@ -43,9 +29,8 @@ foreach (array_merge($disks['data'] ?? [], $disks['cache'] ?? []) as $d) {
 if ($allDown && !$force) { $log('vitals-dup-scan: all disks spun down, skipping'); exit(0); }
 
 $shares = v_shares();
-$skipShares = ['appdata', 'system', 'domains', 'isos'];   // binaries/VM images: coincidental size matches, not real dupes worth reporting
+$skipShares = ['appdata', 'system', 'domains', 'isos'];   
 
-// Phase 1: walk every eligible share, bucket paths by size.
 $bySize = [];
 $walked = 0;
 foreach ($shares['list'] ?? [] as $s) {
@@ -69,12 +54,9 @@ foreach ($shares['list'] ?? [] as $s) {
   if ($walked >= $maxFiles) { $log('vitals-dup-scan: hit the ' . $maxFiles . '-file cap, stopping walk early'); break; }
 }
 
-// Phase 2: only sizes with 2+ files are duplicate candidates at all.
 $candidates = array_filter($bySize, fn($paths) => count($paths) >= 2);
 $log('candidate size-groups: ' . count($candidates) . ' (from ' . $walked . ' files walked)');
 
-// Phase 3: head+tail hash (cheap -- 64 KiB from each end) narrows
-// candidates further before paying for a full read.
 $headTailHash = function (string $path): ?string {
   $fh = @fopen($path, 'rb');
   if (!$fh) return null;
@@ -88,10 +70,7 @@ $headTailHash = function (string $path): ?string {
 
 $confirmed = 0; $groups = 0;
 $now = time();
-// Hashing multi-GB files takes hours; the DB writes take milliseconds.
-// Never hold a write transaction across the hashing -- every other writer
-// on vitals.db (agents, KB, research jobs) blocks on it. Each confirmed
-// group is committed in its own short transaction instead.
+
 $commitGroup = function (int $size, string $full, array $same) use ($db, $now) {
   $wasted = $size * (count($same) - 1);
   $db->exec('BEGIN IMMEDIATE');
@@ -124,8 +103,8 @@ foreach ($candidates as $size => $paths) {
   }
   foreach ($byHeadTail as $ht => $sameHt) {
     if (count($sameHt) < 2) continue;
-    // Phase 4: full hash to confirm real duplicates, not just a
-    // head/tail coincidence.
+    
+    
     $byFull = [];
     foreach ($sameHt as $p) {
       $full = @hash_file('md5', $p);
@@ -139,8 +118,7 @@ foreach ($candidates as $size => $paths) {
     }
   }
 }
-// Drop groups not refreshed by this run -- they no longer exist or fell
-// below the duplicate threshold.
+
 $db->exec('BEGIN IMMEDIATE');
 $db->exec("DELETE FROM dup_files WHERE group_id IN (SELECT id FROM dup_groups WHERE scanned_at < " . (int)$now . ")");
 $db->exec("DELETE FROM dup_groups WHERE scanned_at < " . (int)$now);

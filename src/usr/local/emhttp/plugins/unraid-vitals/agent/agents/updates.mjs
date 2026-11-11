@@ -1,19 +1,4 @@
-/**
- * Update-notifier specialist — container image updates.
- *
- * Deliberately self-contained: rather than reverse-engineer Unraid's own
- * (undocumented, UI-only) update-check state files, this diffs each running
- * container's actual local image digest against the registry's current
- * digest via `docker manifest inspect` — works for any registry that serves
- * public manifests without extra tooling, degrades to "unknown" (not a
- * false "up to date") for anything it can't reach: private registries
- * needing auth, no network egress, rate-limited pulls, locally-built images
- * with no upstream at all.
- *
- * This agent does not call the LLM — a digest either matches or it doesn't,
- * there's nothing to "reason" about. It still writes through the same
- * findings/KB path as the LLM specialists so the UI renders it identically.
- */
+
 import { dockerContainerImages, registryDigest } from '../lib/sources.mjs';
 
 export const AGENT_ID = 'updates';

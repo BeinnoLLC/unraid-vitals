@@ -1,10 +1,4 @@
-/**
- * unraid-vitals agent — SQLite findings store (node:sqlite, no native deps).
- *
- * One table, `findings`, holds every agent's output. The PHP side (ajax.php)
- * only ever reads this table — all LLM calls happen here, off the request
- * path, so the UI never blocks on inference.
- */
+
 import { DatabaseSync } from 'node:sqlite';
 import { suggestTags } from './kb-tags.mjs';
 import { mkdirSync, existsSync, readFileSync, copyFileSync } from 'node:fs';
@@ -14,7 +8,6 @@ const STATE_DIR = process.env.VITALS_STATE_DIR || '/var/tmp/unraid-vitals';
 const VITALS_CFG = process.env.VITALS_CFG || '/boot/config/plugins/unraid-vitals/vitals.cfg';
 const DOCKER_CFG = process.env.VITALS_DOCKER_CFG || '/boot/config/docker.cfg';
 
-/** One KEY="value" line from an Unraid .cfg file; '' when absent or unreadable. */
 function cfgValue(file, key) {
   try {
     const m = readFileSync(file, 'utf8').match(new RegExp(`^${key}="?([^"\\r\\n]*)"?\\s*$`, 'm'));
@@ -24,18 +17,6 @@ function cfgValue(file, key) {
   }
 }
 
-/**
- * Where the DB lives. Persistent by default — the knowledge base has to
- * survive a reboot, so it cannot sit in the RAM-backed state dir. Mirrors
- * v_db_path() in include/store.php — keep the two in step:
- *   1. VITALS_DB_PATH env (full file path; for running outside the host layout)
- *   2. DATA_DIR in vitals.cfg, when set
- *   3. <Docker's appdata path>/unraid-vitals, /mnt/user/appdata by default
- *
- * Throws while the parent directory is missing (array stopped). Only our own
- * leaf directory is ever created: creating /mnt/user/... on an unmounted
- * array would silently write into RAM.
- */
 export function resolveDbPath() {
   if (process.env.VITALS_DB_PATH) {
     mkdirSync(dirname(process.env.VITALS_DB_PATH), { recursive: true });
@@ -58,16 +39,16 @@ let db;
 export function getDb() {
   if (db) return db;
   const path = resolveDbPath();
-  // One-time move off RAM: versions before this kept the DB in the state dir.
+  
   const legacy = `${STATE_DIR}/vitals.db`;
   if (path !== legacy && !existsSync(path) && existsSync(legacy)) copyFileSync(legacy, path);
   db = new DatabaseSync(path);
-  // Two independent cron-driven node processes (analyze.mjs hourly,
-  // study.mjs every 5 min) can legitimately open this DB at overlapping
-  // times. Default SQLite locking fails immediately with "database is
-  // locked" on any overlap — WAL mode lets readers and a single writer
-  // coexist, and a busy_timeout makes a genuine write/write collision
-  // retry instead of erroring out immediately.
+  
+  
+  
+  
+  
+  
   db.exec(`PRAGMA journal_mode = WAL;`);
   db.exec(`PRAGMA busy_timeout = 5000;`);
   db.exec(`
@@ -219,8 +200,8 @@ export function getDb() {
     CREATE INDEX IF NOT EXISTS idx_solutions_event ON kb_solutions(event_id);
   `);
 
-  // Additive migration for DBs created before study mode existed —
-  // CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+  
+  
   const cols = new Set(db.prepare(`PRAGMA table_info(research_jobs)`).all().map(c => c.name));
   const addCol = (name, decl) => { if (!cols.has(name)) db.exec(`ALTER TABLE research_jobs ADD COLUMN ${name} ${decl}`); };
   addCol('mode', `TEXT NOT NULL DEFAULT 'once'`);
@@ -228,19 +209,19 @@ export function getDb() {
   addCol('tick_minutes', 'INTEGER');
   addCol('last_tick_at', 'INTEGER');
   addCol('observations', 'TEXT');
-  // Auto-triggered research (disk failure → study that disk, new Unraid
-  // release → "should I upgrade?" report). `origin` tells the UI who asked
-  // ('manual' | 'auto:<trigger key>'); `context` is extra grounding text
-  // the trigger already has in hand (release notes, the finding itself)
-  // that FTS retrieval alone might miss.
+  
+  
+  
+  
+  
   addCol('origin', `TEXT NOT NULL DEFAULT 'manual'`);
   addCol('context', 'TEXT');
-  // #108 (P20-03): kb_documents dedupe bookkeeping — merged into the kbCols
-  // migration block below (kind/summary/images/severity exist there).
+  
+  
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_docs_seen ON kb_documents(source, source_ref, title);`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_research_study_due ON research_jobs(mode, status, study_until);`);
-  // One row per trigger key — a disk failing stays failed for days, and
-  // every hourly agent pass would otherwise re-file the same research.
+  
+  
   db.exec(`CREATE TABLE IF NOT EXISTS auto_triggers (
     trigger_key TEXT PRIMARY KEY,
     last_fired_at INTEGER NOT NULL,
@@ -252,21 +233,21 @@ export function getDb() {
   addKbCol('kind', `TEXT NOT NULL DEFAULT 'note'`);
   addKbCol('summary', 'TEXT');
   addKbCol('images', 'TEXT');
-  // Importance badge (low/medium/high/critical) shown per KB entry so the
-  // admin can tell "must read now" from "read later" at a glance, with a
-  // filter to match (user: "give a score low, medium, high, critical badge
-  // to every topic... things that admin should read or read later...
-  // make sure filters are strong"). Defaults to 'medium' for anything
-  // ingested before this column existed or with no clearer signal.
+  
+  
+  
+  
+  
+  
   addKbCol('severity', `TEXT NOT NULL DEFAULT 'medium'`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_severity ON kb_documents(severity, created_at DESC);`);
-  // #108 (P20-03): finding re-raise dedupe bookkeeping
+  
   addKbCol('times_seen', 'INTEGER NOT NULL DEFAULT 1');
   addKbCol('last_seen_at', 'INTEGER');
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_docs_seen ON kb_documents(source, source_ref, title);`);
-  // KB categories: comma-separated lowercase tags ('docker', 'network',
-  // 'security', …) assigned by the tagger agent, which always sees the
-  // existing tag set first so the vocabulary stays small and reusable.
+  
+  
+  
   addKbCol('tags', "TEXT NOT NULL DEFAULT ''");
   db.exec(`CREATE INDEX IF NOT EXISTS idx_kb_tags ON kb_documents(tags);`);
 
@@ -280,10 +261,10 @@ export function startRun(agent, runId) {
 }
 
 export function finishRun(runId, status, error, stats = null) {
-  // P20-14: persist per-run observability — prompt/output tokens, model time,
-  // endpoint (+retries), kept/dropped finding counts. Additive columns via the
-  // runbook-style migration below; stats come from runSpecialist's
-  // lastRunStats + the orchestrator's own counters.
+  
+  
+  
+  
   const db = getDb();
   db.prepare(
     `UPDATE runs SET finished_at = ?, status = ?, error = ? WHERE run_id = ?`
@@ -305,16 +286,6 @@ export function finishRun(runId, status, error, stats = null) {
   }
 }
 
-/**
- * Self-gating interval check for orchestrator-style crons (analyze.mjs,
- * diagnostics/update/vm agents). The cron itself can run as often as every
- * few minutes — this decides whether it's actually *time* to do the (slow,
- * LLM-driven) work, using the most recent completed run of `agentGroup`
- * rather than depending on cron's own schedule syntax. That means a user
- * changing the interval in Settings takes effect on the very next cron
- * tick, with no cron file to regenerate for the interval itself (only the
- * tick cadence, which install.sh keeps fixed and fine-grained).
- */
 export function isDueForRun(agentGroup, intervalMinutes) {
   const row = getDb().prepare(
     `SELECT MAX(finished_at) AS last FROM runs WHERE agent = ? AND status != 'running'`
@@ -324,11 +295,6 @@ export function isDueForRun(agentGroup, intervalMinutes) {
   return Math.floor(Date.now() / 1000) >= dueAt;
 }
 
-/** Runs killed mid-flight (reboot, OOM, pkill) leave their row stuck in
- *  'running' forever. Those rows never count as finished, so the agent looks
- *  overdue on every later check and the Research/AI tab shows a permanent
- *  "running since…" that never resolves. Mark anything older than
- *  staleRunMinutes as error so it is visible and re-runnable. */
 export function reapStaleRuns(staleRunMinutes = 90) {
   const cutoff = Math.floor(Date.now() / 1000) - staleRunMinutes * 60;
   const res = getDb().prepare(
@@ -339,7 +305,6 @@ export function reapStaleRuns(staleRunMinutes = 90) {
   return res.changes || 0;
 }
 
-/** Replace an agent's prior findings with a fresh batch (one run = one snapshot). */
 export function replaceFindings(agent, runId, findings) {
   const d = getDb();
   const tx = d.exec.bind(d);
@@ -370,30 +335,21 @@ export function setShareComment(share, comment, status = 'done') {
   ).run(share, comment, Math.floor(Date.now() / 1000), status);
 }
 
-/** Map a finding's own severity vocabulary ('ok'|'info'|'warning'|'error'|
- *  'critical') onto the KB's admin-facing importance badge vocabulary
- *  ('low'|'medium'|'high'|'critical') — the two scales exist for different
- *  audiences (finding severity drives alerting; KB severity drives "what
- *  should I read first"), so 'error' (an active problem worth acting on
- *  now, but not existential) maps to 'high' rather than 1:1 to 'critical'. */
 const FINDING_TO_KB_SEVERITY = { ok: 'low', info: 'low', warning: 'medium', error: 'high', critical: 'critical' };
 
-/** Push a finding into the knowledge base as a searchable document.
- *  Called right after replaceFindings() for anything above 'ok' severity —
- *  routine all-clear findings would just be noise in the KB. */
 export function ingestFindingToKb(agent, finding) {
   const d = getDb();
   const title = `[${agent}] ${finding.title}`;
   const content = [finding.detail, finding.recommendation, finding.subject ? `Subject: ${finding.subject}` : '']
     .filter(Boolean).join('\n');
   const severity = FINDING_TO_KB_SEVERITY[finding.severity] || 'medium';
-  // Category tags: heuristic + vocabulary-aware (see lib/kb-tags.mjs).
+  
   const tags = suggestTags(`${finding.title} ${content}`, kbTagCounts(), finding.tags);
 
-  // #108 (P20-03) dedupe: an identical {source_ref, title, content} already in
-  // the KB — the same finding re-raised on the next run — must bump the
-  // existing row (times_seen/last_seen) instead of spawning a duplicate doc;
-  // FTS5 retrieval showing the same paragraph five times is pure noise.
+  
+  
+  
+  
   const existing = d.prepare(
     `SELECT id, times_seen FROM kb_documents WHERE source='finding' AND source_ref=? AND title=? LIMIT 1`
   ).get(String(finding.id ?? ''), title);
@@ -408,13 +364,6 @@ export function ingestFindingToKb(agent, finding) {
   ).run('finding', String(finding.id ?? ''), agent, title, content || finding.title, 'note', severity, tags.join(','), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000));
 }
 
-/** Push a full-length report into the KB — a multi-paragraph analysis or
- *  study writeup, optionally with charts. `kind`: 'report' (one-shot
- *  research) or 'study' (a completed study-mode job). `images`: array of
- *  {path, caption}, paths relative to the kb-assets dir (see lib/charts.mjs).
- *  `severity`: admin-facing importance badge — defaults to 'medium' when
- *  the caller (an LLM synthesis step) doesn't have a clear signal either
- *  way, so "unclassified" never silently reads as "safe to ignore". */
 export function normalizeTags(tags) {
   const seen = [];
   for (const t of Array.isArray(tags) ? tags : []) {
@@ -427,8 +376,8 @@ export function normalizeTags(tags) {
 
 export function insertKbDocument({ source, sourceRef, topic, title, content, kind = 'report', summary, images, severity = 'medium', tags }) {
   const d = getDb();
-  // No explicit tags → tag heuristically (vocabulary-aware). Callers that
-  // know better (release watcher pins 'updates') pass tags and win.
+  
+  
   const tagList = tags ? normalizeTags(tags) : suggestTags(`${title} ${summary || ''} ${String(content || '').slice(0, 400)}`, kbTagCounts());
   const res = d.prepare(
     `INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, images, severity, tags, created_at)
@@ -439,8 +388,6 @@ export function insertKbDocument({ source, sourceRef, topic, title, content, kin
   return res.lastInsertRowid;
 }
 
-/** The full existing tag vocabulary with counts — the tagger agent must
- *  prefer these over inventing new categories. */
 export function kbTagCounts() {
   const rows = getDb().prepare(`SELECT tags FROM kb_documents WHERE tags != ''`).all();
   const counts = {};
@@ -448,9 +395,6 @@ export function kbTagCounts() {
   return counts;
 }
 
-/** FTS5 keyword search over the knowledge base, newest match first within
- *  each relevance tier. bm25() ranking; simple sanitization so a raw user
- *  query (spaces, punctuation) doesn't blow up FTS5's own query syntax. */
 export function searchKb(query, limit = 20) {
   const d = getDb();
   const safe = String(query).replace(/["*^]/g, ' ').trim().split(/\s+/).filter(Boolean)
@@ -465,7 +409,7 @@ export function searchKb(query, limit = 20) {
        ORDER BY rank LIMIT ?`
     ).all(safe, limit).map(parseKbImages);
   } catch {
-    return []; // malformed FTS query from unusual input — fail soft, empty results
+    return []; 
   }
 }
 
@@ -505,10 +449,6 @@ export function createResearchJob(prompt, { origin = 'manual', context = null } 
   return res.lastInsertRowid;
 }
 
-/** Fire-once-per-cooldown guard for auto-triggered research. Returns true
- *  if the trigger may fire now (and records it), false if it fired within
- *  `cooldownSeconds`. Wrapped in a transaction so two overlapping agent
- *  processes can't both pass the check. */
 export function claimAutoTrigger(triggerKey, cooldownSeconds) {
   const d = getDb();
   const now = Math.floor(Date.now() / 1000);
@@ -525,15 +465,6 @@ export function recordAutoTriggerJob(triggerKey, jobId) {
   getDb().prepare(`UPDATE auto_triggers SET job_id = ? WHERE trigger_key = ?`).run(jobId, triggerKey);
 }
 
-/**
- * A standing "watch the system and tell me what's going on" request instead
- * of a one-shot question — e.g. "study the system for the next 12 hours".
- * study.mjs (the cron-driven runner) samples the live snapshot + recent
- * events/findings every `tickMinutes`, appends an observation, and once
- * `studyUntil` passes, synthesizes everything gathered into one findings
- * report (finishResearchJob, same as a one-shot job) so the UI treats a
- * finished study exactly like a finished research answer.
- */
 export function createStudyJob(prompt, durationMinutes, tickMinutes = 15) {
   const now = Math.floor(Date.now() / 1000);
   const until = now + Math.max(5, durationMinutes) * 60;
@@ -544,9 +475,6 @@ export function createStudyJob(prompt, durationMinutes, tickMinutes = 15) {
   return res.lastInsertRowid;
 }
 
-/** Study jobs due for their next sample: still studying, and either never
- *  ticked or the last tick was >= tick_minutes ago. Used by the cron runner
- *  so it only wakes jobs that actually need a sample this pass. */
 export function dueStudyJobs() {
   const now = Math.floor(Date.now() / 1000);
   return getDb().prepare(
@@ -556,7 +484,6 @@ export function dueStudyJobs() {
   ).all(now).map(parseObservations);
 }
 
-/** observations is stored as a JSON string; every reader needs the array. */
 function parseObservations(row) {
   if (row && row.observations) {
     try { row.observations = JSON.parse(row.observations); } catch { row.observations = []; }
@@ -564,8 +491,6 @@ function parseObservations(row) {
   return row;
 }
 
-/** Study jobs whose window has closed and are ready to be synthesized into
- *  a final answer. */
 export function expiredStudyJobs() {
   const now = Math.floor(Date.now() / 1000);
   return getDb().prepare(
@@ -573,9 +498,6 @@ export function expiredStudyJobs() {
   ).all(now).map(parseObservations);
 }
 
-/** Append one observation to a study job's running journal and bump
- *  last_tick_at. Kept short by the caller — this is a log line, not the
- *  final report. */
 export function appendStudyObservation(id, note) {
   const d = getDb();
   const row = d.prepare(`SELECT observations FROM research_jobs WHERE id = ?`).get(id);
@@ -583,7 +505,7 @@ export function appendStudyObservation(id, note) {
   let obs = [];
   try { obs = JSON.parse(row.observations || '[]'); } catch { obs = []; }
   obs.push({ at: Math.floor(Date.now() / 1000), note: String(note).slice(0, 500) });
-  if (obs.length > 500) obs = obs.slice(-500); // hard cap — a 12h study at 5min ticks is 144 entries
+  if (obs.length > 500) obs = obs.slice(-500); 
   d.prepare(`UPDATE research_jobs SET observations = ?, last_tick_at = ? WHERE id = ?`)
     .run(JSON.stringify(obs), Math.floor(Date.now() / 1000), id);
 }
@@ -617,12 +539,6 @@ export function listResearchJobs(limit = 30) {
   ).all(limit);
 }
 
-/* ------------------------------------------------------------------ events */
-
-/** Create (or reuse) an open event for a given kind+entity(+alert_key).
- *  Idempotent per alert_key: a breach that is still firing every collector
- *  tick must not spawn a new event each minute — it updates the existing
- *  open one's evidence instead. Returns the event id. */
 export function createOrTouchEvent({ kind, entity, alertKey, severity, summary, evidence, source, sourceRef }) {
   const d = getDb();
   const now = Math.floor(Date.now() / 1000);
@@ -644,8 +560,6 @@ export function createOrTouchEvent({ kind, entity, alertKey, severity, summary, 
   return res.lastInsertRowid;
 }
 
-/** Resolve every open event for an alert_key (metric normalized). Returns
- *  the resolved event ids, so a caller can kick off distillation. */
 export function resolveEventsByKey(alertKey) {
   const d = getDb();
   const now = Math.floor(Date.now() / 1000);
@@ -676,8 +590,6 @@ export function listEvents({ status, kind, entity, sinceHours, limit = 100 } = {
   ).all(...args);
 }
 
-/** Events that resolved but have no lesson/solution yet — the distiller's
- *  work queue. */
 export function unlearnedResolvedEvents(limit = 20) {
   return getDb().prepare(
     `SELECT e.* FROM kb_events e
@@ -686,8 +598,6 @@ export function unlearnedResolvedEvents(limit = 20) {
      ORDER BY e.resolved_at ASC LIMIT ?`
   ).all(limit);
 }
-
-/* ----------------------------------------------------------- lessons/solutions */
 
 export function upsertLesson({ kind, entity, lesson, eventId }) {
   const d = getDb();

@@ -1,22 +1,4 @@
-/**
- * Unraid OS release watcher.
- *
- * Polls Limetech's release feed (the same endpoint the stock "Check for
- * Updates" button hits) and compares against /etc/unraid-version. When a
- * newer stable release is out it:
- *   1. files a finding ("Unraid 7.3.2 available, you run 7.2.1"), and
- *   2. fetches the official release notes markdown and stores them in the
- *      KB as a 'release' document so they are searchable and so the
- *      auto-research trigger can ground its "why should I upgrade?"
- *      report in the actual changelog rather than model memory.
- *
- * No LLM call here — version comparison is deterministic. The reasoning
- * ("is this upgrade worth it for THIS box?") is the auto-triggered
- * research job's work (see ../lib/auto-research.mjs).
- *
- * Degrades cleanly: no network → one 'info' finding saying the check
- * could not run, never a false "up to date".
- */
+
 import { readFileSync } from 'node:fs';
 import { insertKbDocument, getDb } from '../lib/db.mjs';
 
@@ -33,7 +15,6 @@ export function installedVersion() {
   } catch { return null; }
 }
 
-/** Semver-ish compare tolerant of "7.3.2-rc1": returns >0 if a > b. */
 export function compareVersions(a, b) {
   const pa = String(a).split(/[.-]/), pb = String(b).split(/[.-]/);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
@@ -41,7 +22,7 @@ export function compareVersions(a, b) {
     const nx = Number(x), ny = Number(y);
     if (!Number.isNaN(nx) && !Number.isNaN(ny)) { if (nx !== ny) return nx - ny; continue; }
     if (x === y) continue;
-    if (x === '') return 1;   // "7.3.2" > "7.3.2-rc1"
+    if (x === '') return 1;   
     if (y === '') return -1;
     return x < y ? -1 : 1;
   }
@@ -58,7 +39,6 @@ async function fetchText(url) {
   } finally { clearTimeout(t); }
 }
 
-/** Latest stable release per Limetech, or null when unreachable. */
 export async function latestRelease() {
   const j = JSON.parse(await fetchText(FEED));
   if (!j || !j.version) return null;
@@ -83,8 +63,8 @@ export async function run() {
     return [{ severity: 'info', title: 'Unraid release feed returned no version', detail: `Feed: ${FEED}`, recommendation: null, subject: null }];
   }
 
-  // Always cache the notes of the latest release once — even when already
-  // on it, "what changed in the version I run" is a fair KB question.
+  
+  
   if (latest.changelog && !kbHasRelease(latest.version)) {
     try {
       const md = await fetchText(latest.changelog);

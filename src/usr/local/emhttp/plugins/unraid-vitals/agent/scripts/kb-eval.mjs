@@ -1,22 +1,12 @@
 #!/usr/bin/env node
-/* unraid-vitals — scripts/kb-eval.mjs (P11 eval, #37)
- *
- * Golden set of query → expected-doc anchors, run against the LIVE KB on the
- * reference DB, reporting recall@5 for BOTH retrieval modes:
- *   - bm25 (searchKb, the baseline)
- *   - hybrid (hybridSearchKb w/ embeddings + rerank)
- * plus the delta. Exit 0 when hybrid ≥ baseline; 1 otherwise (soft-fail:
- * no endpoint → both modes degrade and hybrid==baseline).
- *
- * Usage: node scripts/kb-eval.mjs [--backfill] [--no-rerank]
- */
+
 process.env.VITALS_DB_PATH = process.env.VITALS_DB_PATH || '/mnt/user/appdata/unraid-vitals/vitals.db';
 
 import { getDb } from '../lib/db.mjs';
 import { hybridSearchKb, backfillEmbeddings } from '../lib/hybrid-retrieval.mjs';
 
 const GOLDEN = [
-  // query → expected title fragments (any match counts as a hit)
+  
   ['RAM spike on the server', ['memory', 'RAM', 'mem']],
   ['memory pressure', ['memory', 'RAM', 'swap']],
   ['why is my cache pool hot', ['temp', 'thermal', 'hot', 'cool']],

@@ -1,18 +1,11 @@
 <?php
-/**
- * unraid-vitals — checks/net_health.php (P14-11)
- *
- * Reads $snap['net'] (per-interface error/drop/collision deltas from
- * v_net_delta()) and $snap['net_link'] (per-interface speed/duplex/mtu
- * from v_net_link_info()).
- */
 
 function v_check_net_health(array $snap): array {
   $out = [];
   $net = $snap['net'] ?? [];
   $link = $snap['net_link'] ?? [];
 
-  // ---- errors/drops/collisions, as deltas since the last collection run.
+  
   foreach ($net as $if => $n) {
     $errs = ($n['rx_errs_delta'] ?? 0) + ($n['tx_errs_delta'] ?? 0);
     $drops = ($n['rx_drop_delta'] ?? 0) + ($n['tx_drop_delta'] ?? 0);
@@ -50,12 +43,12 @@ function v_check_net_health(array $snap): array {
     }
   }
 
-  // ---- negotiated speed regression: a port that has previously linked at
-  // a higher speed than it currently reports (see v_net_link_info()'s
-  // best_speed_seen tracking -- this correctly handles genuinely
-  // 100Mb-only ports, which never have a higher speed on record).
+  
+  
+  
+  
   foreach ($link as $if => $l) {
-    if (($l['carrier'] ?? false) !== true) continue; // no cable/no link -- nothing to compare
+    if (($l['carrier'] ?? false) !== true) continue; 
     $speed = $l['speed_mbps'] ?? null;
     $best = $l['best_speed_seen'] ?? null;
     if ($speed !== null && $best !== null && $speed < $best) {
@@ -73,7 +66,7 @@ function v_check_net_health(array $snap): array {
       ];
     }
 
-    // ---- MTU mismatch inside a bond or bridge.
+    
     foreach ($l['members'] ?? [] as $member) {
       if (!isset($link[$member])) continue;
       if (($link[$member]['mtu'] ?? null) !== null && $l['mtu'] !== null && $link[$member]['mtu'] !== $l['mtu']) {

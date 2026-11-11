@@ -1,18 +1,4 @@
 <?php
-/**
- * unraid-vitals — checks/parity_health.php (P14-06)
- *
- * Reads $snap['parity_history'] (collect.php's v_parity_history(), parsed
- * from /boot/config/parity-checks.log) for three conditions:
- *   1. The last check finished with errors (corrected sectors > 0) -> alert
- *      — this means the array was silently inconsistent until the check
- *      caught and fixed it; worth knowing even though it's already fixed.
- *   2. No check has run in over 30 days -> warning.
- *   3. Speed has dropped across the last 5 checks (each one slower than
- *      the one before it) -> warning — a steadily-declining parity check
- *      speed is a common early sign of a failing/aging drive or a
- *      developing cabling/controller problem, well before SMART notices.
- */
 
 function v_check_parity_health(array $snap): array {
   $out = [];
@@ -34,8 +20,8 @@ function v_check_parity_health(array $snap): array {
   $history = $snap['parity_history'] ?? [];
   if (!$history) return $out;
 
-  // History is oldest-first (see v_parity_history's own docblock) — last
-  // element is the most recent check.
+  
+  
   $last = $history[count($history) - 1];
 
   if (($last['errors'] ?? 0) > 0 && !($last['cancelled'] ?? false)) {
@@ -74,8 +60,8 @@ function v_check_parity_health(array $snap): array {
     ];
   }
 
-  // Speed trend across the last 5 non-cancelled checks with a real speed
-  // reading, oldest to newest — strictly decreasing across all of them.
+  
+  
   $withSpeed = array_values(array_filter($history, fn($e) => !($e['cancelled'] ?? false) && ($e['speed_mbps'] ?? null) !== null));
   $recent = array_slice($withSpeed, -5);
   if (count($recent) === 5) {

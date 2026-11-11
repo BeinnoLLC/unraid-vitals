@@ -1,21 +1,5 @@
-/**
- * KB category tagger.
- *
- * Every knowledge-base document gets up to 6 lowercase category tags so the
- * KB tab can show category badges and strong filters ("security",
- * "storage", "docker", …).
- *
- * Vocabulary-aware: suggestTags() always receives the existing tag set with
- * counts (kbTagCounts()) and prefers those — a new tag is invented only
- * when nothing in the vocabulary matches, so the category list stays small
- * and stable instead of drifting into 200 one-off labels. This is the
- * deterministic "aware of the old topics before creating new tags" layer;
- * an LLM-suggested tag list (study summaries) is merged through the same
- * normalizeTags() funnel and scored the same way.
- */
 
-// Keyword → tag rules, most specific first. Everything is matched against
-// "title + summary + first 400 chars of content", lowercased.
+
 const RULES = [
   [/\b(sha?security|cve|vulnerab|exploit|breach|auth|permission|root exploit|hardening)\b|\bcve-/, 'security'],
   [/\b(smart|reallocated|pending sector|uncorrectable|crc|disk|drive|nvme|ssd|hd[dt]?)\b/, 'storage'],
@@ -35,19 +19,13 @@ const RULES = [
   [/\b(license|trial|key|eula)\b/, 'licensing'],
 ];
 
-/**
- * @param {string} text title/summary/content head
- * @param {Object} existingTags map tag -> count from kbTagCounts()
- * @param {string[]} [llmSuggested] optional tags an LLM proposed (merged in)
- * @returns {string[]} up to 6 tags
- */
 export function suggestTags(text, existingTags = {}, llmSuggested = []) {
   const t = String(text || '').toLowerCase();
   const scored = [];
   for (const [re, tag] of RULES) {
     if (re.test(t)) {
-      // Prefer tags the vocabulary already knows: +count*0.3 so 'storage'
-      // (30 uses) beats a brand-new 'nvme-quirks' one-off on ties.
+      
+      
       const prior = (existingTags[tag] || 0) * 0.3;
       scored.push([tag, 1 + prior]);
     }

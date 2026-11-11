@@ -1,21 +1,8 @@
 <?php
-/**
- * unraid-vitals — checks/docker_log_large.php (P14-02)
- *
- * Container JSON log files (Docker's default json-file log driver) grow
- * unbounded unless the container was started with --log-opt max-size. A
- * chatty container can fill the array/cache disk it lives on.
- *
- * fix_id 'docker_log_truncate' names the action a future ticket (P16-04)
- * is expected to wire up — that action does not exist yet, so this finding
- * currently has no "Fix" button; the fix_id is forward-declared so P16-04
- * only has to implement the action, not also go find every place a fix_id
- * needs adding.
- */
 
 function v_check_docker_log_large(array $snap): array {
-  $sizeThreshold = 524288000; // 500 MB
-  $growthThreshold = 104857600; // 100 MB/day
+  $sizeThreshold = 524288000; 
+  $growthThreshold = 104857600; 
 
   $cache = $snap['docker_logs'] ?? [];
   $logs = $cache['logs'] ?? [];

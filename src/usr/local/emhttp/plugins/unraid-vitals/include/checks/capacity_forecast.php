@@ -1,18 +1,4 @@
 <?php
-/**
- * unraid-vitals — checks/capacity_forecast.php (P15-01)
- *
- * Linear fit over the last 30 daily fs_bytes snapshots per array/cache disk
- * and docker.img (see v_capacity_forecast() in store.php for the math).
- * Raises a finding for anything projected to fill within 14 days — a poor
- * fit or a flat/shrinking trend produces no forecast for that target at
- * all, so this check simply reports whatever v_capacity_forecast() already
- * decided was worth surfacing.
- *
- * Unlike most checks here, this one needs history (30 days of daily
- * rollups), not just the live $snap — the totals/free-space-now numbers
- * come from $snap, the growth trend comes from v_daily(30).
- */
 
 function v_check_capacity_forecast(array $snap): array {
   $totals = [];

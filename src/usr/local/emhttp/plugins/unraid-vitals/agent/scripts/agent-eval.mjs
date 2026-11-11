@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/* unraid-vitals — agent-eval.mjs (P20-12 / #117)
- *
- * Measures the FINDINGS layer (the retrieval eval in #37 measures search).
- *
- * Fixtures with known problems live in eval/fixtures/*.json (fixture-source
- * shaped). Expected findings: subject + minimum severity per fixture; the
- * 'healthy' fixture must produce only ok/info findings.
- *
- * Usage (run before changing a prompt or the model):
- *   node scripts/agent-eval.mjs [--agents disks,thermal] [--fixture hot-disk] [--repeat 3]
- *
- * Requires a reachable LLM endpoint (LLM_STUDIO_PRIMARY/_BACKUP). Without one
- * runs error and the report shows them — exit 1.
- */
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { scoreLine } from '../lib/eval-scoring.mjs';
@@ -26,8 +12,8 @@ const EXPECTED = {
   'failing-disk': { agent: 'disks', anyOf: [{ subjectIncludes: 'sdX', minSeverity: 'error' }] },
   'full-pool':    { agent: 'disks', anyOf: [{ subjectIncludes: 'cache', minSeverity: 'warning' }] },
   'hot-disk':     { agent: 'thermal', anyOf: [{ subjectIncludes: 'sdY', minSeverity: 'warning' }] },
-  // crashloop's fixture also runs the box hot on memory/load by design — those
-  // are true observations, not false positives; listed as accepted findings.
+  
+  
   'crashloop':    { agent: 'general', anyOf: [{ subjectIncludes: 'crashy', minSeverity: 'warning' }],
                     accepted: [{ subjectIncludes: 'mem', minSeverity: 'warning' }, { subjectIncludes: 'load', minSeverity: 'warning' }] },
   'healthy':      { agent: 'general', expectOkOnly: true },
@@ -59,9 +45,9 @@ for (const file of fixtureFiles) {
   const R = results[name] ??= { agent: ag, detected: 0, missed: 0, false: 0, runs: 0, okOnly: true, examples: [] };
 
   for (let r = 0; r < repeat; r++) {
-    // The fixture source's loader keys on fixed names (latest, containers,
-    // history…) — map THIS file's content onto 'latest' (the snapshot doc),
-    // the shape every fixture in eval/fixtures/ uses.
+    
+    
+    
     facade.__setSource(createFixtureSource({ fixtures: { latest: fixtureData } }));
     let findings, runError = null;
     try {
@@ -89,9 +75,9 @@ for (const file of fixtureFiles) {
         });
         if (hit) R.detected++; else R.missed++;
       }
-      // A "false finding" = actionable severity (>= warning) on an unrelated
-      // subject. info/ok observations ("no swap used", "healthy") are not
-      // false positives — counting them would punish thoroughness.
+      
+      
+      
       for (const f of findings) {
         const actionable = ((SEV_ORDER[f.severity ?? 'ok']) ?? 0) >= SEV_ORDER.warning;
         const pool = [...(exp.anyOf || []), ...(exp.accepted || [])];
@@ -106,8 +92,8 @@ for (const file of fixtureFiles) {
 
 console.log('\n=== agent-eval report ===');
 for (const [fixture, R] of Object.entries(results)) {
-  // Scoring lives in lib/eval-scoring.mjs so it is unit-tested. An errored run
-  // reports recall=n/a: no answer is not a correct answer.
+  
+  
   const { recallStr, falseRate } = scoreLine(R);
   console.log(`${fixture.padEnd(14)} agent=${(R.agent || '').padEnd(8)} detected=${R.detected} missed=${R.missed} false=${R.false} recall=${recallStr} falseRate=${(falseRate * 100).toFixed(0)}%${R.error ? '  ERROR: ' + R.error : ''}${R.examples.length ? '  e.g. ' + R.examples.join(' | ') : ''}`);
 }

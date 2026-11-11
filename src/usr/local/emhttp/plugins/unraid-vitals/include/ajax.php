@@ -1,13 +1,4 @@
 <?php
-/**
- * unraid-vitals — AJAX endpoint for the UI.
- *
- *   ?action=data          latest snapshot + ring (default)
- *   ?action=refresh        force a new sample, then return it
- *   ?action=daily           daily aggregates from the flash rollups
- *   ?action=settings        GET current vitals.cfg + collector status
- *   ?action=save_settings   POST new vitals.cfg values (CSRF-checked), reapply cron/start-page
- */
 
 require_once __DIR__ . '/store.php';
 require_once __DIR__ . '/research-plan.php';
@@ -34,17 +25,6 @@ $action = $_GET['action'] ?? 'data';
 const V_CFG_FILE = '/boot/config/plugins/unraid-vitals/vitals.cfg';
 const V_INSTALL_SH = '/usr/local/emhttp/plugins/unraid-vitals/scripts/install.sh';
 
-/**
- * CSRF gate for state-changing actions.
- *
- * NB: Unraid's global auto_prepend_file already validates `csrf_token` on
- * every POST and then unsets it before plugin code runs — so an absent token
- * here means "auto_prepend already cleared it after a successful check",
- * not "missing token". Re-reading it unconditionally caused a live bug: the
- * Research and Share-comment buttons failed with "bad csrf token" in the
- * browser while CLI includes (which skip auto_prepend) passed.
- * When a token IS still present we still compare it (CLI/test paths).
- */
 function v_csrf_ok(): bool {
   $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
   if ($sent === null) {
@@ -58,11 +38,11 @@ try {
   if ($action === 'refresh') {
     $snap = v_tick(true);
     $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
-    // Frontend poll cadence (P8/UI): user-configurable in Settings, NOT the
-    // same thing as INTERVAL (the cron collector's cadence in minutes) —
-    // this is how often the open dashboard tab re-fetches, in seconds.
-    // Clamped 3-300s: below 3s is needless load for a metrics page, above
-    // 300s stops feeling "live". Default 10s per user request.
+    
+    
+    
+    
+    
     $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
     $snap['ui_refresh_seconds'] = max(3, min(300, (int)($cfg['UI_REFRESH_SECONDS'] ?? 10)));
     echo json_encode(['ok' => true, 'data' => $snap, 'ring' => v_ring()], JSON_UNESCAPED_SLASHES);
@@ -125,8 +105,8 @@ try {
   }
 
   if ($action === 'export') {
-    $what = $_GET['what'] ?? 'ring';       // 'ring' or 'rollups'
-    $format = $_GET['format'] ?? 'csv';    // 'csv' or 'json'
+    $what = $_GET['what'] ?? 'ring';       
+    $format = $_GET['format'] ?? 'csv';    
     $rows = $what === 'rollups' ? v_export_rollup_rows() : v_export_ring_rows();
     $base = 'unraid-vitals-' . $what . '-' . gmdate('Ymd-His');
     if ($format === 'json') {
@@ -196,8 +176,8 @@ try {
     foreach ($cfg as $k => $v) $lines[] = $k . '="' . str_replace('"', '', (string)$v) . '"';
     @mkdir(dirname(V_CFG_FILE), 0755, true);
     file_put_contents(V_CFG_FILE, implode("\n", $lines) . "\n");
-    v_flash_writes_track(); // settings save writes to flash too (P14-12)
-    // Re-apply cron + start-page immediately, same as the old form's #command.
+    v_flash_writes_track(); 
+    
     if (is_executable(V_INSTALL_SH)) exec(escapeshellarg(V_INSTALL_SH) . ' --reapply 2>&1');
     echo json_encode(['ok' => true]);
     exit;
@@ -219,7 +199,7 @@ try {
   }
 
   if ($action === 'cleanup_preview') {
-    // Read-only scan building a preview. Kind whitelist enforced inside.
+    
     $kind = (string)($_GET['kind'] ?? '');
     v_cleanup_gc();
     $res = v_cleanup_preview($kind);
@@ -228,7 +208,7 @@ try {
   }
 
   if ($action === 'cleanup_apply') {
-    // Destructive: POST + CSRF + preview-id-only (never client path lists).
+    
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
       http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
     }
@@ -237,11 +217,11 @@ try {
       v_cleanup_audit($previewId, '?', 0, 0, 'rejected', 'malformed preview_id');
       http_response_code(400); echo json_encode(['ok' => false, 'error' => 'malformed preview_id']); exit;
     }
-    // optional filters (recycle kind): keep entries newer than N days
+    
     if (isset($_POST['older_days'])) {
       $GLOBALS['v_cleanup_recycle_older_than'] = max(0, (int)$_POST['older_days']) * 86400;
     }
-    // Second confirmation for kinds flagged confirm2 (P16-02 unused volumes).
+    
     $load = v_cleanup_load($previewId);
     if ($load['ok']) {
       $spec = v_cleanup_docker_kinds()[$load['kind']] ?? null;
@@ -264,8 +244,8 @@ try {
   }
 
   if ($action === 'health_check') {
-    // GET (fetch, no state change beyond the results themselves — the checks
-    // run is the documented scan), but bind to POST too if sent that way.
+    
+    
     require_once __DIR__ . '/diagnose.php';
     echo json_encode(v_health_run_now(), JSON_UNESCAPED_SLASHES);
     exit;
@@ -289,13 +269,13 @@ try {
   }
 
   if ($action === 'timeline') {
-    v_timeline_tick(); // refresh today's snapshot, then diff against history
+    v_timeline_tick(); 
     echo json_encode(['ok' => true, 'days' => v_timeline_diffs(14)], JSON_UNESCAPED_SLASHES);
     exit;
   }
 
   if ($action === 'kb_seed') {
-    // idempotent weekly seeding of trusted Unraid docs (P20-11); POST+CSRF for --force.
+    
     require_once __DIR__ . '/kb_seed.php';
     $force = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') && v_csrf_ok() && ($_POST['force'] ?? '') === 'yes';
     $n = v_kb_seed($force);
@@ -303,7 +283,7 @@ try {
     exit;
   }
 
-  // --- P12 KB workspace curation (#38) — all mutations CSRF-gated ------------
+  
   if ($action === 'kb_curate_list') {
     echo json_encode(['ok' => true,
       'lessons' => v_kb_lessons_list($_GET['kind'] ?? null),
@@ -412,7 +392,7 @@ try {
   }
 
   if ($action === 'backup_bundle') {
-    // full state bundle (#105): heavier op, POST+CSRF.
+    
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
       http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
     }
@@ -429,8 +409,8 @@ try {
   }
 
   if ($action === 'diag_bundle') {
-    // Triggers Unraid's diagnostics; returns the bundle path for the UI to
-    // turn into a download link. Heavier op — bound behind POST + CSRF.
+    
+    
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST' || !v_csrf_ok()) {
       http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
     }
@@ -487,9 +467,9 @@ try {
     if (!$node || !is_file(__DIR__ . '/../agent/share-comment.mjs')) {
       http_response_code(500); echo json_encode(['ok' => false, 'error' => 'agent runtime not installed']); exit;
     }
-    // Fire-and-forget: the agent call is a single CPU-bound LLM prompt that
-    // can take a while on this hardware, so don't block the HTTP request —
-    // the UI polls ?action=share_comment for the result once it lands.
+    
+    
+    
     exec(sprintf('nohup %s %s %s > /tmp/unraid-vitals-sharecomment.log 2>&1 &',
       escapeshellarg($node), $script, escapeshellarg($share)));
     echo json_encode(['ok' => true, 'status' => 'started']);
@@ -534,11 +514,11 @@ try {
   }
 
   if ($action === 'kb_asset') {
-    // Images referenced by rich KB documents (charts generated by
-    // agent/lib/charts.mjs, screenshots attached to a report). Served from
-    // a fixed directory only, filename resolved and re-checked to stay
-    // inside it — the DB-stored path is model/script generated, never
-    // trust it as a literal filesystem path.
+    
+    
+    
+    
+    
     $dir = realpath(v_state_dir() . '/kb-assets');
     $f = (string)($_GET['f'] ?? '');
     if ($dir === false || $f === '' || strpos($f, "\0") !== false) { http_response_code(404); exit; }
@@ -569,11 +549,11 @@ try {
     if ($prompt === '' || mb_strlen($prompt) > 2000) {
       http_response_code(400); echo json_encode(['ok' => false, 'error' => 'prompt required (max 2000 chars)']); exit;
     }
-    // Ask-once: the UI sends ONLY free text; the planner detects study
-    // intent, window and cadence from the prompt itself ("monitor CPU
-    // spikes for the next 6 hours" → study 6h/5min ticks). Explicit POST
-    // values still win when present so auto-research (which already knows
-    // what it wants) can bypass detection.
+    
+    
+    
+    
+    
     $plan = v_plan_research($prompt);
     $mode = ($_POST['mode'] ?? null) !== null
       ? (($_POST['mode'] ?? 'once') === 'study' ? 'study' : 'once')
@@ -585,11 +565,11 @@ try {
       : v_research_create($prompt);
     if ($id === null) { http_response_code(500); echo json_encode(['ok' => false, 'error' => 'db unavailable']); exit; }
     $node = trim((string)@shell_exec('command -v node 2>/dev/null'));
-    // Study jobs are advanced by the study.mjs cron tick (installed by
-    // install.sh), not fired immediately here — the whole point is that it
-    // runs unattended for hours. Fire one immediate tick anyway so the UI
-    // shows the first observation right away instead of waiting a full
-    // cron interval for any sign of life.
+    
+    
+    
+    
+    
     $script = __DIR__ . '/../agent/' . ($mode === 'study' ? 'study.mjs' : 'research.mjs');
     if ($node && is_file($script)) {
       $args = $mode === 'study' ? sprintf('--once %d', (int)$id) : (string)(int)$id;

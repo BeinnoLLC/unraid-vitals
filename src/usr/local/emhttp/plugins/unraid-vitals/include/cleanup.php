@@ -1,34 +1,11 @@
 <?php
-/* unraid-vitals — include/cleanup.php (P16-01: cleanup safety framework)
- *
- * Two-step cleanup: PREVIEW (what would be removed, how much space) then APPLY,
- * where apply accepts only a preview_id — never a client-supplied path list.
- * Every apply re-resolves each stored item with realpath() and re-checks it
- * against the allow-roots for its kind; a single mismatch rejects the whole
- * apply and lands in the audit log.
- *
- * Audit table (cleanup_audit): who, when, kind, items, bytes reclaimed, result.
- * Audit rows are readable back through ajax.php?action=cleanup_audit for the UI.
- *
- * Threat model: nobody runs destructive rm under a forged path list. The only
- * client input that reaches the filesystem is a preview id issued by a previous
- * preview call, with a TTL, and re-validated at apply time against immutable
- * DB rows + allow-roots.
- */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/store.php';
 
-/** Preview TTL in seconds. */
 const V_CLEANUP_TTL = 900;
 
-/**
- * Allowed scan/apply roots per cleanup kind. An item whose realpath is not
- * strictly inside one of these roots is rejected at preview AND apply time.
- * Ordered; first match wins. Roots must exist (no trailing slash).
- * V_CLEANUP_ROOTS_OVERRIDE (JSON, kind => roots[]) exists for tests only.
- */
 function v_cleanup_roots(string $kind): ?array {
   if (defined('V_CLEANUP_ROOTS_OVERRIDE')) {
     $map = json_decode(V_CLEANUP_ROOTS_OVERRIDE, true);
@@ -40,34 +17,33 @@ function v_cleanup_roots(string $kind): ?array {
     case 'docker_stopped_containers':
     case 'docker_build_cache':
     case 'docker_unused_volumes':
-      return null; // docker kinds go through the docker CLI, not fs paths
+      return null; 
     case 'orphan_appdata':
-      return ['__ORPHAN__']; // marker kind: real gating inside v_cleanup_orphan_appdata_apply
+      return ['__ORPHAN__']; 
     case 'logs':
       return ['/var/log', '/var/tmp/unraid-vitals'];
     case 'tmp':
       return ['/tmp/unraid-vitals'];
     case 'junk':
-      return null; // share list resolved per-share at preview time
+      return null; 
     default:
       return [];
   }
 }
 
-/** Docker cleanup kinds and their docker CLI args + human labels. */
 function v_cleanup_docker_kinds(): array {
   return [
     'docker_dangling_images'  => ['label' => 'Dangling images',  'filter' => '-f dangling=true',       'cmd' => 'rmi', 'confirm2' => false],
     'docker_unused_images'    => ['label' => 'Unused images',    'filter' => '-f until=24h',           'cmd' => 'rmi', 'confirm2' => false],
     'docker_stopped_containers' => ['label' => 'Stopped containers', 'filter' => '',                'cmd' => 'rm',  'confirm2' => false],
     'docker_build_cache'      => ['label' => 'Build cache',      'filter' => '',                       'cmd' => 'builder prune -f', 'confirm2' => false],
-    // Unused volumes: off by default + second confirmation (P16-02).
+    
     'docker_unused_volumes'   => ['label' => 'Unused volumes',   'filter' => '-f all=true',            'cmd' => 'volume prune -f', 'confirm2' => true],
   ];
 }
 
 function v_cleanup_db(): ?SQLite3 {
-  $db = v_events_db(); // same handle/opener; creates kb_* tables idempotently
+  $db = v_events_db(); 
   if (!$db) return null;
   $db->exec("CREATE TABLE IF NOT EXISTS cleanup_previews (
     id TEXT PRIMARY KEY, kind TEXT NOT NULL, created_at INTEGER NOT NULL,
@@ -79,7 +55,6 @@ function v_cleanup_db(): ?SQLite3 {
   return $db;
 }
 
-/** Best-effort "who": Unraid webGui auth user, else cli/system. */
 function v_cleanup_who(): string {
   foreach (['REMOTE_USER', 'PHP_AUTH_USER'] as $k) {
     if (!empty($_SERVER[$k])) return (string)$_SERVER[$k];
@@ -87,11 +62,6 @@ function v_cleanup_who(): string {
   return PHP_SAPI === 'cli' ? 'cli' : 'webGui';
 }
 
-/**
- * Build a preview for a kind. Returns {ok, preview_id, items, total_bytes, label}.
- * fs kinds: items are ['path'=>.., 'bytes'=>..]; docker kinds: items are
- * ['ref'=>docker-id-or-name, 'bytes'=>..] from the CLI.
- */
 function v_cleanup_preview(string $kind): array {
   $dockerKinds = v_cleanup_docker_kinds();
   $items = [];
@@ -136,7 +106,7 @@ function v_cleanup_preview(string $kind): array {
         if ($ref === '') continue;
         $items[] = ['ref' => $ref, 'bytes' => null];
       }
-    } else { // build cache
+    } else { 
       $raw = @shell_exec('timeout 20 docker builder du 2>/dev/null');
       $bytes = null;
       if (preg_match('/Total:\s+([0-9.]+[KMGB]+)/i', (string)$raw, $m)) {
@@ -150,7 +120,7 @@ function v_cleanup_preview(string $kind): array {
 
     foreach ($roots as $root) {
       if (!is_dir($root)) continue;
-      // fs_watch-style bounds: maxdepth + size cap + timeout + ionice.
+      
       $cmd = 'timeout 20 ionice -c3 find ' . escapeshellarg($root)
         . ' -maxdepth 3 -type f -printf \'%s %p\n\' 2>/dev/null | head -n 500';
       foreach (explode("\n", (string)@shell_exec($cmd)) as $line) {
@@ -185,7 +155,6 @@ function v_cleanup_preview(string $kind): array {
           + (isset($junkPerFolder) ? ['per_folder' => $junkPerFolder, 'shares' => $junkShares] : []);
 }
 
-/** Load a preview by id, checking TTL. Returns ['kind'=>, 'items'=>] or error. */
 function v_cleanup_load(string $previewId): array {
   $db = v_cleanup_db();
   if (!$db) return ['ok' => false, 'error' => 'no db'];
@@ -199,20 +168,18 @@ function v_cleanup_load(string $previewId): array {
   return ['ok' => true, 'kind' => $row['kind'], 'items' => $items, 'expires_at' => (int)$row['expires_at']];
 }
 
-/** Strict path gate: realpath must exist and be inside an allowed root. */
 function v_cleanup_safe_path(string $path, array $roots): bool {
   $real = realpath($path);
   if ($real === false) return false;
   foreach ($roots as $root) {
     $rroot = realpath($root);
     if ($rroot === false) continue;
-    if ($real === $rroot) return false; // never the root itself, only things under it
+    if ($real === $rroot) return false; 
     if (strpos($real, $rroot . '/') === 0) return true;
   }
   return false;
 }
 
-/** Delete exactly the items from a validated preview. Returns summary. */
 function v_cleanup_apply(string $previewId): array {
   $load = v_cleanup_load($previewId);
   if (!$load['ok']) {
@@ -268,7 +235,7 @@ function v_cleanup_apply(string $previewId): array {
 
   if (isset($dockerKinds[$kind])) {
     $spec = $dockerKinds[$kind];
-    // Whole-cache kinds act on the docker builder state, not individual refs.
+    
     if ($kind === 'docker_build_cache') {
       $out = (string)@shell_exec('timeout 60 docker ' . $spec['cmd'] . ' 2>&1');
       if (preg_match('/Total reclaimed space:\s*([0-9.]+[KMGB]+)/i', $out, $m)) {
@@ -280,7 +247,7 @@ function v_cleanup_apply(string $previewId): array {
     foreach ($items as $it) {
       $ref = (string)($it['ref'] ?? '');
       if ($ref === '') continue;
-      // ref must look like a docker id/name: hex, sha256:hex, or name w/o slashes tricks
+      
       if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,128}$/', $ref) && !preg_match('/^sha256:[a-f0-9]{64}$/', $ref)) {
         v_cleanup_audit($previewId, $kind, $done, $bytes, 'rejected', 'bad ref ' . substr($ref, 0, 64));
         return ['ok' => false, 'error' => 'ref failed validation', 'detail' => $ref];
@@ -297,7 +264,7 @@ function v_cleanup_apply(string $previewId): array {
     foreach ($items as $it) {
       $path = (string)($it['path'] ?? '');
       if ($path === '' || !v_cleanup_safe_path($path, $roots)) {
-        // Acceptance: a forged item that was not in the preview is rejected and logged.
+        
         v_cleanup_audit($previewId, $kind, $done, $bytes, 'rejected',
           'path failed re-validation: ' . substr($path, 0, 128));
         return ['ok' => false, 'error' => 'item failed re-validation (forged or changed path)',
@@ -309,7 +276,7 @@ function v_cleanup_apply(string $previewId): array {
     }
   }
 
-  // Consume the preview — single use.
+  
   $db = v_cleanup_db();
   if ($db) { $st = $db->prepare('DELETE FROM cleanup_previews WHERE id = :id'); $st->bindValue(':id', $previewId, SQLITE3_TEXT); $st->execute(); }
 
@@ -333,7 +300,6 @@ function v_cleanup_audit(string $previewId, string $kind, int $items, int $bytes
   $st->execute();
 }
 
-/** Audit rows for the UI. */
 function v_cleanup_audit_list(int $limit = 100): array {
   $db = v_cleanup_db();
   if (!$db) return [];
@@ -343,14 +309,12 @@ function v_cleanup_audit_list(int $limit = 100): array {
   return $out;
 }
 
-/** Expire stale previews (housekeeping; safe to call on every preview). */
 function v_cleanup_gc(): void {
   $db = v_cleanup_db();
   if (!$db) return;
   $db->query('DELETE FROM cleanup_previews WHERE expires_at < ' . time());
 }
 
-/** Helper: human size -> bytes (docker system df reports "12.4GB"). */
 function v_cleanup_size_to_bytes(string $s): int {
   if (preg_match('/^([0-9.]+)\s*([KMG]?B?)$/i', trim($s), $m)) {
     $n = (float)$m[1];

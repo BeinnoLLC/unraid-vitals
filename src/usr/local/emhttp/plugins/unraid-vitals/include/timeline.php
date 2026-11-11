@@ -1,18 +1,9 @@
 <?php
-/* unraid-vitals — include/timeline.php (P17-05 / #88)
- *
- * "What changed?" — a daily snapshot of identity data (container list with
- * image tags, plugin versions, Unraid version, share settings, disk
- * assignments) stored each day in SQLite; the timeline shows consecutive-day
- * diffs. Acceptance: updating a container image appears on the timeline with
- * old and new tag.
- */
 
 declare(strict_types=1);
 
 require_once __DIR__ . '/store.php';
 
-/** Collect today's identity snapshot (cheap: config files + docker inspect). */
 function v_timeline_collect(): array {
   $docker = [];
   $names = @shell_exec('timeout 15 docker ps -a --format \'{{.Names}}\' 2>/dev/null') ?: '';
@@ -39,7 +30,7 @@ function v_timeline_collect(): array {
   $disks = [];
   foreach (['parity', 'disk1', 'disk2', 'disk3', 'disk4', 'disk5', 'disk6', 'disk7',
             'disk8', 'disk9', 'disk10', 'disk11', 'disk12', 'cache', 'cache2'] as $slot) {
-    $sd = "/boot/config/super.dat"; // binary — use disks.ini instead
+    $sd = "/boot/config/super.dat"; 
   }
   foreach ((@parse_ini_file('/var/local/emhttp/disks.ini', true) ?: []) as $name => $d) {
     if (!is_array($d) || empty($d['device'])) continue;
@@ -63,7 +54,6 @@ function v_timeline_db(): ?SQLite3 {
   return $db;
 }
 
-/** Store/refresh today's snapshot. Idempotent per day (latest wins). */
 function v_timeline_tick(): array {
   $db = v_timeline_db();
   if (!$db) return ['ok' => false, 'error' => 'no db'];
@@ -76,7 +66,6 @@ function v_timeline_tick(): array {
   return ['ok' => true, 'day' => $snap['day']];
 }
 
-/** Timeline: diffs for each stored day vs its previous stored day. */
 function v_timeline_diffs(int $limitDays = 14): array {
   $db = v_timeline_db();
   if (!$db) return [];
@@ -92,7 +81,6 @@ function v_timeline_diffs(int $limitDays = 14): array {
   return $out;
 }
 
-/** Diff old → new; returns [section][kind] = [detail,...] + image tag changes. */
 function v_timeline_diff(?array $old, ?array $new, string $day): array {
   $changes = ['containers' => [], 'images' => [], 'plugins' => [], 'unraid' => [], 'shares' => [], 'disks' => []];
   if (!$old || !$new) return ['day' => $day, 'changes' => $changes];

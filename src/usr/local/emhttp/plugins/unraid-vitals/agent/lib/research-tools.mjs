@@ -1,19 +1,4 @@
-/**
- * unraid-vitals — lib/research-tools.mjs (P20-08 / #113)
- *
- * The model can ASK for data (read-only), instead of everything being
- * pre-stuffed. Six tools, every one a pure reader:
- *   metric_history(entity, hours)  — ring/rollup samples for a metric or disk
- *   log_search(query, minutes)     — syslog/system log grep
- *   container_log(container, tail) — tail of one container's docker log
- *   smart_detail(disk)             — SMART rows for one disk
- *   kb_search(query)               — the knowledge base retrieval
- *   check_results(subject?)         — the diagnosis engine's stored findings
- *
- * Control actions (start/stop/restart containers, mover, apply, cleanup) are
- * NOT tools — the model never gets a write path; the step cap keeps a run
- * from wandering (default 3 tool rounds).
- */
+
 
 import { execFileSync } from 'node:child_process';
 import { activeSource } from './sources.mjs';
@@ -36,7 +21,6 @@ TOOLS (read-only, ask by emitting exactly one JSON line {"tool":"<name>","args":
 ${Object.entries(RESEARCH_TOOLS).map(([id, t]) => `- ${id}(${t.args.join(', ')}): ${t.desc}`).join('\n')}
 Rules: at most 3 tool calls per answer; tools never change anything; every other response is the final JSON answer per the findings/report contract.`;
 
-/** Run one tool call. Returns a compact JSON-able result or {error}. */
 export function runResearchTool(name, args = {}) {
   const source = activeSource();
   switch (name) {
@@ -69,7 +53,7 @@ export function runResearchTool(name, args = {}) {
       const disk = String(args.disk || '');
       if (!SAFE_DISK.test(disk)) return { error: 'bad disk name' };
       const dev = `/dev/${disk.replace(/^disk\d+$|^parity\d*$|^cache\d*$/, m => m)}`;
-      // disks.ini device mapping: diskN -> sdX
+      
       const map = diskDeviceMap();
       const realDev = map[disk] ?? (/^(sd|nvme)/.test(disk) ? `/dev/${disk}` : null);
       if (!realDev) return { error: 'disk not found in disks.ini' };
@@ -105,18 +89,17 @@ function diskDeviceMap() {
       const kv = /^(device)="([^"]*)"/.exec(line);
       if (kv && cur) out[cur] = '/dev/' + kv[2];
     }
-  } catch { /* no php or no ini */ }
+  } catch {  }
   return out;
 }
 
-/** Parse a {"tool":…} reply out of the model response; null when final answer. */
 export function parseToolCall(text) {
   const t = String(text ?? '').trim();
   if (!t.startsWith('{')) return null;
   try {
     const j = JSON.parse(t);
     if (j && typeof j.tool === 'string' && RESEARCH_TOOLS[j.tool]) return { name: j.tool, args: j.args ?? {} };
-  } catch { /* not a tool call */ }
+  } catch {  }
   return null;
 }
 

@@ -1,11 +1,4 @@
-/**
- * Thermal specialist — disks, sensors and cooling, on the layered stack.
- *
- * Same agent id, same findings schema, same thresholds as before, but its
- * data now comes from a source object rather than Unraid paths. Point
- * VITALS_SOURCE at another source and this agent reports on that box with
- * no change here.
- */
+
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
 import { hottestDisks, peaks, changes } from '../viewmodels/health.mjs';
@@ -13,14 +6,6 @@ import { UnsupportedError } from '../core/ports.mjs';
 
 export const AGENT_ID = 'thermal';
 
-/**
- * #117 (P20-12) floorFindings for thermal: deterministic temp/wear rules.
- *
- * Reads the SNAPSHOT only — never gated on the row surviving budgetPrompt().
- * A trimmed row is precisely when the model can no longer see the hot disk and
- * the floor is the only reporter left. Exported so tests can pin the rules
- * without an LLM.
- */
 export function thermalFloorFindings(snap = {}) {
   const out = [];
   for (const d of snap.disks || []) {
@@ -36,14 +21,12 @@ export function thermalFloorFindings(snap = {}) {
   return out;
 }
 
-
-/** Sensor rows, when the source can supply them. Returns null otherwise. */
 function sensorRows(source) {
   let raw;
   try {
     raw = source.sensors();
   } catch (e) {
-    if (e instanceof UnsupportedError) return null;   // source has no sensors
+    if (e instanceof UnsupportedError) return null;   
     throw e;
   }
   const sensors = raw?.sensors || raw;
@@ -74,7 +57,7 @@ export async function run() {
   const temps = sensors?.temps || [];
   const fans = sensors?.fans || [];
 
-  // #117 floorFindings for thermal: deterministic temp/wear rules.
+  
   const mandatoryHook = () => thermalFloorFindings(snap);
 
   return runSpecialist({

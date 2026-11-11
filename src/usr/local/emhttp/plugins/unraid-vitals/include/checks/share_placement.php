@@ -1,18 +1,4 @@
 <?php
-/**
- * unraid-vitals — checks/share_placement.php (P14-05)
- *
- * A pool-only share ("appdata" etc.) with files on an array disk (or an
- * array-only share with files left on cache) is the classic cause of a
- * "why is Docker slow" / "why won't my array disks spin down" support
- * thread — the share's cache setting looks right in the UI, but old files
- * from before the setting was changed (or from a mover run that never
- * happened) are still sitting on the wrong pool.
- *
- * v_share_placement() (collect.php) only checks the share's own top-level
- * folder existence per disk — see that function's docblock for why it is
- * deliberately shallow (no recursive walk).
- */
 
 function v_check_share_placement(array $snap): array {
   $conflicts = $snap['share_placement'] ?? [];

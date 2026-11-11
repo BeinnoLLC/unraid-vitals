@@ -1,25 +1,7 @@
-/**
- * A synthetic source — the worked example of "integrate any service".
- *
- * It implements core/ports.mjs against a plain JSON fixture, with no Unraid
- * code at all: no docker, no virsh, no syslog. It exists for two reasons:
- *
- *   1. It is the test harness. Every agent can be exercised offline with no
- *      NAS, no LLM studio and no network — which is why the offline test
- *      suite runs in 100ms instead of 8 minutes.
- *   2. It is the template. Copy this file, change how it fetches data, and
- *      you have a new integration. Nothing else in the codebase changes.
- */
+
 import { readFileSync } from 'node:fs';
 import { makeSnapshot, makePoint, makeDisk, makeContainer, makeVm, UnsupportedError } from '../core/ports.mjs';
 
-/**
- * @param {object} opts
- * @param {object} [opts.fixtures] in-memory data, highest precedence
- * @param {string} [opts.dir]      directory of <name>.json fixture files
- * @param {string} [opts.id]
- * @param {string} [opts.label]
- */
 export function createFixtureSource({ fixtures = {}, dir = null, id = 'fixture', label = 'Fixture', kind = 'test' } = {}) {
   const load = (name, fallback = null) => {
     if (name in fixtures) return fixtures[name];
@@ -49,8 +31,8 @@ export function createFixtureSource({ fixtures = {}, dir = null, id = 'fixture',
           ...(arr.parity || []).map((x) => makeDisk({ ...x, role: 'parity' }))
         ],
         vms: (load('vms', null) || d.vms || []).map((v) => (typeof v === 'string' ? { name: v, state: 'unknown' } : v)),
-        // native blocks pass through untouched (agents read snap.array,
-        // snap.smart, snap.docker_logs, snap.events… directly)
+        
+        
         array: arr,
         smart: d.smart ?? {},
         docker_logs: d.docker_logs, syslog: d.syslog

@@ -1,12 +1,4 @@
-/**
- * The Unraid source — every Unraid-specific assumption in the agent lives in
- * this file and nowhere else.
- *
- * It is assembled from the generic host providers, so adding a second source
- * (Proxmox, TrueNAS, a CI fixture) means writing ONE new file against
- * core/ports.mjs and registering it. No agent, viewmodel, or provider needs
- * to change, because none of them can see anything Unraid-specific.
- */
+
 import {
   readStateFile, tailFile, dockerPs, dockerInspect, dockerLogs, containerImages,
   registryDigest, vmList as hostVmList, syslogWarnings, hasBin
@@ -18,7 +10,6 @@ import {
 
 export const STATE_DIR = process.env.VITALS_STATE_DIR || '/var/tmp/unraid-vitals';
 
-/** Assemble a snapshot from whatever the collector wrote. */
 function snapshotFrom(raw) {
   const d = raw || {};
   const arr = d.array || {};
@@ -29,17 +20,17 @@ function snapshotFrom(raw) {
   ];
   return makeSnapshot({
     time: d.time,
-    system: d.system,          // pass through: disks.mjs reads system.md_state
-    // Spread the native objects rather than rebuilding them: general.mjs
-    // reads mem.swap_pct/swap_used and disks.mjs reads system.md_state.
-    // Rebuilding from a fixed key list silently drops those.
+    system: d.system,          
+    
+    
+    
     cpu: { ...d.cpu },
     mem: { ...d.mem, swapPct: d.mem?.swapPct ?? d.mem?.swap_pct, swapUsed: d.mem?.swapUsed ?? d.mem?.swap_used },
     load: { ...d.load },
     tempMax: d.temp_max ?? d.tempMax,
     temp_avg: d.temp_avg,
     array: arr,
-    // Pass-through: the existing specialists read these blocks directly.
+    
     sensors: d.sensors, shares: d.shares, smart: d.smart,
     net: d.net, flash: d.flash,
     docker: {
@@ -77,8 +68,7 @@ export function createUnraidSource({ stateDir = STATE_DIR } = {}) {
       return Array.isArray(a) ? a : [];
     },
 
-    /** Ring buffer is fixed-sample, not fixed-time: a short result means
-     *  "limited history", never an error. Callers must handle it. */
+    
     historyWindow(hours = 6) {
       const cutoff = Math.floor(Date.now() / 1000) - hours * 3600;
       return this.history().filter((p) => (p.t ?? 0) >= cutoff);
@@ -114,16 +104,14 @@ export function createUnraidSource({ stateDir = STATE_DIR } = {}) {
       return syslogWarnings(minutes, maxLines, process.env.VITALS_SYSLOG || '/var/log/syslog');
     },
 
-    /** Fan/sensor data: the collector puts it in latest.json's `sensors`
-     *  block (there is no separate sensors.json). */
+    
     sensors() {
       const snap = source.snapshot();
       if (!snap.sensors) throw new UnsupportedError('this source reports no hwmon sensors', { provider: 'sensors' });
       return snap.sensors;
     },
 
-    /** Capabilities this host actually has — lets a viewmodel degrade
-     *  gracefully instead of crashing on a source without VMs/containers. */
+    
     capabilities() {
       return {
         containers: hasBin('docker'),
@@ -132,7 +120,7 @@ export function createUnraidSource({ stateDir = STATE_DIR } = {}) {
       };
     },
 
-    /** Sources may add facts the core port does not define. */
+    
     extra() {
       const alerts = readStateFile(stateDir, 'alerts.json', []);
       return Array.isArray(alerts) ? { alerts } : {};

@@ -1,17 +1,6 @@
-/**
- * Viewmodels — pure logic over a source's data.
- *
- * No I/O, no shell, no knowledge of Unraid. A viewmodel takes a source
- * (anything satisfying core/ports.mjs) and answers a question about it.
- * Agents are thin wrappers: parse args, pick a viewmodel, format the result.
- *
- * This is the layer that makes "integrate another source" free — every
- * question below already works against Proxmox, a fixture, or anything else
- * that satisfies the port, because none of them can see a source's guts.
- */
+
 import { UnsupportedError } from '../core/ports.mjs';
 
-/** Every number a health view needs, from one source. */
 export function health(source) {
   const snap = source.snapshot();
   const disks = snap.disks || [];
@@ -47,7 +36,6 @@ export function health(source) {
   };
 }
 
-/** Peak load / memory / temperature over a window, with the time of peak. */
 export function peaks(source, hours = 6) {
   const pts = source.historyWindow ? source.historyWindow(hours) : source.history();
   const pick = (fn) => {
@@ -69,7 +57,6 @@ export function peaks(source, hours = 6) {
   };
 }
 
-/** Containers ranked by an arbitrary metric — the generic "biggest N" view. */
 export function topContainers(source, metric = 'memBytes', n = 5) {
   const cs = source.containers() || [];
   return [...cs]
@@ -78,13 +65,11 @@ export function topContainers(source, metric = 'memBytes', n = 5) {
     .slice(0, n);
 }
 
-/** Disks ranked by temperature, data first. */
 export function hottestDisks(source, n = 5) {
   const ds = source.snapshot().disks || [];
   return [...ds].filter((d) => typeof d.temp === 'number').sort((a, b) => b.temp - a.temp).slice(0, n);
 }
 
-/** What changed since the window opened — the "what happened" view. */
 export function changes(source, hours = 6) {
   const pts = source.historyWindow ? source.historyWindow(hours) : source.history();
   const out = [];
@@ -120,7 +105,6 @@ export function changes(source, hours = 6) {
   return out;
 }
 
-/** Alerts grouped by severity — what needs attention right now. */
 export function alertsBySeverity(source) {
   const counts = {};
   const items = [];
@@ -132,10 +116,6 @@ export function alertsBySeverity(source) {
   return { counts, items, total: items.length };
 }
 
-/**
- * Compose one prompt-ready text block. Agents use this instead of hand-
- * assembling strings, so a new source is described identically everywhere.
- */
 export function healthBrief(source, hours = 6) {
   const h = health(source);
   const p = peaks(source, hours);
@@ -152,7 +132,6 @@ export function healthBrief(source, hours = 6) {
   return lines.join('\n');
 }
 
-/* helpers */
 function countBy(arr) {
   const out = {};
   for (const v of arr) out[v] = (out[v] || 0) + 1;

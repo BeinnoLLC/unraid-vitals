@@ -1,20 +1,13 @@
 <?php
-/**
- * unraid-vitals — checks/docker_hygiene.php (P14-13)
- *
- * Reads $snap['docker_hygiene'] (collect.php's v_docker_hygiene()):
- * per-container restart count/exit code/memory limit/ports/mounts, plus
- * host-port conflicts between containers and the host's memory use.
- */
 
 function v_check_docker_hygiene(array $snap): array {
   $out = [];
   $h = $snap['docker_hygiene'] ?? [];
   if (!$h) return $out;
 
-  // ---- restart loops. A container the daemon keeps restarting is the
-  // acceptance criterion; report its restart count AND last exit code, as
-  // asked for.
+  
+  
+  
   foreach ($h['containers'] ?? [] as $c) {
     $rc = $c['restart_count'] ?? 0;
     if ($rc >= 3) {
@@ -36,7 +29,7 @@ function v_check_docker_hygiene(array $snap): array {
     }
   }
 
-  // ---- host port conflicts.
+  
   foreach ($h['port_conflicts'] ?? [] as $pc) {
     $out[] = [
       'severity' => 'alert', 'subject' => 'docker_port_conflict',
@@ -52,9 +45,9 @@ function v_check_docker_hygiene(array $snap): array {
     ];
   }
 
-  // ---- SQLite behind a /mnt/user mount. Only when BOTH hold: the
-  // container has a /mnt/user path AND a SQLite file is actually visible
-  // there (v_docker_hygiene() only populates sqlite_paths in that case).
+  
+  
+  
   foreach ($h['containers'] ?? [] as $c) {
     if (empty($c['sqlite_paths'])) continue;
     $out[] = [
@@ -73,10 +66,10 @@ function v_check_docker_hygiene(array $snap): array {
     ];
   }
 
-  // ---- no memory limit while the host is under memory pressure. Only
-  // flagged when pressure is real (>=85%); on a box with plenty of RAM an
-  // unlimited container is a normal, deliberate choice and not noise worth
-  // generating.
+  
+  
+  
+  
   $memPct = $h['mem_pct'] ?? null;
   if ($memPct !== null && $memPct >= 85) {
     foreach ($h['containers'] ?? [] as $c) {

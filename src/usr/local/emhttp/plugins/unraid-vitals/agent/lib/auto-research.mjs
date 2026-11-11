@@ -1,17 +1,4 @@
-/**
- * Auto-research: turn the most critical findings into research/study jobs
- * without the admin having to ask.
- *
- *   disk failure / SMART degradation  → 12h study scoped to THAT disk
- *   new Unraid OS release             → "should we upgrade to vX?" report
- *                                        grounded in the real release notes
- *   critical thermal / pool / general → one-shot root-cause research
- *
- * Rules are pure (finding → {key, mode, prompt, context, cooldown}) so they
- * are unit-testable; firing is idempotent per key via auto_triggers.
- * The resulting jobs carry origin='auto:<key>' so the Research tab can
- * show a badge and the admin sees WHY a job exists.
- */
+
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { mkdirSync, openSync, readFileSync, writeFileSync, closeSync } from 'node:fs';
@@ -23,8 +10,6 @@ const H = 3600;
 
 const DISK_RE = /\b(disk\d+|parity2?|cache\d*|sd[a-z]+|nvme\d+n\d+)\b/i;
 
-/** Decide what, if anything, a finding should trigger. Returns null for
- *  "nothing". Exported for tests. */
 export function ruleFor(agent, f) {
   const sev = f.severity;
   const text = `${f.title} ${f.detail || ''}`;
@@ -47,10 +32,10 @@ export function ruleFor(agent, f) {
     };
   }
 
-  // Any agent's error-severity finding (load spikes, memory pressure, a
-  // service down) is worth a one-shot root-cause research — cooldown 12h
-  // per condition so a recurring condition re-investigates twice a day at
-  // most instead of every run.
+  
+  
+  
+  
   if (sev === 'error') {
     return {
       key: `err:${agent}:${(f.subject || f.title).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}`,
@@ -71,9 +56,6 @@ export function ruleFor(agent, f) {
   return null;
 }
 
-/** Evaluate every finding of one agent run; file jobs; kick research.mjs
- *  for one-shot jobs (study jobs are advanced by the study cron). Returns
- *  the jobs it filed so analyze.mjs can log them. */
 export function fireAutoResearch(agent, findings, { launch = true } = {}) {
   const filed = [];
   for (const f of findings) {
@@ -95,11 +77,6 @@ export function fireAutoResearch(agent, findings, { launch = true } = {}) {
   return filed;
 }
 
-/* Jobs launched in the same batch hit the shared LLM studio together and
- * overload it (one of them returns no draft, or nothing at all). Stagger:
- * each job waits until its slot is free — the first launches immediately,
- * the next after 45s, the next after 90s — so a batch of auto-research jobs
- * spreads itself instead of stampeding. */
 const LIVE_JOBS = '/var/tmp/unraid-vitals/agent-jobs.lock';
 function staggerSeconds() {
   try {
@@ -107,7 +84,7 @@ function staggerSeconds() {
     const lock = openSync(LIVE_JOBS, 'a+');
     try {
       const now = Math.floor(Date.now() / 1000);
-      // recycle: drop slots whose 3-minute window has passed
+      
       const active = readFileSync(LIVE_JOBS, 'utf8').split('\n').map(Number).filter(t => t && now - t < 180);
       writeFileSync(LIVE_JOBS, [...active, now].join('\n') + '\n');
       return active.length * 45;
@@ -121,8 +98,8 @@ function launchJob(mode, jobId) {
   const wait = staggerSeconds();
   try {
     if (wait > 0) {
-      // shell shim so the sleep happens before the agent process exists:
-      // the studio sees one request stream at a time, not a stampede.
+      
+      
       const shim = `sleep ${wait}; exec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} ${args.map(a => JSON.stringify(a)).join(' ')}`;
       spawn('/bin/sh', ['-c', shim], { detached: true, stdio: 'ignore', env: process.env }).unref();
     } else {

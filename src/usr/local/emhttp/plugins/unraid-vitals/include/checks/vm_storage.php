@@ -1,19 +1,14 @@
 <?php
-/**
- * unraid-vitals — checks/vm_storage.php (P14-14)
- *
- * Reads $snap['vm_storage'] (collect.php's v_vm_storage()).
- */
 
 function v_check_vm_storage(array $snap): array {
   $out = [];
   $s = $snap['vm_storage'] ?? [];
   if (!$s) return $out;
 
-  // ---- per-vdisk: allocated (virtual) vs actually used on disk. A large
-  // gap is not itself a fault -- thin/sparse images are a legitimate,
-  // useful thing -- so this only reports when the gap is big enough to be
-  // worth knowing about, and always states both numbers.
+  
+  
+  
+  
   foreach ($s['vdisks'] ?? [] as $d) {
     $vs = $d['virtual_size'] ?? null;
     $as = $d['actual_size'] ?? null;
@@ -37,9 +32,9 @@ function v_check_vm_storage(array $snap): array {
     }
   }
 
-  // ---- overcommit: the acceptance criterion. Total VIRTUAL size of the
-  // vdisks on a pool exceeding that pool's total capacity, reported with
-  // the shortfall.
+  
+  
+  
   foreach ($s['overcommit'] ?? [] as $pool => $oc) {
     $out[] = [
       'severity' => 'alert', 'subject' => 'vm_overcommit',
@@ -59,8 +54,8 @@ function v_check_vm_storage(array $snap): array {
     ];
   }
 
-  // ---- libvirt.img usage: the VM config image. If it fills, libvirt can
-  // no longer save VM definitions.
+  
+  
   $li = $s['libvirt_img'] ?? null;
   if ($li !== null && ($li['used_pct'] ?? null) !== null && $li['used_pct'] >= 80) {
     $out[] = [

@@ -1,27 +1,5 @@
 #!/usr/bin/env node
-/**
- * unraid-vitals agent — background research job runner.
- *
- * ajax.php's ?action=research_ask creates a pending row in research_jobs
- * and fires this script detached (fire-and-forget, same pattern as
- * share-comment.mjs). This process:
- *   1. Retrieves the most relevant existing knowledge-base documents for
- *      the prompt via SQLite FTS5 (searchKb) — this is the "RAG" part:
- *      keyword retrieval over what the health agents have already learned,
- *      no vector store or embedding API needed for a plugin this size.
- *   2. Also pulls a fresh live snapshot (latest.json) so the model isn't
- *      reasoning purely from stale historical findings.
- *   3. Asks the local model to synthesize an answer grounded in that
- *      context, citing which KB documents it drew on.
- *   4. Writes the answer back to the job row. The UI polls for it.
- *
- * CPU-only inference here is genuinely slow (observed 20s-300s per call on
- * this hardware) — per user direction this is fine, it "may take hours",
- * so there is no aggressive timeout: research jobs get the full
- * VITALS_AGENT_TIMEOUT_MS budget (default 10 minutes, see smythos-client.mjs).
- *
- * Usage: node research.mjs <jobId>
- */
+
 import { getDb, getResearchJob, startResearchJob, finishResearchJob, failResearchJob, searchKb, ingestFindingToKb } from './lib/db.mjs';
 import { makeAnalysisAgent, callAnalyze, extractJson, budgetPrompt } from './lib/smythos-client.mjs';
 import { selectModels } from './lib/models.mjs';
@@ -35,23 +13,11 @@ recent event history, and a live system snapshot) — never invent metrics, disk
 container/VM names that aren't in the context. If the context doesn't contain enough to
 answer, say so plainly and suggest what data would help. Be concise and factual, not hype-y.`;
 
-/** A question naming a live VM gets that VM's own event history attached —
- *  "listen to events from all the VMs and answer questions about a specific
- *  VM" scopes the retrieval, not just the prompt wording. Matched against
- *  vmList() rather than a regex over the question, so it only fires for
- *  VMs that actually exist (no false match on an unrelated word that
- *  happens to look like a name). */
 function detectVmScope(prompt, vms) {
   const lower = prompt.toLowerCase();
   return vms.find(vm => lower.includes(vm.name.toLowerCase())) || null;
 }
 
-/** Lookback window in hours from natural phrasing. Handles "past/last N
- *  days|hours|weeks", "yesterday" (→48h so the whole day is inside),
- *  "today", "this week", and "since <weekday>". Defaults to 48h — the
- *  user's stated common case ("I may ask about the past 2 days"). Capped
- *  at 30 days: beyond that only hourly rollups exist and the prompt would
- *  be all aggregates. */
 function detectWindowHours(prompt) {
   const p = prompt.toLowerCase();
   let m;
@@ -71,10 +37,6 @@ function detectWindowHours(prompt) {
   return 48;
 }
 
-/** Analytical questions (why/trend/compare/cause/diagnose) get answered by
- *  2-3 models with the answers cross-checked; simple lookups ("is X
- *  running", "how hot is disk3") go to one model — corroboration is worth
- *  the 3× wait only when reasoning, not recall, is the failure mode. */
 function isAnalytical(prompt) {
   return /\b(why|cause|caused|reason|trend|compare|diagnos|correlat|investigate|analy[sz]e|root cause|what happened|degrad|slow(er|down)?|spike|unusual|anomal)\b/i.test(prompt);
 }
@@ -91,7 +53,7 @@ async function main() {
     let contextPrefix = '';
     let kbHits = searchKb(job.prompt, 12);
     if (/^auto:unraid-release:/.test(job.origin || '')) {
-      // Guarantee the official notes are in context, whole, not a 400-char FTS snippet.
+      
       const ver = job.origin.split(':')[2];
       const rel = getDb().prepare(`SELECT * FROM kb_documents WHERE source = 'unraid-release' AND source_ref = ?`).get(ver);
       if (rel) {
@@ -104,16 +66,16 @@ async function main() {
     const vms = vmList();
     const scopedVm = detectVmScope(job.prompt, vms);
     const windowHours = detectWindowHours(job.prompt);
-    // The stitched timeline for the asked-about range: minute samples,
-    // hourly rollups for the older part, every event, per-container /
-    // per-disk facts, "what changed" bullets. Narrowed to one VM's events
-    // when the question names it.
+    
+    
+    
+    
     const tl = timelineWindow(windowHours, { entity: scopedVm ? scopedVm.name : undefined });
 
-    // Context is assembled as named sections so it can be budgeted into the
-    // model's window by priority. Without this a release-notes advisory
-    // (12 KB of notes + timeline + KB + snapshot) overflowed 8192 tokens and
-    // every model returned truncated JSON → "all models failed".
+    
+    
+    
+    
     const trigger = [];
     if (contextPrefix) trigger.push(contextPrefix);
     if (job.context) trigger.push(`Why this research was opened (${job.origin || 'auto'}):\n${String(job.context).slice(0, 4000)}\n`);
@@ -140,11 +102,11 @@ async function main() {
 
     const snapshot = [];
     if (snap) {
-      // P20-07 (#112): the question picks the detail sections. The abbreviated
-      // baseline stays (issue #28's lesson: a fixed subset couldn't answer a
-      // disk-temperature question) — now a topic classifier ADDS the per-disk,
-      // SMART, sensor, network interface and per-share detail the question
-      // names. Budget still applies: topic sections outrank the snapshot.
+      
+      
+      
+      
+      
       const p2 = job.prompt.toLowerCase();
       const wants = (re) => re.test(p2);
       const detail = {};
@@ -178,9 +140,9 @@ async function main() {
       }
     }
 
-    // Priorities: question + instructions never trimmed; trigger context /
-    // release notes outrank the generic timeline; KB snippets and the live
-    // snapshot are trimmed first.
+    
+    
+    
     const budgeted = budgetPrompt([
       { name: 'question', priority: 100, text: `Question: ${job.prompt}\n\nContext:` },
       { name: 'trigger', priority: 80, text: trigger.join('\n') },
@@ -188,31 +150,31 @@ async function main() {
       { name: 'knowledge-base', priority: 30, text: kb.join('\n') },
       { name: 'snapshot', priority: 10, text: snapshot.join('\n') },
       { name: 'instructions', priority: 100, text: `Respond with strict JSON: {"answer": "<markdown-formatted answer>", "used_docs": [<doc ids you actually relied on>]}` },
-    ], BEHAVIOR, 1400); // 900 for the answer + ~500 slack: markdown/JSON tokenizes denser than 3.6 chars/token
+    ], BEHAVIOR, 1400); 
     if (budgeted.trimmed.length) console.warn(`[research#${jobId}] trimmed to fit context: ${budgeted.trimmed.join(', ')} (${budgeted.tokens} tok)`);
     const userPrompt = budgeted.text;
 
     let answer, usedDocs;
     if (isAnalytical(job.prompt)) {
-      // Analytical: 2-3 models answer independently, then one synthesis
-      // pass reconciles them — agreements stated as fact, disagreements
-      // surfaced as such (with which model said what), never silently
-      // picking one. The user asked for exactly this kind of multi-model
-      // reading; the synthesis is what stops it being 3× the text.
-      // Which models to ask: whatever the admin enabled AND that actually
-      // exists right now, else live discovery from the studios' /api/tags.
-      // Hand-maintained lists drift — they keep naming models that were
-      // never installed (costing a doomed call each) while missing the ones
-      // pulled later.
+      
+      
+      
+      
+      
+      
+      
+      
+      
+      
       const models = await selectModels({
         enabled: process.env.VITALS_DIAG_MODELS || '',
         prefer: ['gemma3:12b', 'qwen2.5:7b', 'deepseek-coder-v2:16b'],
         limit: 3
       });
-      // A transient overload on the shared studio used to kill the whole
-      // job ("all models failed") — two auto-jobs launched from one agent
-      // run arrive together and overload it. Retry the whole drafting pass
-      // on a stagger so a busy studio costs seconds, not the investigation.
+      
+      
+      
+      
       let drafts = [];
       let lastErr;
       for (let attempt = 1; attempt <= 3 && !drafts.length; attempt++) {
@@ -220,9 +182,9 @@ async function main() {
         for (const model of models) {
           try {
             const agent = await makeAnalysisAgent(`Vitals-Research-${model}`, BEHAVIOR, { maxTokens: 900, temperature: 0.3, model });
-            // P20-08: tool loop — the model may ask for data instead of
-            // guessing. ≤3 read-only rounds; tool results become a new
-            // user-role section appended to the prompt, then re-ask.
+            
+            
+            
             let round = 0, toolUser = userPrompt;
             let parsed;
             for (;;) {
@@ -264,7 +226,7 @@ async function main() {
     }
 
     finishResearchJob(jobId, answer, usedDocs);
-    // Keep the Q&A itself searchable for future related questions.
+    
     ingestFindingToKb('research', { id: jobId, title: job.prompt, detail: answer, severity: 'info' });
     console.log(`[research#${jobId}] done`);
   } catch (e) {

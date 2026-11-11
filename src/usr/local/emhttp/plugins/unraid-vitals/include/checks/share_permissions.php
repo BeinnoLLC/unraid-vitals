@@ -1,24 +1,4 @@
 <?php
-/* unraid-vitals — checks/share_permissions.php (P14-16)
- *
- * Files inside user shares that are NOT owned by nobody:users (or lack group
- * write) are the classic "why can't SMB write here / why did my download
- * land read-only" cause. Unraid's own guidance: user shares are exposed to
- * clients as the `nobody`/`users` pair; anything root-created inside a share
- * silently breaks that model.
- *
- * Design (per ticket P14-16):
- *  - Sample each share, not a full walk: `find -maxdepth` capped at a bounded
- *    entry count per share, run through `timeout` + `ionice` (low I/O priority)
- *    so a huge share cannot hammer the array mid-scan.
- *  - One finding per share listing affected top-level folders, with a fix
- *    playbook pointer (newperms / Tools → New Permissions).
- *  - Acceptance: a folder created as root inside a share is reported.
- *
- * The share list comes from the snapshot (built by v_shares() in collect.php —
- * same list the GUI uses); each share's on-disk roots come from disk mounts
- * discovered via /mnt/user* mounts for that share.
- */
 
 declare(strict_types=1);
 
@@ -26,8 +6,8 @@ function v_check_share_permissions(array $snap): array {
   $shareInfo = $snap['shares'] ?? [];
   $shares = $shareInfo['list'] ?? [];
   if (!is_array($shares) || !$shares) return [];
-  // Sampling budget: at most this many entries examined per share and per
-  // disk root — bounds worst-case I/O on pathological shares.
+  
+  
   $maxEntries = 400;
   $out = [];
 
@@ -37,7 +17,7 @@ function v_check_share_permissions(array $snap): array {
     $path = '/mnt/user/' . rawurlencode($name);
     if (!is_dir($path)) continue;
 
-    // Top-level folders of the share (cheap: readdir, no recursion).
+    
     $tops = [];
     $h = @opendir($path);
     if (!$h) continue;
@@ -49,8 +29,8 @@ function v_check_share_permissions(array $snap): array {
     closedir($h);
     if (!$tops) continue;
 
-    // Sample ownership via find: files directly under top-levels that are not
-    // nobody:users. `find -maxdepth 2 -not ... -printf` bounded by head.
+    
+    
     $quoted = implode(' ', array_map(function ($t) use ($path) {
       return escapeshellarg($path . '/' . $t);
     }, array_slice($tops, 0, 50)));
@@ -65,11 +45,11 @@ function v_check_share_permissions(array $snap): array {
     foreach (explode("\n", trim($raw)) as $line) {
       if (!preg_match('/^(\d+) (\S+) (.+)$/', $line, $m)) continue;
       $badFiles[] = ['uid' => $m[1], 'group' => $m[2], 'path' => $m[3]];
-      // Which top-level folder this offender belongs to:
+      
       $rel = ltrim(substr($m[3], strlen($path)), '/');
       $top = strtok($rel, '/');
       if ($top !== false) $badTops[$top] = ($badTops[$top] ?? 0) + 1;
-      if (count($badFiles) >= 50) break; // evidence cap
+      if (count($badFiles) >= 50) break; 
     }
     if (!$badFiles) continue;
 

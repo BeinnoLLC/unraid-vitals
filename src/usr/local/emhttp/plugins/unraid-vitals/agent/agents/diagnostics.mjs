@@ -1,22 +1,4 @@
-/**
- * Diagnostics specialist — deep root-cause scan over a rolling window.
- *
- * Different from the per-domain specialists (disks/thermal/pools/general/
- * network), which each judge the LATEST snapshot in isolation: this one
- * reads the stitched timeline for the configured window (default 6h —
- * VITALS_DIAG_WINDOW_HOURS in Settings) AND the window before it, and
- * hands the models pre-computed facts: ranges, per-container peaks, SMART
- * counter deltas, fill rate, events, flapping alerts, and an explicit
- * "this window vs previous window" delta table. Small local models are
- * bad at summing rows and good at reading a table — so timeline.mjs does
- * the arithmetic and the model does the correlation.
- *
- * Runs the SAME prompt across 2-3 local models (VITALS_DIAG_MODELS) and
- * merges via runSpecialistMultiModel: a correlation claimed by one small
- * model alone is marked tentative; 2+ agreeing is corroborated. Cross-
- * model agreement matters most exactly here, where "X caused Y" is the
- * easiest thing to hallucinate.
- */
+
 import { selectModels } from '../lib/models.mjs';
 import { runSpecialistMultiModel } from './contract.mjs';
 import { activeSource, recentSyslogWarnings } from '../lib/sources.mjs';
@@ -25,7 +7,6 @@ import { window as timelineWindow, describeWindow } from '../lib/timeline.mjs';
 export const AGENT_ID = 'diagnostics';
 export const KB_REPORT = `${Math.max(1, Number(process.env.VITALS_DIAG_WINDOW_HOURS || 6))}-hour diagnostics scan`;
 
-// Used only when the studios cannot be reached for discovery at all.
 const DEFAULT_MODELS = ['qwen3:14b', 'ministral-3:latest', 'devstral-small-2:latest'];
 
 function deltaTable(cur, both) {

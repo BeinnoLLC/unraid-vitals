@@ -1,12 +1,4 @@
 <?php
-/* unraid-vitals — checks/log_size.php (P16-08 companion)
- *
- * Plugin's own logs (/var/tmp/unraid-vitals, /tmp/unraid-vitals) have no
- * inherent rotation; a runaway collector/agent can fill flash/RAM.
- * Raises a finding per log over the warning cap (soft: 10 MiB, critical:
- * 50 MiB) with the file name and size — so growth is visible in the UI and
- * the daily logrotate (scripts/vitals-logrotate.php) keeps files bounded.
- */
 
 declare(strict_types=1);
 

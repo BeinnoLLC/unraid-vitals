@@ -1,17 +1,10 @@
 <?php
-/**
- * unraid-vitals — checks/pool_health.php (P14-10)
- *
- * Reads $snap['pool_health'] (collect.php's v_pool_health(): btrfs device
- * error counters + scrub status, ZFS pool state + device error counters +
- * scrub age + ARC size).
- */
 
 function v_check_pool_health(array $snap): array {
   $out = [];
   $ph = $snap['pool_health'] ?? ['btrfs' => [], 'zfs' => []];
 
-  // ---- btrfs -----------------------------------------------------------
+  
   foreach ($ph['btrfs'] ?? [] as $pool) {
     foreach ($pool['devices'] ?? [] as $dev) {
       if (($dev['total_errors'] ?? 0) > 0) {
@@ -42,7 +35,7 @@ function v_check_pool_health(array $snap): array {
     }
   }
 
-  // ---- ZFS ---------------------------------------------------------------
+  
   foreach ($ph['zfs'] ?? [] as $pool) {
     if (!empty($pool['state']) && $pool['state'] !== 'ONLINE') {
       $out[] = [
@@ -68,10 +61,10 @@ function v_check_pool_health(array $snap): array {
         'fix_id' => null,
       ];
     }
-    // Last-scrub-age: only evaluable when a scrub date was actually
-    // parsed out of `zpool status` (a pool that has never been scrubbed
-    // reports no "scan:" line with a date at all, so this is skipped
-    // rather than guessed).
+    
+    
+    
+    
     if (!empty($pool['scrub_date'])) {
       $ts = strtotime($pool['scrub_date']);
       if ($ts !== false) {
@@ -88,9 +81,9 @@ function v_check_pool_health(array $snap): array {
         }
       }
     }
-    // ARC pinned at its max for a long time isn't itself alarming (that's
-    // by design -- ZFS wants to use spare RAM for cache), so this is
-    // informational context only, not a finding.
+    
+    
+    
   }
 
   return $out;

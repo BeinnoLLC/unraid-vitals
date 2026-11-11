@@ -1,23 +1,13 @@
 <?php
-/**
- * unraid-vitals — metric collection
- *
- * Reads Unraid's own state files (/var/local/emhttp/*.ini), /proc, the Docker
- * API, nvidia-smi and cached SMART output. No external dependencies, no
- * InfluxDB/Grafana/Telegraf required.
- */
 
 if (!defined('VITALS_PLUGDIR')) define('VITALS_PLUGDIR', '/usr/local/emhttp/plugins/unraid-vitals');
 if (!defined('VITALS_STATE'))    define('VITALS_STATE',   '/var/tmp/unraid-vitals');
-
-/* ------------------------------------------------------------------ helpers */
 
 function v_state_dir(): string {
   if (!is_dir(VITALS_STATE)) @mkdir(VITALS_STATE, 0755, true);
   return VITALS_STATE;
 }
 
-/** parse_ini_file with quote-stripped keys; Unraid writes ["disk1"] sections. */
 function v_ini(string $file, bool $sections = true): array {
   if (!is_file($file)) return [];
   $raw = @parse_ini_file($file, $sections, INI_SCANNER_RAW);
@@ -41,14 +31,6 @@ function v_run(string $cmd, int $timeout = 8): string {
   return is_string($out) ? trim($out) : '';
 }
 
-/**
- * Curated one-line "what is this model good at" blurbs for the models
- * actually present on the user's two Ollama studios (llmstudio1/2). Kept
- * as a static map rather than inventing marketing copy from the family
- * name — every line here reflects the model's real intended use (chat vs
- * code-completion vs a reasoning/"thinking" model vs an embedding-only
- * model that can't even be selected as a diagnostics model).
- */
 const V_MODEL_BLURBS = [
   'llama3.1:latest' => 'Solid general-purpose fallback — fast, dependable tool use, nothing specialized.',
   'ministral-3:latest' => 'Small vision+tool model — good for quick multimodal checks without heavy VRAM.',
@@ -67,14 +49,6 @@ const V_MODEL_BLURBS = [
   'gpt-oss:20b' => 'OpenAI open-weight model with thinking mode — broad general reasoning.',
 ];
 
-/**
- * Query both configured LLM studios' /api/tags and return the merged model
- * list with per-model on/off state (from VITALS_DIAG_MODELS), the curated
- * blurb, and live availability per studio — so Settings can render
- * checkboxes instead of a free-text field the user has to spell correctly
- * (a single typo there silently drops a model from corroboration with no
- * error surfaced anywhere).
- */
 function v_list_models(): array {
   $flashDir = defined('VITALS_FLASH') ? VITALS_FLASH : '/boot/config/plugins/unraid-vitals';
   $cfg = is_file($flashDir . '/vitals.cfg') ? (@parse_ini_file($flashDir . '/vitals.cfg') ?: []) : [];
@@ -112,10 +86,10 @@ function v_list_models(): array {
       'embedding_only' => in_array('embedding', $caps, true) && !in_array('completion', $caps, true),
       'on_primary' => isset($onPrimary[$name]),
       'on_backup' => isset($onBackup[$name]),
-      // Never enabled by default: a model list that comes back empty
-      // (both studios unreachable) must not silently disable everything
-      // the user already turned on — treat "no VITALS_DIAG_MODELS set at
-      // all" as "not yet configured", not "everything off".
+      
+      
+      
+      
       'enabled' => $enabled ? in_array($name, $enabled, true) : null,
     ];
   }
@@ -134,7 +108,6 @@ function v_bytes(float $n, int $p = 1): string {
   return round($n, $p) . ' ' . $u[$i];
 }
 
-/** "512.3MiB" / "1.5GiB" → bytes. Used for docker stats memory figures. */
 function v_parse_size(?string $s): ?int {
   if ($s === null) return null;
   $s = trim($s);
@@ -146,8 +119,6 @@ function v_parse_size(?string $s): ?int {
   return (int)round($n * $mult);
 }
 
-/* ---------------------------------------------------------------------- CPU */
-
 function v_cpu_stat(): array {
   $out = ['cores' => [], 'total' => ['total' => 0, 'idle' => 0]];
   $lines = @file('/proc/stat');
@@ -155,7 +126,7 @@ function v_cpu_stat(): array {
   foreach ($lines as $line) {
     if (!preg_match('/^(cpu\d*)\s+(.*)$/', trim($line), $m)) continue;
     $v = array_map('intval', preg_split('/\s+/', trim($m[2])));
-    $idle  = ($v[3] ?? 0) + ($v[4] ?? 0);   // idle + iowait
+    $idle  = ($v[3] ?? 0) + ($v[4] ?? 0);   
     $total = array_sum($v);
     $out['cores'][$m[1]] = ['total' => $total, 'idle' => $idle];
   }
@@ -215,8 +186,6 @@ function v_uptime(): int {
   return (int)(float)explode(' ', trim($s))[0];
 }
 
-/* ------------------------------------------------------------------- system */
-
 function v_system(): array {
   $var = v_ini('/var/local/emhttp/var.ini');
   $ver = v_ini('/etc/unraid-version');
@@ -233,17 +202,14 @@ function v_system(): array {
     'uptime'  => v_uptime(),
     'md_state'=> $var['mdState'] ?? '',
     'hostname'=> gethostname() ?: '',
-    // sbClean="no" means the array was NOT unmounted cleanly (crash, power
-    // loss, forced shutdown) — the standard Unraid webGUI shows an "Unclean
-    // shutdown detected" banner in this state; expose it directly since
-    // ArrayOperation.page's logic is buried behind an authenticated page.
+    
+    
+    
+    
     'unclean_shutdown' => ($var['sbClean'] ?? 'yes') !== 'yes',
   ];
 }
 
-/* -------------------------------------------------------------------- syslog signatures */
-
-/** Loads and caches the signature library (include/checks/signatures.json). */
 function v_syslog_signatures_def(): array {
   static $sigs = null;
   if ($sigs === null) {
@@ -254,20 +220,6 @@ function v_syslog_signatures_def(): array {
   return $sigs;
 }
 
-/**
- * Syslog signature scanner (P14-09). Reads only new bytes since the last
- * run (offset tracked in state-dir JSON, keyed by log path + inode so a
- * log rotation is detected and the scan restarts from the top of the new
- * file rather than silently skipping it or crashing on a negative seek).
- *
- * One data file drives all signatures (checks/signatures.json) -- adding
- * a new one needs no code, per the ticket's requirement. Matched lines
- * become findings (severity/title/detail come straight from the
- * signature definition, {1} substituted from the first capture group)
- * and are separately appended to a small rolling "recent syslog matches"
- * list in state-dir (capped at 200) for the AI agents (P20-05) to read as
- * evidence later -- that's the "passed to the AI agents" requirement.
- */
 function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
   $offsetPath = v_state_dir() . '/syslog_offset.json';
   $matchLogPath = v_state_dir() . '/syslog_matches.json';
@@ -282,10 +234,10 @@ function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
   if (($state['path'] ?? null) === $logPath && ($state['inode'] ?? null) === $inode && ($state['offset'] ?? 0) <= $size) {
     $offset = (int)$state['offset'];
   }
-  // else: first run, or the file was rotated/truncated (different inode,
-  // or offset now beyond the file's current size) -- restart from the top
-  // rather than crash on a negative-length read or silently miss the
-  // whole rotated-out file's content forever.
+  
+  
+  
+  
 
   $fh = @fopen($logPath, 'r');
   if (!$fh) return [];
@@ -319,10 +271,10 @@ function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
     }
   }
 
-  // Suppress signatures that declare suppress_if_matched when the
-  // referenced signature also fired in this same batch (e.g. a bare
-  // "Call Trace:" line right after an OOM kill is just noise from the
-  // same event, not a second, separate finding).
+  
+  
+  
+  
   $findings = array_values(array_filter($findings, function ($f) use ($sigs, $matchedKeysThisRun) {
     $suppress = $sigs[$f['signature']]['suppress_if_matched'] ?? [];
     foreach ($suppress as $other) if (!empty($matchedKeysThisRun[$other])) return false;
@@ -340,25 +292,14 @@ function v_syslog_scan(string $logPath = '/var/log/syslog'): array {
   return $findings;
 }
 
-/* -------------------------------------------------------------------- pool health (btrfs/zfs) */
-
-/**
- * Filesystem pool health (P14-10). Reads /proc/mounts to find btrfs and
- * zfs mount points, then queries each pool's native tools directly --
- * `btrfs device stats` / `btrfs scrub status` for btrfs, `zpool status`
- * / `zpool list` / ARC size from /proc/spl/kstat/zfs/arcstats for ZFS.
- * Both command sets and the ARC stats file's real field names were
- * confirmed against Selene's actual pools (a ZFS raidz2 "cache" pool and
- * a btrfs single-device docker/libvirt loop pool) before writing this.
- */
 function v_pool_health(): array {
   $out = ['btrfs' => [], 'zfs' => []];
   $mounts = @file('/proc/mounts', FILE_IGNORE_NEW_LINES) ?: [];
 
-  // ---- btrfs: one entry per distinct mount point, deduplicated by the
-  // underlying device (multiple bind-mount-like subvolumes of the same
-  // loop device, as seen on Selene for /var/lib/docker + its /btrfs
-  // subvol, would otherwise report the same pool twice).
+  
+  
+  
+  
   $btrfsSeen = [];
   foreach ($mounts as $line) {
     $f = preg_split('/\s+/', $line);
@@ -366,9 +307,9 @@ function v_pool_health(): array {
     $mountPoint = stripcslashes($f[1]);
     $dev = trim(shell_exec('findmnt -no SOURCE ' . escapeshellarg($mountPoint) . ' 2>/dev/null') ?? '');
     if ($dev === '') continue;
-    // findmnt reports subvolume mounts as "/dev/loop2[/btrfs]" -- strip the
-    // bracket suffix so the loop device's different bind-mounted subvols
-    // dedup to the same underlying pool instead of appearing twice.
+    
+    
+    
     $devKey = preg_replace('/\[.*\]$/', '', $dev);
     if (isset($btrfsSeen[$devKey])) continue;
     $btrfsSeen[$devKey] = true;
@@ -376,7 +317,7 @@ function v_pool_health(): array {
     $entry = ['mount' => $mountPoint, 'device' => $dev, 'devices' => [], 'scrub_status' => null, 'scrub_date' => null];
 
     $statsRaw = @shell_exec('btrfs device stats ' . escapeshellarg($mountPoint) . ' 2>/dev/null') ?: '';
-    // Lines look like: [/dev/loop2].write_io_errs    0
+    
     $perDevice = [];
     if (preg_match_all('/^\[([^\]]+)\]\.(\w+)\s+(\d+)/m', $statsRaw, $ms, PREG_SET_ORDER)) {
       foreach ($ms as $m) { $perDevice[$m[1]][$m[2]] = (int)$m[3]; }
@@ -393,16 +334,16 @@ function v_pool_health(): array {
     } elseif (stripos($scrubRaw, 'finished') !== false || stripos($scrubRaw, 'no errors') !== false) {
       $entry['scrub_status'] = 'finished';
     }
-    // The scrub *date* comes from `btrfs scrub status` only while recent
-    // history is retained; `zpool status`-style "last scrub" summaries
-    // aren't a thing for btrfs -- so this is left null when unavailable
-    // rather than guessing a date from unrelated log data.
+    
+    
+    
+    
 
     $out['btrfs'][] = $entry;
   }
 
-  // ---- ZFS: one entry per pool name (a pool can have many datasets/
-  // mountpoints but only one `zpool status`).
+  
+  
   if (@shell_exec('command -v zpool 2>/dev/null')) {
     $poolsRaw = trim(@shell_exec('zpool list -H -o name 2>/dev/null') ?? '');
     $pools = $poolsRaw !== '' ? explode("\n", $poolsRaw) : [];
@@ -417,13 +358,13 @@ function v_pool_health(): array {
       if (preg_match('/scan:\s*(?:scrub repaired \S+ in \S+ with (\d+) errors on (.+)|.*)/i', $statusRaw, $m)) {
         if (isset($m[1])) { $scrubErrors = (int)$m[1]; $scrubDate = trim($m[2] ?? ''); }
       }
-      // Per-vdev-line READ/WRITE/CKSUM error counters -- any device with
-      // a nonzero value here is a real per-device finding.
+      
+      
       $devErrors = [];
       if (preg_match_all('/^\s+(\S+)\s+(?:ONLINE|DEGRADED|FAULTED|OFFLINE|UNAVAIL|REMOVED)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/m', $statusRaw, $dms, PREG_SET_ORDER)) {
         foreach ($dms as $dm) {
           $read = (int)$dm[2]; $write = (int)$dm[3]; $cksum = (int)$dm[4];
-          if ($dm[1] === $pool) continue; // the pool's own summary line, not a device
+          if ($dm[1] === $pool) continue; 
           if ($read + $write + $cksum > 0) $devErrors[] = ['device' => $dm[1], 'read' => $read, 'write' => $write, 'cksum' => $cksum];
         }
       }
@@ -437,7 +378,6 @@ function v_pool_health(): array {
   return $out;
 }
 
-/** ZFS ARC size vs the box's total RAM, from /proc/spl/kstat/zfs/arcstats. */
 function v_zfs_arc_stats(): ?array {
   $raw = @file_get_contents('/proc/spl/kstat/zfs/arcstats');
   if ($raw === false) return null;
@@ -455,9 +395,6 @@ function v_zfs_arc_stats(): ?array {
   ];
 }
 
-/* -------------------------------------------------------------------- disks */
-
-/** Reads/writes (in sectors, 512 bytes each) + IOPS counters for one device from /proc/diskstats. */
 function v_diskstats_for(string $device): ?array {
   static $cache = null;
   if ($cache === null) {
@@ -466,8 +403,8 @@ function v_diskstats_for(string $device): ?array {
     foreach (explode("\n", $raw) as $line) {
       $f = preg_split('/\s+/', trim($line));
       if (count($f) < 14) continue;
-      // major minor name reads-completed reads-merged sectors-read ms-reading
-      // writes-completed writes-merged sectors-written ms-writing ...
+      
+      
       $cache[$f[2]] = ['reads' => (int)$f[5], 'writes' => (int)$f[9],
                         'reads_ops' => (int)$f[3], 'writes_ops' => (int)$f[7]];
     }
@@ -475,16 +412,6 @@ function v_diskstats_for(string $device): ?array {
   return $cache[$device] ?? null;
 }
 
-/**
- * Spin state / I/O history tracker (P14-08). One minute-resolution sample
- * per disk, rotated to the last 24 hours (1440 samples) -- enough to
- * answer "has this disk been spun up continuously for 24h" and, from the
- * diskstats deltas between samples, "what interval kept waking it up".
- *
- * Sampled every collection run (per-minute cron) -- this is cheap (just
- * appending to a small JSON array), unlike the docker/share checks that
- * need hourly caching for expensive shell-outs.
- */
 function v_spin_track(array $disks): void {
   $path = v_state_dir() . '/spin_history.json';
   $hist = v_read_json($path);
@@ -503,12 +430,6 @@ function v_spin_track(array $disks): void {
   v_write_json($path, $hist);
 }
 
-/**
- * Per-disk spin-down analysis over the tracked window (up to 24h):
- * spun-up minutes, whether it's been continuously spun up for 24h, and
- * the I/O activity intervals observed while spun up (for the "what kept
- * it awake" finding).
- */
 function v_spin_analysis(): array {
   $path = v_state_dir() . '/spin_history.json';
   $hist = v_read_json($path);
@@ -518,9 +439,9 @@ function v_spin_analysis(): array {
     if (count($series) < 2) continue;
     $spanMin = ($series[count($series) - 1]['t'] - $series[0]['t']) / 60;
     $upSamples = array_filter($series, fn($s) => ($s['spundown'] ?? 0) === 0);
-    $upMinutes = count($upSamples); // ~1 sample/min
-    // Gaps between consecutive read/write activity while spun up, in
-    // minutes -- this is "the interval that kept it awake".
+    $upMinutes = count($upSamples); 
+    
+    
     $activityGaps = [];
     $lastActiveT = null;
     $prevR = null; $prevW = null;
@@ -538,10 +459,10 @@ function v_spin_analysis(): array {
     $out[$name] = [
       'span_minutes' => round($spanMin, 1),
       'spun_up_minutes' => $upMinutes,
-      'continuously_up' => $upMinutes >= count($series) && $spanMin >= 1439, // full window, no spin-down seen
-      // Median gap is more representative than mean when a scan tool wakes
-      // the disk at a very regular interval but the occasional user access
-      // adds noise -- sorting is cheap at this size (<=1440 entries).
+      'continuously_up' => $upMinutes >= count($series) && $spanMin >= 1439, 
+      
+      
+      
       'median_activity_gap_min' => v_median($activityGaps),
       'activity_count' => count($activityGaps) + ($lastActiveT !== null ? 1 : 0),
     ];
@@ -584,9 +505,9 @@ function v_array_disks(): array {
       'color'  => $d['color'] ?? '',
     ];
     $e['usedPct'] = $e['fsSize'] > 0 ? round(100 * $e['fsUsed'] / $e['fsSize'], 1) : 0;
-    // /proc/diskstats sector counters (P14-08) -- reads[2] and
-    // writes[6] fields (0-indexed within the space-separated stat line),
-    // used to detect what's keeping a disk from spinning down.
+    
+    
+    
     if (!empty($e['device'])) {
       $ds = v_diskstats_for($e['device']);
       if ($ds !== null) {
@@ -618,17 +539,6 @@ function v_array_disks(): array {
   return $out;
 }
 
-/* SMART. Unraid caches smartctl output in /var/local/emhttp/smart/<dev>. */
-/**
- * Extract the RAW_VALUE from a `smartctl -A` attribute line.
- *
- * The columns are: ID NAME FLAG VALUE WORST THRESH TYPE UPDATED WHEN_FAILED RAW_VALUE
- * VALUE/WORST are the *normalized* numbers (200, 100 ...) — the failure counters
- * live in the trailing RAW_VALUE column, which may itself contain spaces
- * ("33 (Min/Max 20/45)"). Passing only the text after the attribute name lets
- * this skip the seven fixed columns and read the raw value, so a healthy disk
- * with VALUE=200/RAW=0 is never reported as having 200 pending sectors.
- */
 function v_ata_raw(string $rest): ?int {
   $parts = preg_split('/\s+/', trim($rest));
   if (!is_array($parts) || count($parts) < 8) return null;
@@ -640,7 +550,7 @@ function v_smart(): array {
   $dir = '/var/local/emhttp/smart';
   $disks = v_ini('/var/local/emhttp/disks.ini');
   $devmap = [];
-  $idmap = [];   // disk name -> disks.ini 'id' (model+serial), used as a model fallback (P15-09)
+  $idmap = [];   
   foreach ($disks as $d) {
     if (!is_array($d) || empty($d['device'])) continue;
     $devmap[$d['device']] = $d['name'] ?? $d['device'];
@@ -657,25 +567,25 @@ function v_smart(): array {
       'health' => null, 'temp' => null, 'hours' => null,
       'reallocated' => null, 'pending' => null, 'uncorrectable' => null, 'crc' => null,
       'spin_retry' => null,
-      // P15-09: model/start-stop for the disk fleet report -- start_stop
-      // matters because every spin-up/spin-down cycle is mechanical wear
-      // on a spinning disk (irrelevant to SSD/NVMe, stays null there).
+      
+      
+      
       'model' => null, 'start_stop_count' => null,
-      // NVMe-specific — null on ATA/SATA disks (the fields don't exist there).
+      
       'nvme_pct_used' => null, 'nvme_spare_pct' => null, 'nvme_spare_threshold' => null,
       'nvme_media_errors' => null, 'nvme_critical_warning' => null,
-      // SSD wear (SATA SSDs use different vendor attribute IDs for this —
-      // 177/233 are the two most common; null when neither is present,
-      // e.g. on a spinning disk or a vendor using a different ID).
+      
+      
+      
       'ssd_wear_pct' => null,
     ];
     if (preg_match('/^Device Model:\\s+(.+)$/mi', $raw, $m))                     $r['model'] = trim($m[1]);
-    elseif (preg_match('/^Model Number:\\s+(.+)$/mi', $raw, $m))                 $r['model'] = trim($m[1]);   // NVMe uses this label
+    elseif (preg_match('/^Model Number:\\s+(.+)$/mi', $raw, $m))                 $r['model'] = trim($m[1]);   
     if ($r['model'] === null && isset($idmap[$dev])) {
-      // Fallback: disks.ini's 'id' is "Model_With_Underscores_SERIALNUMBER" --
-      // not every smartctl output includes a Device Model line (seen on
-      // Selene's SSDs, which report vendor-specific attributes without the
-      // standard identification block), so this beats showing nothing.
+      
+      
+      
+      
       $id = $idmap[$dev];
       $r['model'] = str_replace('_', ' ', preg_replace('/_[A-Za-z0-9]+$/', '', $id)) ?: $id;
     }
@@ -692,13 +602,13 @@ function v_smart(): array {
     if (preg_match('/^\s*198\s+Offline_Uncorrectable\s+(.*)$/mi', $raw, $m))      $r['uncorrectable'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*199\s+UDMA_CRC_Error_Count\s+(.*)$/mi', $raw, $m))       $r['crc'] = v_ata_raw($m[1]);
     if (preg_match('/^\s*10\s+Spin_Retry_Count\s+(.*)$/mi', $raw, $m))            $r['spin_retry'] = v_ata_raw($m[1]);
-    // SSD wear: attribute 177 (Wear_Leveling_Count) or 233 (Media_Wearout_Indicator)
-    // both encode remaining life as the "current" (normalized) column, not
-    // the raw column — 100 = fresh, decreasing toward 0.
+    
+    
+    
     if (preg_match('/^\s*177\s+Wear_Leveling_Count\s+0x[0-9a-f]+\s+(\d+)/mi', $raw, $m))      $r['ssd_wear_pct'] = 100 - (int)$m[1];
     elseif (preg_match('/^\s*233\s+Media_Wearout_Indicator\s+0x[0-9a-f]+\s+(\d+)/mi', $raw, $m)) $r['ssd_wear_pct'] = 100 - (int)$m[1];
-    // NVMe fields — smartctl's NVMe log format is fixed-width text, not the
-    // ATA attribute-table format above.
+    
+    
     if (preg_match('/Percentage Used:\s+(\d+)%/i', $raw, $m))            $r['nvme_pct_used'] = (int)$m[1];
     if (preg_match('/Available Spare:\s+(\d+)%/i', $raw, $m))            $r['nvme_spare_pct'] = (int)$m[1];
     if (preg_match('/Available Spare Threshold:\s+(\d+)%/i', $raw, $m))  $r['nvme_spare_threshold'] = (int)$m[1];
@@ -706,11 +616,11 @@ function v_smart(): array {
     if (preg_match('/Critical Warning:\s+0x([0-9a-f]+)/i', $raw, $m))    $r['nvme_critical_warning'] = hexdec($m[1]);
     $out[$dev] = $r;
   }
-  // Unraid writes each disk's SMART report twice: once under the kernel
-  // device (sdb, nvme1n1) and once under the array slot (disk1,
-  // virtualmachine3). Keep the slot-named copy (that is the name the user
-  // knows) and drop the device-named twin, otherwise every SMART finding is
-  // reported twice for the same physical disk.
+  
+  
+  
+  
+  
   foreach ($out as $dev => $r) {
     if (isset($devmap[$dev]) && $devmap[$dev] !== $dev && isset($out[$devmap[$dev]])) unset($out[$dev]);
   }
@@ -718,17 +628,6 @@ function v_smart(): array {
   return $out;
 }
 
-/**
- * v_smart() plus per-disk day-over-day snapshots of the sector/CRC counters
- * (state-dir JSON, one entry per disk, rotated to the last 30 days),
- * used to compute genuine growth instead of a standing lifetime value —
- * the whole point of P14-07 ("a disk with 8 reallocated sectors that has
- * not changed in 30 days produces an info finding, not an hourly alert").
- *
- * Sampled at most once per real calendar day (not per-minute) — the
- * counters themselves only change occasionally, and a day-bucketed history
- * is exactly what "how much did this grow in N days" needs.
- */
 function v_smart_tracked(): array {
   $current = v_smart();
   $path = v_state_dir() . '/smart_history.json';
@@ -738,15 +637,15 @@ function v_smart_tracked(): array {
 
   foreach ($current as $dev => $r) {
     $series = $hist[$dev] ?? [];
-    // Already sampled today — don't overwrite today's bucket, but still
-    // attach the growth computed from history so every collection run
-    // (not just the first one of the day) reports it.
+    
+    
+    
     if (!isset($series[$today])) {
       $series[$today] = [
         'reallocated' => $r['reallocated'], 'pending' => $r['pending'],
         'crc' => $r['crc'], 'uncorrectable' => $r['uncorrectable'],
       ];
-      // Keep the last 30 calendar days only.
+      
       if (count($series) > 30) {
         uksort($series, 'strcmp');
         $series = array_slice($series, -30, null, true);
@@ -760,12 +659,6 @@ function v_smart_tracked(): array {
   return $current;
 }
 
-/**
- * Growth of each tracked counter from the OLDEST bucket present (up to 30
- * days back) to today's bucket. Null when there's only one day of history
- * yet (nothing to compare against) — that's what lets a long-standing
- * value report as unchanged rather than looking like infinite growth.
- */
 function v_smart_growth(array $series, string $today): array {
   $dates = array_keys($series);
   sort($dates, SORT_STRING);
@@ -783,37 +676,22 @@ function v_smart_growth(array $series, string $today): array {
   return $out;
 }
 
-/* ----------------------------------------------------------------------- VMs */
-
-/**
- * VM storage (P14-14): per-vdisk virtual (allocated) size vs real size on
- * disk, the sum of all vdisks against the free space of the pool hosting
- * them, and libvirt.img usage.
- *
- * Uses `qemu-img info --output=json` for the sizes rather than the file
- * size alone, because the gap between virtual-size (what the guest sees)
- * and actual-size (what the pool actually pays for) is the whole point --
- * a sparse qcow2 can claim terabytes while occupying megabytes. Verified
- * against Selene's real VMs (raw-format vdisks under
- * /mnt/virtualmachine/domains/<name>/), where virtual-size 59055800320
- * vs actual-size 54945746944 shows the slack a raw file still carries.
- */
 function v_vm_storage(): array {
   $out = ['vdisks' => [], 'total_virtual' => 0, 'total_actual' => 0,
           'pools' => [], 'libvirt_img' => null, 'overcommit' => null];
   if (!is_executable('/usr/bin/qemu-img')) return $out;
 
-  // --- locate the vdisk files. The libvirt XML definitions are
-  // authoritative (they name the real path libvirt opens), so they are
-  // tried first. The conventional-layout glob is only a fallback.
-  //
-  // Deduplication matters: on Unraid the SAME file is reachable both as
-  // /mnt/user/domains/<vm>/vdisk1.img (the FUSE user-share view) and
-  // /mnt/virtualmachine/domains/<vm>/vdisk1.img (the real pool). A plain
-  // glob over /mnt/*/domains/*/* therefore reports every vdisk twice and
-  // attributes it to /mnt/user, which is not the filesystem the bytes
-  // actually live on. Verified live: 18 paths for 9 real vdisks. Keyed by
-  // dev+inode so the two views collapse to one entry.
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
+  
   $files = [];
   $seen = [];
   $confDir = '/etc/libvirt/qemu';
@@ -850,9 +728,9 @@ function v_vm_storage(): array {
     $as = $j['actual-size'] ?? null;
     if ($vs === null) { $vs = @filesize($f) ?: null; }
     if ($as === null) { $as = @filesize($f) ?: null; }
-    // The pool that hosts this file -- take the longest mount point that
-    // is a prefix of the path (a plain "first match wins" would pick a
-    // shorter, wrong mount like /mnt over /mnt/virtualmachine).
+    
+    
+    
     $pool = v_pool_for_path($f);
     $out['vdisks'][] = [
       'file' => $f, 'vm' => basename(dirname($f)), 'format' => $j['format'] ?? null,
@@ -862,7 +740,7 @@ function v_vm_storage(): array {
     if ($as !== null) $out['total_actual'] += $as;
   }
 
-  // --- free space of every pool that actually hosts a vdisk.
+  
   foreach (array_unique(array_filter(array_column($out['vdisks'], 'pool'))) as $pool) {
     $total = @disk_total_space($pool);
     $free  = @disk_free_space($pool);
@@ -871,11 +749,11 @@ function v_vm_storage(): array {
       : null;
   }
 
-  // --- overcommit: total VIRTUAL size of vdisks on a pool vs that pool's
-  // size. Virtual is the right number here -- that is what every guest
-  // believes it can write, so that is what can actually run the pool out
-  // of space when the disks fill up. Reported per pool, with the
-  // shortfall in bytes.
+  
+  
+  
+  
+  
   foreach ($out['pools'] as $pool => $p) {
     if ($p === null) continue;
     $virtual = 0;
@@ -885,7 +763,7 @@ function v_vm_storage(): array {
     }
   }
 
-  // --- libvirt.img (the VM config/XML image libvirt itself lives on).
+  
   $libvirt = v_run('grep -h libvirt /boot/config/plugins/dynamix/*.cfg 2>/dev/null', 5);
   $libvirtPath = null;
   if ($libvirt !== '' && preg_match('/libvirt[^\n=]*=\s*([^\n]+)/i', $libvirt, $m)) {
@@ -897,9 +775,9 @@ function v_vm_storage(): array {
   }
   if ($libvirtPath !== null && is_file($libvirtPath)) {
     $lsize = @filesize($libvirtPath);
-    // libvirt.img is a btrfs image; its real content usage is only
-    // visible from inside the mounted /etc/libvirt, so report both the
-    // image size and the mounted filesystem's usage.
+    
+    
+    
     $total = @disk_total_space('/etc/libvirt');
     $free  = @disk_free_space('/etc/libvirt');
     $out['libvirt_img'] = [
@@ -914,18 +792,6 @@ function v_vm_storage(): array {
   return $out;
 }
 
-/**
- * Longest mount point from /proc/mounts that is a prefix of $path.
- *
- * /mnt/user is special-cased: it is Unraid's FUSE user-share view, and
- * `df` on it reports the whole array's aggregate free space, not the pool
- * the bytes actually live on. Verified live -- a vdisk at
- * /mnt/user/domains/X/vdisk1.img reported a 2.95 TB "pool" while the real
- * file sits on /mnt/virtualmachine (2.8 TB). So a path under /mnt/user is
- * re-resolved by finding which real /mnt/<pool>/ carries the same relative
- * path at the same size. shfs rewrites inode numbers, so dev+inode cannot
- * be used to match the two views -- size is the reliable signal.
- */
 function v_pool_for_path(string $path): ?string {
   static $mounts = null;
   if ($mounts === null) {
@@ -972,8 +838,8 @@ function v_vms(): array {
       elseif ($k === 'Used memory') $row['mem_kib'] = (int)$v;
       elseif ($k === 'Autostart') $row['autostart'] = str_starts_with($v, 'enable');
     }
-    // vcpupin only means something while the VM is actually running; a
-    // stopped VM's affinity call is either empty or misleading.
+    
+    
     if ($row['state'] === 'running') {
       $pin = v_run('virsh vcpupin ' . escapeshellarg($name), 5);
       $rows = [];
@@ -990,9 +856,6 @@ function v_vms(): array {
           'stopped' => count($list) - $running, 'list' => $list];
 }
 
-/** Physical CPU topology (sockets/cores/threads) — static hardware layout,
- *  paired with v_cpu_pct()'s live per-core load so the System tab can show
- *  which physical cores are hot, and cross-reference against VM pinning. */
 function v_cpu_topology(): array {
   $out = v_run('lscpu -p=CPU,CORE,SOCKET 2>/dev/null', 5);
   $cpus = [];
@@ -1008,14 +871,6 @@ function v_cpu_topology(): array {
   return ['threads' => count($cpus), 'cores' => $cores, 'sockets' => $sockets, 'map' => $cpus];
 }
 
-/** Per-core scaling frequency in MHz (P4-33) — catches throttling events
- *  (a core pinned at its minimum under load = thermal/power throttling,
- *  not just "CPU busy") next to the temp chart. Reads the standard
- *  cpufreq sysfs interface present on virtually every modern kernel
- *  (intel_pstate, amd-pstate, acpi-cpufreq, generic cpufreq) — no vendor
- *  tool required. Returns per-core current MHz plus each core's own
- *  min/max so the UI can show "how close to the ceiling", and package
- *  min/max/avg since a 32-thread box charting 32 lines is unreadable. */
 function v_cpu_freq(): array {
   $cores = [];
   foreach (glob('/sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_cur_freq') ?: [] as $f) {
@@ -1040,21 +895,6 @@ function v_cpu_freq(): array {
   ];
 }
 
-/* ------------------------------------------------------------------ sensors */
-
-/**
- * Generic hwmon reader — temps, fans, and PWM duty for every chip the kernel
- * exposes (CPU, motherboard super-I/O, NVMe composite sensors, etc.).
- * Deliberately reads /sys/class/hwmon directly instead of shelling out to
- * `sensors` (lm-sensors) so this works on any Unraid box, sensors package
- * installed or not — this plugin is generic, not tuned to one server.
- *
- * Per hwmon convention: raw temp values are millidegrees C (divide by 1000);
- * pwm* is 0-255 (rescaled to a 0-100% duty); fan*_input is already RPM.
- * _max/_min/_crit files, where the driver exposes them, become chip-reported
- * thresholds so the UI can show "this vendor considers X the ceiling" instead
- * of only the user's own configured alert level.
- */
 function v_sensors(): array {
   $base = '/sys/class/hwmon';
   $temps = []; $fans = []; $pwms = []; $volts = [];
@@ -1069,9 +909,9 @@ function v_sensors(): array {
       $raw = trim((string)@file_get_contents($f));
       if ($raw === '' || !is_numeric($raw)) continue;
       $val = (float)$raw / 1000;
-      // Unrealistic readings: 127/-3C = classic disconnected-sensor sentinels,
-      // anything outside -20..120C is not a real temperature. Threshold files
-      // can hold driver garbage too (seen: 65261.85) — same sanity bound.
+      
+      
+      
       if ($val < -20 || $val > 120) continue;
       $label = trim((string)@file_get_contents("$dir/temp{$n}_label")) ?: "temp$n";
       $max  = is_file("$dir/temp{$n}_max")  ? (float)file_get_contents("$dir/temp{$n}_max") / 1000 : null;
@@ -1095,9 +935,9 @@ function v_sensors(): array {
       $fans[] = [
         'id' => "$chip/fan$n", 'chip' => $chip, 'label' => $label,
         'rpm' => (int)$raw, 'min' => $min,
-        // Stalled = reads 0. Whether that is meaningful (was spinning before)
-        // is decided by the alert layer, which has history; the UI renders
-        // '0 RPM' plainly without crying wolf on unused headers.
+        
+        
+        
         'stalled' => (int)$raw === 0,
       ];
     }
@@ -1115,19 +955,19 @@ function v_sensors(): array {
       ];
     }
 
-    // Voltage rails (P4-33): in*_input is millivolts on every hwmon driver.
-    // Most Super-I/O chips don't expose in*_label at all (confirmed on a
-    // real nct6797 — 15 channels, zero labels), so this deliberately does
-    // NOT try to guess "in0 = Vcore" from chip name: that mapping is
-    // board-specific and would be wrong on a different motherboard using
-    // the same chip. Generic "in<n>" + the chip's own reported min/max is
-    // honest and portable; a labelled chip still gets its real label.
+    
+    
+    
+    
+    
+    
+    
     foreach (glob($dir . '/in*_input') ?: [] as $f) {
       if (!preg_match('#/in(\d+)_input$#', $f, $m)) continue;
       $n = $m[1];
       $raw = trim((string)@file_get_contents($f));
       if ($raw === '' || !is_numeric($raw)) continue;
-      $val = round((float)$raw / 1000, 3); // mV -> V
+      $val = round((float)$raw / 1000, 3); 
       $label = trim((string)@file_get_contents("$dir/in{$n}_label")) ?: "$chip in$n";
       $min = is_file("$dir/in{$n}_min") ? round((float)file_get_contents("$dir/in{$n}_min") / 1000, 3) : null;
       $max = is_file("$dir/in{$n}_max") ? round((float)file_get_contents("$dir/in{$n}_max") / 1000, 3) : null;
@@ -1143,21 +983,11 @@ function v_sensors(): array {
   return ['temps' => $temps, 'fans' => $fans, 'pwms' => $pwms, 'volts' => $volts];
 }
 
-/* --------------------------------------------------------------------- logs */
-
-/**
- * Curated system-log reader for the UI's critical-logs drawer.
- *
- * Only whitelisted sources are readable — the source parameter is a key into
- * this list, never a file path from the client, so there is no traversal or
- * arbitrary-read surface. Returns the newest lines last, with a best-effort
- * syslog timestamp preserved per line when present.
- */
 function v_log_sources(): array {
   return [
     'syslog' => ['label' => 'System (syslog)', 'file' => '/var/log/syslog'],
-    // NB: no shell grouping here — v_run() prefixes `timeout N`, which cannot
-    // wrap a ( subshell ). The iso→legacy fallback is handled in v_logs().
+    
+    
     'dmesg'  => ['label' => 'Kernel (dmesg)',  'cmd'  => 'dmesg --time-format iso 2>/dev/null'],
     'dmesg2' => ['label' => 'Kernel (dmesg)',  'cmd'  => 'dmesg 2>/dev/null'],
     'docker' => ['label' => 'Docker daemon',   'file' => '/var/log/docker.log'],
@@ -1175,7 +1005,7 @@ function v_logs(string $source, int $lines = 200): array {
     $raw = is_file($f) ? (string)shell_exec('tail -n ' . (int)$lines . ' ' . escapeshellarg($f) . ' 2>/dev/null') : '';
   } else {
     $raw = v_run($sources[$source]['cmd'] . ' 2>/dev/null | tail -n ' . (int)$lines, 8);
-    // dmesg --time-format iso unsupported on old kernels → empty output, retry legacy.
+    
     if ($raw === '' && isset($sources[$source . '2'])) {
       $raw = v_run($sources[$source . '2']['cmd'] . ' 2>/dev/null | tail -n ' . (int)$lines, 8);
     }
@@ -1184,7 +1014,7 @@ function v_logs(string $source, int $lines = 200): array {
   $entries = [];
   foreach (explode("\n", $raw) as $line) {
     if ($line === '') continue;
-    // syslog style: "Sep 29 04:54:22 host proc[pid]: msg" — keep ts+rest.
+    
     $ts = null;
     if (preg_match('/^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(.*)$/', $line, $m)) {
       $ts = $m[1]; $line = $m[2];
@@ -1195,8 +1025,6 @@ function v_logs(string $source, int $lines = 200): array {
   }
   return ['source' => $source, 'entries' => $entries];
 }
-
-/* -------------------------------------------------------------------- docker */
 
 function v_docker(): array {
   $ps = v_run("docker ps -a --format '{{.Names}}\\t{{.State}}\\t{{.Status}}\\t{{.Image}}'", 10);
@@ -1227,30 +1055,12 @@ function v_docker(): array {
           'stopped' => count($rows) - $running, 'containers' => array_values($rows)];
 }
 
-/**
- * Docker hygiene (P14-13): restart loops, host-port conflicts between
- * containers, appdata mapped through /mnt/user for SQLite-using
- * containers, and containers with no memory limit while the host is
- * under memory pressure.
- *
- * Inspect output shape verified against Selene's real containers before
- * writing: `.RestartCount`, `.State.ExitCode`, `.HostConfig.Memory`
- * (0 = unlimited), `.NetworkSettings.Ports` for host port bindings, and
- * `.Mounts` for source:destination pairs.
- *
- * The SQLite half only flags a container if BOTH conditions hold -- it
- * has a path under /mnt/user AND a SQLite file is actually visible in
- * its mounts. Flagging every /mnt/user mount would be noise (plenty of
- * containers legitimately read a shared media path); the combination is
- * what actually causes the "database is locked" class of problem on
- * Unraid, because /mnt/user is a FUSE shim over the array.
- */
 function v_docker_hygiene(): array {
   $names = v_run("docker ps -a --format '{{.Names}}'", 8);
   if ($names === '') return ['containers' => [], 'port_conflicts' => [], 'mem_pct' => null];
 
-  // One inspect call for everything (cheaper than N calls), asking only
-  // for the fields this check needs.
+  
+  
   $fmt = '{{.Name}}|{{.RestartCount}}|{{.State.ExitCode}}|{{.State.Status}}|{{.HostConfig.Memory}}'
        . '|{{range $p, $c := .NetworkSettings.Ports}}{{if $c}}{{$p}}={{(index $c 0).HostPort}};{{end}}{{end}}'
        . '|{{range .Mounts}}{{.Source}}:{{.Destination}};{{end}}';
@@ -1291,16 +1101,16 @@ function v_docker_hygiene(): array {
       'state' => trim($state), 'mem_limit_bytes' => (int)$memLimit,
       'mem_limit_set' => (int)$memLimit > 0, 'ports' => $portList, 'mounts' => $mountList,
       'has_mnt_user_path' => $hasUserPath,
-      // Filled in below: is a real SQLite file visible inside this
-      // container's mounts (either the bare db or one of its sidecars)?
+      
+      
       'sqlite_paths' => [],
     ];
   }
 
-  // ---- SQLite detection: look for *.db/*.sqlite (+ -wal/-shm sidecars)
-  // directly inside any /mnt/user mount, one directory level deep. Not a
-  // full tree walk -- deliberately bounded, and a SQLite database at the
-  // root of an appdata-ish /mnt/user mount is the actual failure shape.
+  
+  
+  
+  
   foreach ($out['containers'] as $name => &$c) {
     if (!$c['has_mnt_user_path']) continue;
     foreach ($c['mounts'] as $m) {
@@ -1314,27 +1124,20 @@ function v_docker_hygiene(): array {
   }
   unset($c);
 
-  // ---- host port conflicts: one host port claimed by >1 container.
+  
   foreach ($portMap as $hport => $owners) {
     if (count($owners) > 1) {
       $out['port_conflicts'][] = ['host_port' => $hport, 'containers' => array_values(array_unique($owners))];
     }
   }
 
-  // ---- memory pressure context for the no-memory-limit finding.
+  
   $mem = v_mem();
   $out['mem_pct'] = $mem['pct'] ?? null;
 
   return $out;
 }
 
-/**
- * docker.img usage — "Docker image is full" is one of the most common Unraid
- * problems, usually caused by a container writing data inside the image
- * instead of a mapped path. `df` on Docker's own root dir gives an accurate
- * total/used/free regardless of storage driver (btrfs loop image, overlay2
- * directory, etc.) without parsing `docker info`'s driver-specific output.
- */
 function v_docker_root(): string {
   $root = v_run('docker info --format \'{{.DockerRootDir}}\'', 8);
   return $root !== '' ? $root : '/var/lib/docker';
@@ -1353,12 +1156,6 @@ function v_docker_image(): array {
   ];
 }
 
-/**
- * Per-container writable layer size via `docker ps -s` — deliberately NOT
- * called every minute: -s makes the daemon walk every container's diff
- * layer on disk, which is slow (seconds per container on a busy host).
- * Callers should sample this at most hourly (see v_docker_layers_cached()).
- */
 function v_docker_layers(): array {
   $raw = v_run("docker ps -a -s --format '{{.Names}}\\t{{.Size}}'", 30);
   $out = [];
@@ -1366,20 +1163,15 @@ function v_docker_layers(): array {
   foreach (explode("\n", $raw) as $line) {
     $c = explode("\t", $line);
     if (count($c) < 2) continue;
-    // "{{.Size}}" looks like "1.23MB (virtual 512MB)" or "0B (virtual 128MB)"
-    // — the first number is the container's own writable layer, not counting
-    // the shared read-only image layers below it.
+    
+    
+    
     if (!preg_match('/^([\d.]+\s*[KMGT]?i?B)/', $c[1], $m)) continue;
     $out[$c[0]] = v_parse_size($m[1]);
   }
   return $out;
 }
 
-/**
- * v_docker_layers() sampled at most once an hour, cached in the state dir.
- * Returns the cached sample even if it is stale — a check can compare its
- * own timestamp against the cache's 'ts' to decide whether to trust it.
- */
 function v_docker_layers_cached(): array {
   $path = v_state_dir() . '/docker_layers.json';
   $cache = v_read_json($path);
@@ -1390,12 +1182,6 @@ function v_docker_layers_cached(): array {
   return $cache;
 }
 
-/**
- * Size of each container's JSON log file (/var/lib/docker/containers/<id>/
- * <id>-json.log — the log driver Unraid uses by default). Sampled at most
- * hourly like v_docker_layers(): `docker inspect` per container adds up on
- * a host with many containers, and log growth is not a per-minute concern.
- */
 function v_docker_logs(): array {
   $ps = v_run("docker ps -a --format '{{.Names}}\\t{{.ID}}'", 10);
   $out = [];
@@ -1413,12 +1199,6 @@ function v_docker_logs(): array {
   return $out;
 }
 
-/**
- * v_docker_logs() sampled at most once an hour, cached in the state dir,
- * keeping the PREVIOUS sample's bytes+ts too so a check can compute a
- * growth rate without needing the flash rollup history (log files don't
- * flow through the ring/rollup — only their check-time size matters).
- */
 function v_docker_logs_cached(): array {
   $path = v_state_dir() . '/docker_logs.json';
   $cache = v_read_json($path);
@@ -1432,8 +1212,6 @@ function v_docker_logs_cached(): array {
   return $cache;
 }
 
-/* ----------------------------------------------------------------------- GPU */
-
 function v_gpu(): array {
   $smi = null;
   foreach (['/usr/bin/nvidia-smi', '/usr/local/bin/nvidia-smi'] as $p) {
@@ -1442,8 +1220,8 @@ function v_gpu(): array {
   if ($smi === null) return [];
   $q = 'utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw,power.limit,name,fan.speed';
   $raw = v_run(escapeshellarg($smi) . " --query-gpu={$q} --format=csv,noheader,nounits", 10);
-  // nvidia-smi present but the driver is not loaded (typical when the GPU is
-  // passed through to a VM). Report it explicitly rather than as "no GPU".
+  
+  
   if ($raw === '' || stripos($raw, 'failed') !== false || stripos($raw, "couldn't communicate") !== false) {
     return ['available' => false, 'reason' => 'driver-not-loaded', 'smi' => $smi];
   }
@@ -1463,8 +1241,6 @@ function v_gpu(): array {
   return $out;
 }
 
-/* ----------------------------------------------------------------------- UPS */
-
 function v_ups(): array {
   if (!is_executable('/usr/sbin/apcaccess') && !is_executable('/usr/bin/apcaccess')) return [];
   $raw = v_run('apcaccess', 6);
@@ -1478,19 +1254,6 @@ function v_ups(): array {
   return $out;
 }
 
-/* ---------------------------------------------------------------- parity */
-
-/**
- * /boot/config/parity-checks.log — Unraid's own history of every parity
- * check, sync, rebuild and disk clear. Pipe-separated; the field count per
- * line varies by Unraid version and whether the parity.check.tuning plugin
- * is installed (5/6/7/8/9 fields seen in the wild), so this only reads the
- * common prefix every format shares: date, elapsed seconds, speed, status,
- * errors — everything after that (device list, sync size, etc.) is ignored.
- *
- * status: 0 = clean finish, -4 = cancelled/incomplete, otherwise an error
- * count on some Unraid versions. errors: the corrected-sector count.
- */
 function v_parity_history(int $limit = 20): array {
   $path = '/boot/config/parity-checks.log';
   if (!is_file($path)) return [];
@@ -1499,15 +1262,15 @@ function v_parity_history(int $limit = 20): array {
   foreach ($lines as $line) {
     $c = explode('|', $line);
     if (count($c) < 4) continue;
-    // strtotime() cannot parse Unraid's "YYYY Mon DD HH:MM:SS" field order
-    // (tested directly: returns false) — DateTime::createFromFormat can.
-    // The day-of-month is space-padded to 2 chars ("May  1" for the 1st),
-    // so collapse repeated spaces before parsing.
+    
+    
+    
+    
     $dt = DateTime::createFromFormat('Y M j H:i:s', preg_replace('/\s+/', ' ', trim($c[0])));
     $ts = $dt !== false ? $dt->getTimestamp() : false;
     $elapsed = (int)$c[1];
-    // Speed is "94.6 MB/s" or "0" (when the run was too short/cancelled to
-    // have a meaningful average) or "2.7 GB/s" — normalise to MB/s.
+    
+    
     $speedMbps = null;
     if (preg_match('/([\d.]+)\s*(KB|MB|GB)\/s/i', $c[2] ?? '', $m)) {
       $mult = ['KB' => 1 / 1024, 'MB' => 1, 'GB' => 1024][strtoupper($m[2])];
@@ -1515,10 +1278,10 @@ function v_parity_history(int $limit = 20): array {
     }
     $status = isset($c[3]) && is_numeric($c[3]) ? (int)$c[3] : null;
     $errors = isset($c[4]) && is_numeric($c[4]) ? (int)$c[4] : null;
-    // Field 9 (0-indexed) is the human-readable action description on the
-    // newer plugin format ("Manual Correcting Parity-Check"); fall back to
-    // field 5 (the raw "check P Q" / "recon D5" / "clear" token) when the
-    // longer format isn't present.
+    
+    
+    
+    
     $type = trim($c[9] ?? ($c[5] ?? ''));
     $out[] = [
       'date' => $ts !== false ? $ts : null,
@@ -1531,12 +1294,10 @@ function v_parity_history(int $limit = 20): array {
       'type' => $type,
     ];
   }
-  // Log is chronological (oldest first) — take the most recent $limit,
-  // newest last (so a chart/table can read it in display order directly).
+  
+  
   return array_slice($out, -$limit);
 }
-
-/* ------------------------------------------------------------------- shares */
 
 function v_shares(): array {
   $shares = v_ini('/var/local/emhttp/shares.ini');
@@ -1559,7 +1320,6 @@ function v_shares(): array {
   return $out;
 }
 
-/** Array disk mount names currently present (disk1, disk2, ... — not always contiguous). */
 function v_array_disk_mounts(): array {
   $out = [];
   foreach (glob('/mnt/disk*') ?: [] as $p) {
@@ -1570,22 +1330,6 @@ function v_array_disk_mounts(): array {
   return $out;
 }
 
-/**
- * Share placement conflicts (P14-05): a pool-only share ("useCache=only")
- * that also has a top-level folder sitting on an array disk (or vice versa
- * for an array-only share with a folder left on cache) means files got
- * written to the wrong place — classic causes are a share's cache setting
- * changed after files already existed, or the mover never ran. This is the
- * kind of split that keeps array disks spinning for an "SSD-only" share
- * like appdata, and makes Docker slow.
- *
- * Deliberately shallow: only checks for the share's own top-level folder's
- * *existence* on the wrong pool/disk (is_dir), not a full recursive walk —
- * a full walk of every share on every disk would be one of the slowest
- * things this plugin could do. "Files on disks the include/exclude rules
- * out" and the case-mismatch check are left for a follow-up if this
- * shallow version proves too coarse in practice.
- */
 function v_share_placement(): array {
   $shares = v_ini('/var/local/emhttp/shares.ini');
   $arrayDisks = v_array_disk_mounts();
@@ -1595,13 +1339,13 @@ function v_share_placement(): array {
     $pool = $s['useCache'] ?? 'no';
     $stray = [];
     if ($pool === 'only') {
-      // Cache-only share — flag any array disk that also has this top-level folder.
+      
       foreach ($arrayDisks as $disk) {
         $p = '/mnt/' . $disk . '/' . $name;
         if (is_dir($p)) $stray[] = ['disk' => $disk, 'path' => $p, 'expected' => 'cache'];
       }
     } elseif ($pool === 'no') {
-      // Array-only share — flag if it also exists on cache.
+      
       $p = '/mnt/cache/' . $name;
       if (is_dir($p)) $stray[] = ['disk' => 'cache', 'path' => $p, 'expected' => 'array'];
     }
@@ -1610,7 +1354,6 @@ function v_share_placement(): array {
   return $out;
 }
 
-/** v_share_placement() sampled at most once an hour, cached in the state dir. */
 function v_share_placement_cached(): array {
   $path = v_state_dir() . '/share_placement.json';
   $cache = v_read_json($path);
@@ -1620,41 +1363,12 @@ function v_share_placement_cached(): array {
   return $conflicts;
 }
 
-/* ----------------------------------------------------------------------- power */
-
-/**
- * Whole-machine power draw (ticket: "power consumption tab based on all
- * components you can detect"). There is no single universal "total system
- * watts" sensor on a DIY/server box like this (that only exists on
- * enterprise servers with a Redfish/IPMI-exposed PSU telemetry chip) — so
- * this sums the REAL per-component sensors that are actually present
- * instead of guessing:
- *
- *  - CPU package: Intel RAPL (`/sys/class/powercap/intel-rapl:*`) reports
- *    a monotonic microjoule counter per package; power = energy delta /
- *    time delta between two samples (same delta-rate pattern as
- *    v_net_delta()). AMD Ryzen has NO equivalent sysfs power number
- *    without the (rarely loaded) amd_energy module or a vendor tool, so
- *    on pure-AMD boxes this returns null rather than a fabricated value —
- *    verified on this box (5950X, k10temp has no power1_input, no
- *    amd_energy module loaded): cpu_watts stays null, never a guess.
- *  - GPU: nvidia-smi power.draw, already collected in v_gpu() per-card.
- *  - UPS: apcaccess NOMPOWER (rated watts) * LOADPCT/100 gives the load's
- *    actual draw on a UPS-backed system — this is the closest thing to a
- *    true whole-machine number when present, since it's downstream of
- *    everything (CPU+GPU+disks+fans+motherboard). Absent here (no UPS
- *    configured on this box) so ups_watts is null, not fabricated.
- *
- * total_watts is the sum of whichever of the above are non-null, tagged
- * with which components it actually includes (partial, never silently
- * presented as "whole machine" when it's only "CPU+GPU").
- */
 function v_rapl_energy_uj(): ?array {
   $zones = @glob('/sys/class/powercap/intel-rapl:[0-9]*') ?: [];
   $total = 0.0; $max = 0.0; $found = false;
   foreach ($zones as $z) {
-    // Skip subzones like intel-rapl:0:0 (core/uncore split) -- only sum
-    // top-level package zones or wattage double-counts core+uncore.
+    
+    
     if (!preg_match('#/intel-rapl:\d+$#', $z)) continue;
     $e = @file_get_contents($z . '/energy_uj');
     if ($e === false) continue;
@@ -1670,10 +1384,10 @@ function v_power(?array $prevRapl, float $elapsed, array $gpu, array $ups): arra
   $rapl = v_rapl_energy_uj();
   if ($rapl && $prevRapl && $elapsed > 0) {
     $delta = $rapl['energy_uj'] - $prevRapl['energy_uj'];
-    // RAPL's energy_uj counter wraps at max_energy_range_uj; a negative
-    // delta means it wrapped between samples -- add the range back so a
-    // 60s collector tick spanning a wrap doesn't report a bogus negative
-    // or wildly-wrong wattage.
+    
+    
+    
+    
     if ($delta < 0 && $rapl['max_uj'] > 0) $delta += $rapl['max_uj'];
     if ($delta >= 0) $cpuWatts = round(($delta / 1e6) / $elapsed, 1);
   }
@@ -1694,9 +1408,9 @@ function v_power(?array $prevRapl, float $elapsed, array $gpu, array $ups): arra
   $total = 0.0;
   if ($cpuWatts !== null) { $parts[] = 'cpu'; $total += $cpuWatts; }
   if ($gpuWatts !== null) { $parts[] = 'gpu'; $total += $gpuWatts; }
-  // UPS load already reflects the whole machine's draw downstream of it --
-  // don't ALSO add cpu/gpu on top of that (double-counts), prefer it alone
-  // as the most authoritative whole-machine number when present.
+  
+  
+  
   if ($upsWatts !== null) { $parts = ['ups']; $total = $upsWatts; }
 
   return [
@@ -1711,8 +1425,6 @@ function v_power(?array $prevRapl, float $elapsed, array $gpu, array $ups): arra
   ];
 }
 
-/* ------------------------------------------------------------------ network */
-
 function v_net_read(): array {
   $out = [];
   foreach (@file('/proc/net/dev') ?: [] as $l) {
@@ -1720,8 +1432,8 @@ function v_net_read(): array {
     $if = trim($m[1]);
     if ($if === 'lo') continue;
     $v = preg_split('/\s+/', trim($m[2]));
-    // Receive: bytes(0) packets(1) errs(2) drop(3) fifo(4) frame(5) compressed(6) multicast(7)
-    // Transmit: bytes(8) packets(9) errs(10) drop(11) fifo(12) colls(13) carrier(14) compressed(15)
+    
+    
     $out[$if] = [
       'rx' => (int)$v[0], 'tx' => (int)$v[8],
       'rx_errs' => (int)($v[2] ?? 0), 'rx_drop' => (int)($v[3] ?? 0),
@@ -1749,16 +1461,6 @@ function v_net_delta(array $now, array $prev, float $seconds): array {
   return $out;
 }
 
-/**
- * P15-02 — per-disk read/write throughput (bytes/s) and IOPS from the raw
- * diskstats counters already captured on each disk entry (io_*_sectors,
- * io_*_ops). Same delta-over-elapsed-seconds pattern as v_net_delta() above
- * — diskstats counters are monotonic cumulative totals, not rates, so a
- * single sample alone can't answer "is this disk busy right now".
- *
- * $now/$prev are keyed by disk name (matching array disk entries), each
- * value ['reads_sectors','writes_sectors','reads_ops','writes_ops'].
- */
 function v_disk_io_delta(array $now, array $prev, float $seconds): array {
   if ($seconds <= 0) $seconds = 1;
   $out = [];
@@ -1778,18 +1480,6 @@ function v_disk_io_delta(array $now, array $prev, float $seconds): array {
   return $out;
 }
 
-/**
- * Per-interface link state (P14-11): negotiated speed/duplex/mtu/carrier
- * from sysfs, plus bond-member and bridge-member MTU comparisons.
- *
- * "Gigabit-capable port linking at 100 Mb" is detected by tracking each
- * interface's highest-ever observed speed in state-dir JSON (updated
- * whenever a higher speed is seen) and comparing the CURRENT speed
- * against that history -- a real drop (not just "this NIC happens to be
- * 100Mb-only", which would never have a higher speed on record) rather
- * than a hardcoded "gigabit" threshold that would be wrong for 2.5G/10G
- * NICs or genuinely-100Mb ports.
- */
 function v_net_link_info(): array {
   $out = [];
   $ifaces = @glob('/sys/class/net/*') ?: [];
@@ -1829,22 +1519,6 @@ function v_net_link_info(): array {
   return $out;
 }
 
-/* -------------------------------------------------------------------- flash drive health (P14-12) */
-
-/**
- * Flash (boot) drive health. Unraid runs entirely from a USB stick, so
- * its free space, its mount state, and how often we write to it all
- * matter -- a full or read-only /boot takes the whole box down on the
- * next reboot, and USB flash cells have a finite write budget.
- *
- * Field sources verified against Selene's real state before writing:
- *   /proc/mounts carries the ro/rw flag for /boot directly (a read-only
- *   remount shows as "ro" in field 4); /boot/config/plugins/
- *   dynamix.my.servers/fb_keepalive holds a fresh ISO-8601 timestamp
- *   written by Unraid's own flash-backup keepalive (its mtime is the
- *   real "last flash backup" signal); and this plugin's own writes are
- *   all funneled through v_flash_writes_track(), below.
- */
 function v_flash_health(): array {
   $out = [
     'mount' => '/boot', 'total' => null, 'free' => null, 'used_pct' => null,
@@ -1853,8 +1527,8 @@ function v_flash_health(): array {
     'our_writes_today' => null, 'our_writes_per_day' => null,
   ];
 
-  // --- free space + read-only detection from /proc/mounts (one source
-  // for both, so they can never disagree about which mount we mean).
+  
+  
   foreach (@file('/proc/mounts', FILE_IGNORE_NEW_LINES) ?: [] as $line) {
     $f = preg_split('/\s+/', $line);
     if (count($f) < 4 || $f[1] !== '/boot') continue;
@@ -1871,7 +1545,7 @@ function v_flash_health(): array {
     $out['used_pct'] = round(100 * ($total - $free) / $total, 1);
   }
 
-  // --- last flash backup: Unraid Connect's own keepalive file.
+  
   $keepalive = '/boot/config/plugins/dynamix.my.servers/fb_keepalive';
   $stamp = @file_get_contents($keepalive);
   $ts = $stamp !== false ? strtotime(trim($stamp)) : false;
@@ -1884,7 +1558,7 @@ function v_flash_health(): array {
     $out['backup_age_days'] = round((time() - $ts) / 86400, 1);
   }
 
-  // --- our own write budget (see v_flash_writes_track()).
+  
   $w = v_flash_writes_series();
   $out['our_writes_today'] = $w['today'];
   $out['our_writes_per_day'] = $w['per_day'];
@@ -1892,17 +1566,6 @@ function v_flash_health(): array {
   return $out;
 }
 
-/**
- * Counts how many times THIS plugin writes to the flash drive, per day,
- * so the wear budget can be shown as a number rather than asserted.
- *
- * Called from the plugin's actual flash-write sites (all of them are in
- * store.php's hourly v_rollup() -- the month jsonl append and the
- * last_rollup_hour marker -- plus the settings save in ajax.php). The
- * counter itself lives in the state dir, which is tmpfs, NOT flash, so
- * counting does not add writes. A day bucket is rotated to the last 30
- * days.
- */
 function v_flash_writes_track(): void {
   $path = v_state_dir() . '/flash_writes.json';
   $hist = v_read_json($path);
@@ -1916,7 +1579,6 @@ function v_flash_writes_track(): void {
   v_write_json($path, $hist);
 }
 
-/** Today's flash-write count and the 30-day average from v_flash_writes_track(). */
 function v_flash_writes_series(): array {
   $hist = v_read_json(v_state_dir() . '/flash_writes.json');
   if (!is_array($hist)) return ['today' => 0, 'per_day' => null];
@@ -1924,8 +1586,6 @@ function v_flash_writes_series(): array {
   $vals = array_values(array_filter($hist, 'is_numeric'));
   return ['today' => $today, 'per_day' => $vals ? round(array_sum($vals) / count($vals), 1) : null];
 }
-
-/* ---------------------------------------------------------------- processes */
 
 function v_top_procs(int $n = 8): array {
   $raw = v_run("ps -eo pcpu,pmem,rss,comm --sort=-pcpu --no-headers", 8);
@@ -1940,14 +1600,6 @@ function v_top_procs(int $n = 8): array {
   return $out;
 }
 
-/* ------------------------------------------------------------------ assemble */
-
-/**
- * Root filesystem usage. Unraid boots into RAM (tmpfs) — `/` filling up is a
- * different, more urgent failure than an array disk filling up (it can wedge
- * docker, syslog, and the webGUI itself), so it gets its own snapshot field
- * rather than being folded into 'array'.
- */
 function v_rootfs(): array {
   $total = @disk_total_space('/');
   $free  = @disk_free_space('/');
@@ -1962,12 +1614,6 @@ function v_rootfs(): array {
   ];
 }
 
-/**
- * Disk usage of one mount point. Unraid runs / (and /var/log, /tmp, /run —
- * all tmpfs/overlay mounted from RAM) so this is cheap and safe to call
- * every minute; it is NOT walked for the array/cache disks (see
- * v_array_disks() for those).
- */
 function v_mount_fill(string $path): array {
   $total = @disk_total_space($path);
   $free  = @disk_free_space($path);
@@ -1976,18 +1622,13 @@ function v_mount_fill(string $path): array {
   }
   $used = $total - $free;
   $pct = round(($used / $total) * 100, 1);
-  // Only walk for the largest files once usage looks like a real problem —
-  // no point spending a `find` every minute on a healthy filesystem, and
-  // this keeps the collector's per-minute cost flat on a quiet system.
+  
+  
+  
   $largest = $pct >= 70 ? v_largest_files($path, 5) : [];
   return ['path' => $path, 'total' => (int)$total, 'free' => (int)$free, 'used_pct' => $pct, 'largest' => $largest];
 }
 
-/**
- * Top N largest files under $dir, same filesystem only (-xdev — stops the
- * walk at a mount boundary, e.g. /var/log won't wander into a bind-mounted
- * docker log dir sitting under it).
- */
 function v_largest_files(string $dir, int $n = 5): array {
   $raw = v_run('find ' . escapeshellarg($dir) . " -xdev -type f -printf '%s\\t%p\\n' 2>/dev/null | sort -rn | head -n " . (int)$n, 10);
   $out = [];
@@ -2000,7 +1641,6 @@ function v_largest_files(string $dir, int $n = 5): array {
   return $out;
 }
 
-/** rootfs + /var/log + /tmp + /run, for the P14-03 fill check. */
 function v_fs_watch(): array {
   return [
     'rootfs'   => v_mount_fill('/'),
@@ -2010,10 +1650,6 @@ function v_fs_watch(): array {
   ];
 }
 
-/**
- * Collect a full snapshot. $prev is the previous snapshot (for rate deltas)
- * and $elapsed the seconds since it was taken.
- */
 function v_collect(?array $prev = null, float $elapsed = 60.0): array {
   $cpuNow = v_cpu_stat();
   $netNow = v_net_read();
@@ -2072,9 +1708,9 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
     }
   }
 
-  // P15-02: per-disk throughput/IOPS from the raw diskstats counters
-  // v_array_disks() already attached to each disk entry. Raw counters saved
-  // to _raw for next tick's delta, same as cpu/net above.
+  
+  
+  
   $diskIoNow = [];
   foreach (array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []) as $d) {
     if (isset($d['io_reads_sectors'])) {
@@ -2095,9 +1731,9 @@ function v_collect(?array $prev = null, float $elapsed = 60.0): array {
   $snap['_raw'] = ['cpu' => $cpuNow, 'net' => $netNow, 'rapl' => $snap['power']['_raw_rapl'] ?? null, 'disk_io' => $diskIoNow];
   unset($snap['power']['_raw_rapl']);
 
-  // Spin-down tracking (P14-08): record this sample, then compute analysis
-  // from the accumulated history -- must happen after v_array_disks() has
-  // already populated $snap['array'] with spundown + diskstats.
+  
+  
+  
   $allDisks = array_merge($snap['array']['data'] ?? [], $snap['array']['parity'] ?? [], $snap['array']['cache'] ?? []);
   v_spin_track($allDisks);
   $snap['spin_analysis'] = v_spin_analysis();

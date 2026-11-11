@@ -1,28 +1,13 @@
 <?php
-/**
- * unraid-vitals — checks/smart_deep.php (P14-07)
- *
- * Builds on v_smart_tracked()'s growth_30d (collect.php) for the sector
- * counters, and reads NVMe/SSD-specific fields directly (they're already
- * point-in-time percentages/flags, not something growth-tracked matters
- * for the same way — a critical warning bit or a 90% wear indicator is
- * actionable the moment it's seen, no history needed).
- *
- * Self-test age (short/long) is NOT covered here: neither disk checked
- * during development (Selene's disk1 and its NVMe drives) had any
- * self-test log entries at all in their smartctl output — there was no
- * real field to parse. Left out rather than guessing a field that was
- * never observed to exist.
- */
 
 function v_check_smart_deep(array $snap): array {
   $out = [];
   foreach ($snap['smart'] ?? [] as $s) {
     $name = $s['name'] ?? ($s['dev'] ?? '?');
 
-    // UDMA CRC error growth — usually a cable/backplane problem, not the
-    // disk itself, but still worth flagging distinctly from reallocated/
-    // pending (which store.php already handles as alert-on-growth events).
+    
+    
+    
     $grew = $s['growth_30d']['crc'] ?? null;
     $days = $s['growth_30d']['days'] ?? null;
     if (($s['crc'] ?? 0) > 0 && $grew !== null && $grew > 0) {
@@ -41,11 +26,11 @@ function v_check_smart_deep(array $snap): array {
       ];
     }
 
-    // NVMe critical warning bit -- smartctl's NVMe critical warning byte;
-    // any non-zero value is the drive itself telling you something is
-    // wrong (spare below threshold, temperature, NVM subsystem reliability,
-    // read-only mode, or backup device failure -- the exact bit meanings
-    // per the NVMe spec).
+    
+    
+    
+    
+    
     if (($s['nvme_critical_warning'] ?? 0) > 0) {
       $out[] = [
         'severity' => 'critical', 'subject' => 'smart_nvme',
@@ -62,7 +47,7 @@ function v_check_smart_deep(array $snap): array {
       ];
     }
 
-    // NVMe available spare below its own vendor threshold.
+    
     if (($s['nvme_spare_pct'] ?? null) !== null && ($s['nvme_spare_threshold'] ?? null) !== null
       && $s['nvme_spare_pct'] <= $s['nvme_spare_threshold']) {
       $out[] = [
@@ -79,8 +64,8 @@ function v_check_smart_deep(array $snap): array {
       ];
     }
 
-    // NVMe media/data integrity errors -- any nonzero count is real
-    // hardware-detected corruption, unlike a normalized wear percentage.
+    
+    
     if (($s['nvme_media_errors'] ?? 0) > 0) {
       $out[] = [
         'severity' => 'alert', 'subject' => 'smart_nvme',
@@ -94,9 +79,9 @@ function v_check_smart_deep(array $snap): array {
       ];
     }
 
-    // NVMe percentage used / SSD wear indicator -- both are normalized 0-100
-    // vendor wear estimates; treat them the same way regardless of which
-    // one a given drive reports.
+    
+    
+    
     $wearPct = $s['nvme_pct_used'] ?? ($s['ssd_wear_pct'] ?? null);
     if ($wearPct !== null && $wearPct >= 80) {
       $out[] = [

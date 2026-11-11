@@ -1,4 +1,4 @@
-/** Storage-pool specialist — cache/pool fill, balance, and share placement. */
+
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
 import { peaks, changes } from '../viewmodels/health.mjs';

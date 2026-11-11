@@ -1,21 +1,4 @@
 <?php
-/**
- * unraid-vitals — checks/fs_watch_full.php (P14-03)
- *
- * Unraid runs / (and /var/log, /tmp, /run) from RAM. A full rootfs or
- * /var/log causes strange failures across docker, syslog, and the webGUI
- * itself — worse than a full array disk because there's no obvious "disk is
- * full" message, just things silently breaking. rootfs already had its own
- * check (rootfs_full.php, P13-01); this extends the same coverage to
- * /var/log, /tmp and /run, and names the largest files once usage is high
- * enough to matter (v_mount_fill() only walks for largest-files at >=70%,
- * so a healthy system pays nothing extra per minute).
- *
- * Deliberately does NOT duplicate rootfs_full's finding for '/' — same
- * threshold (90/98), same subject naming; kept as two separate checks
- * (this one for /var/log, /tmp, /run) so rootfs_full's existing behaviour
- * and settings key are untouched.
- */
 
 function v_check_fs_watch_full(array $snap): array {
   $out = [];

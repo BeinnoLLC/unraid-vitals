@@ -1,21 +1,14 @@
 <?php
-/**
- * unraid-vitals — checks/flash_health.php (P14-12)
- *
- * Reads $snap['flash'] (collect.php's v_flash_health()): /boot free space,
- * read-only remount state, last flash-backup age, and this plugin's own
- * flash-write rate.
- */
 
 function v_check_flash_health(array $snap): array {
   $out = [];
   $f = $snap['flash'] ?? [];
   if (!$f) return $out;
 
-  // ---- read-only remount. This is the acceptance criterion and deserves
-  // to be the loudest thing here: a read-only /boot means Unraid cannot
-  // persist any config change, and if it stays that way the next reboot
-  // comes up with stale/broken state.
+  
+  
+  
+  
   if (($f['read_only'] ?? null) === true) {
     $out[] = [
       'severity' => 'critical', 'subject' => 'flash_ro',
@@ -33,9 +26,9 @@ function v_check_flash_health(array $snap): array {
     ];
   }
 
-  // ---- free space. Unraid's flash drive is small (a few GB) and holds
-  // the whole config tree plus plugin/docker-template history; a full /boot
-  // breaks every config write the same way a read-only remount does.
+  
+  
+  
   $pct = $f['used_pct'] ?? null;
   if ($pct !== null && $pct >= 85) {
     $out[] = [
@@ -54,8 +47,8 @@ function v_check_flash_health(array $snap): array {
     ];
   }
 
-  // ---- flash backup age. Not actionable as a hard failure, but a backup
-  // older than a month is the thing people regret after the USB stick dies.
+  
+  
   $age = $f['backup_age_days'] ?? null;
   if ($age !== null && $age > 30) {
     $out[] = [
@@ -71,7 +64,7 @@ function v_check_flash_health(array $snap): array {
       'fix_id' => null,
     ];
   }
-  // No backup signal at all (file absent) -> say so rather than silently pass.
+  
   if (($f['last_backup'] ?? null) === null && ($f['backup_age_days'] ?? null) === null) {
     $out[] = [
       'severity' => 'warning', 'subject' => 'flash_backup',

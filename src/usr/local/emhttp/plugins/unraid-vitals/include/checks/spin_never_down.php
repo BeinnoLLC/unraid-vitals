@@ -1,18 +1,4 @@
 <?php
-/**
- * unraid-vitals — checks/spin_never_down.php (P14-08)
- *
- * Reads $snap['spin_analysis'] (collect.php's v_spin_track() + v_spin_analysis(),
- * a minute-resolution history of each array disk's spundown state plus
- * /proc/diskstats reads/writes, rotated to the last 24 hours).
- *
- * A disk that's never allowed to spin down burns power and wears bearings
- * for no reason if nothing actually needs it awake. This check fires when
- * a disk has been continuously spun up for the full tracked window (24h)
- * AND names the interval between the I/O activity that's keeping it awake
- * -- matching the ticket's acceptance case: "a disk kept awake by a
- * container scanning it every 10 minutes is reported with the interval."
- */
 
 function v_check_spin_never_down(array $snap): array {
   $out = [];

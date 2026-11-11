@@ -1,13 +1,5 @@
 #!/usr/bin/env node
-/**
- * unraid-vitals agent — on-demand share comment generator.
- *
- * Invoked per-click from the UI (via actions.php), not on a schedule. Reads
- * a directory listing sample from the share and asks the model to write a
- * short, human comment describing what the share appears to hold.
- *
- * Usage: node share-comment.mjs <shareName>
- */
+
 import { execFileSync } from 'node:child_process';
 import { makeAnalysisAgent, callAnalyze } from './lib/smythos-client.mjs';
 import { setShareComment } from './lib/db.mjs';
@@ -20,8 +12,8 @@ if (!share || !/^[\w.\- ]+$/.test(share)) {
 
 function sampleListing(sharePath, maxEntries = 60) {
   try {
-    // Depth-2 listing, directories first, so the model sees real structure
-    // (top-level folders + a peek inside) without walking the whole tree.
+    
+    
     const out = execFileSync('/usr/bin/find', [sharePath, '-mindepth', '1', '-maxdepth', '2'],
       { encoding: 'utf8', timeout: 8000 });
     return out.split('\n').filter(Boolean).slice(0, maxEntries)

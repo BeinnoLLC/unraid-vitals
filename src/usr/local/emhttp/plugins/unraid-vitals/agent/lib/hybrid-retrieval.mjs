@@ -1,22 +1,4 @@
-/**
- * unraid-vitals — lib/hybrid-retrieval.mjs (P11-… / #37)
- *
- * Hybrid retrieval upgrade for the KB:
- *   1. LOCAL embeddings via the configured Ollama-compatible endpoint
- *      (KB_EMBED_MODEL, default nomic-embed-text); vectors as BLOB in
- *      kb_documents / kb_events / kb_lessons; backfill for existing rows.
- *   2. Hybrid search = FTS5 BM25 ⨯ cosine(embedding) fused with reciprocal
- *      rank fusion (k=60).
- *   3. LLM reranker over the top-20 fused candidates (listwise, ids-out) —
- *      final top-5.
- *   4. Query rewriting: ONE optional LLM call expanding synonyms/entities
- *      before retrieval (KB_REWRITE_QUERY).
- *   5. Eval harness: scripts/kb-eval.mjs golden set → recall@5 baseline
- *      (BM25-only) vs hybrid.
- *
- * Embeddings fail SOFT: endpoint down ⇒ BM25-only results (the retrieval
- * degrades, never breaks).
- */
+
 
 import { getDb } from './db.mjs';
 
@@ -24,14 +6,11 @@ const LLM_PRIMARY = process.env.LLM_STUDIO_PRIMARY || '';
 const LLM_FALLBACK = process.env.LLM_STUDIO_BACKUP || '';
 const EMBED_MODEL = process.env.VITALS_KB_EMBED_MODEL || 'nomic-embed-text';
 
-/** One embedding call; null on failure (soft). Speaks BOTH OpenAI-compat
- *  /v1/embeddings and Ollama-native /api/embeddings (the studios are plain
- *  Ollama servers — /v1 may not exist there; /api/embeddings always does). */
 export async function embed(text) {
   const clean = String(text).slice(0, 4000);
   for (const base of [LLM_PRIMARY, LLM_FALLBACK].filter(Boolean)) {
     const b = base.replace(/\/$/, '');
-    // ollama-native first (measured working on the reference box)
+    
     try {
       const res = await fetch(b + '/api/embeddings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -42,8 +21,8 @@ export async function embed(text) {
         const j = await res.json();
         if (Array.isArray(j?.embedding) && j.embedding.length) return j.embedding;
       }
-    } catch { /* try next */ }
-    // openai-compat fallback
+    } catch {  }
+    
     try {
       const res = await fetch(b + '/v1/embeddings', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -55,14 +34,13 @@ export async function embed(text) {
         const v = j?.data?.[0]?.embedding;
         if (Array.isArray(v) && v.length) return v;
       }
-    } catch { /* next endpoint / null */ }
+    } catch {  }
   }
   return null;
 }
 
-const VEC_DIM = 768; // nomic-embed-text; anything else changes this constant per model — store dim in the row instead.
+const VEC_DIM = 768; 
 
-/** cosine over two number arrays (or Float32Array views of BLOBs). */
 export function cosine(a, b) {
   const n = Math.min(a.length, b.length);
   let dot = 0, na = 0, nb = 0;
@@ -78,7 +56,6 @@ function blobToVec(blob) {
 }
 function vecToBlob(vec) { return Buffer.from(Float32Array.from(vec).buffer); }
 
-/** Backfill embeddings for rows missing them. Returns counts. */
 export async function backfillEmbeddings(batch = 20) {
   const db = getDb();
   const out = { docs: 0, events: 0, lessons: 0, skipped: 0 };
@@ -97,13 +74,9 @@ export async function backfillEmbeddings(batch = 20) {
   return out;
 }
 
-/**
- * Hybrid search: BM25 rows + vector cosine rows → RRF fuse → (optional) LLMS
- * rerank. Same signature as searchKb: (query, limit, severity, tag, opts).
- */
 export async function hybridSearchKb(query, limit = 8, opts = {}) {
   const db = getDb();
-  // 1. BM25 leg (same shape as lib/db.mjs searchKb)
+  
   const words = String(query).split(/\s+/).filter(Boolean).map(w => `"${w.replace(/["*^]/g, '')}"`);
   const leg1 = words.length
     ? db.prepare(`SELECT d.id, d.title, d.topic, d.severity, d.tags, d.kind, d.summary, d.content, bm25(kb_fts) AS rank
@@ -111,7 +84,7 @@ export async function hybridSearchKb(query, limit = 8, opts = {}) {
                   WHERE kb_fts MATCH ? ORDER BY rank LIMIT 20`).all(words.join(' OR '))
     : [];
 
-  // 2. embedding leg — needs the query vector
+  
   let leg2 = [];
   const qv = opts.noEmbed ? null : await embed(query);
   if (qv) {
@@ -123,7 +96,7 @@ export async function hybridSearchKb(query, limit = 8, opts = {}) {
       .slice(0, 20);
   }
 
-  // 3. RRF fuse (k=60)
+  
   const rrf = new Map();
   const addLeg = (rows, weight = 1) => {
     rows.forEach((r, i) => {
@@ -132,12 +105,12 @@ export async function hybridSearchKb(query, limit = 8, opts = {}) {
       rrf.set(r.id, cur);
     });
   };
-  addLeg(leg1, leg2.length ? 1 : 1.2);               // BM25 keeps more weight without the vector leg
+  addLeg(leg1, leg2.length ? 1 : 1.2);               
   addLeg(leg2, 1);
   let fused = [...rrf.values()].sort((a, b) => b.score - a.score).map(x => x.row);
   if (fused.length === 0) return [];
 
-  // 4. LLM reranker (listwise, ids out) — top-20 → ranked order; fail soft
+  
   if (opts.rerank !== false && fused.length > 2) {
     try {
       const { callAnalyze } = await import('./smythos-client.mjs');
@@ -151,13 +124,12 @@ Rank these ${Math.min(20, fused.length)} documents by relevance to the query. Re
       if (Array.isArray(order) && order.length) {
         fused = order.flatMap(ix => (Number.isInteger(ix) && fused[ix]) ? [fused[ix]] : []);
       }
-    } catch { /* soft: keep fused order */ }
+    } catch {  }
   }
 
   return fused.slice(0, limit);
 }
 
-/** Optional query rewrite (KB_REWRITE_QUERY=1): one LLM call adding synonyms. */
 export async function rewriteQuery(query) {
   if (process.env.VITALS_KB_REWRITE_QUERY !== '1') return query;
   try {

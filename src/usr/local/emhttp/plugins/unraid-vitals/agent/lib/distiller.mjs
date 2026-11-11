@@ -1,22 +1,4 @@
-/**
- * unraid-vitals — lib/distiller.mjs (P10-… / #36)
- *
- * Resolved events auto-generate durable lessons + solution writeups:
- *   for every RESOLVED event with no solution row yet:
- *     1. a lesson: "what happened → what fixed/stopped it", confidence
- *        starting at 0.5;
- *     2. a solution row: detection (the event's summary/evidence) + the
- *        action taken (the resolving fact) + outcome=worked by construction
- *        (the event resolved — this is the fix that coincided, not proof, but
- *        it's the only fact we have);
- *     3. recurrence: the SAME {kind, entity} event re-opened later merges the
- *        lesson (times_seen + 1, confidence nudged up, merged_from keeps the
- *        provenance) instead of adding a second lesson.
- *
- * The distiller is deterministic (reads only the DB — no LLM call): an LLM
- * could write prettier lessons, but the value here is coverage — every
- * resolved event becomes reusable knowledge with zero cost.
- */
+
 
 import { getDb, unlearnedResolvedEvents } from './db.mjs';
 
@@ -26,7 +8,7 @@ export function distill(limit = 25) {
   let lessons = 0, solutions = 0;
 
   for (const e of events) {
-    // the resolving fact: what changed when the event closed
+    
     const evidence = safeParse(e.evidence);
     const resolvedHow = evidence?.resolved_by ?? evidence?.last ?? null;
     const detection = `${e.kind} on ${e.entity}: ${e.summary}`;
@@ -34,7 +16,7 @@ export function distill(limit = 25) {
       ? `Resolved automatically — trigger cleared (${resolvedHow}).`
       : 'Resolved automatically — the breaching condition stopped being true (see evidence timestamps).';
 
-    // lesson: same {kind,entity} seen before? merge. else new.
+    
     const lessonKey = `${e.kind}:${e.entity}`;
     const prev = db.prepare(
       `SELECT id, times_seen, lesson FROM kb_lessons WHERE kind=? AND entity=? ORDER BY last_seen_at DESC LIMIT 1`
@@ -68,7 +50,6 @@ export function distill(limit = 25) {
   return { events: events.length, lessons, solutions };
 }
 
-/** Kind-specific durable guidance — the actual operational takeaway. */
 function guidanceFor(kind) {
   switch (kind) {
     case 'temp': return 'Disk temperature breaches: check the specific drive position and case airflow first (a single hot drive in a dead zone beats a new fan). Trend matters more than the peak.';

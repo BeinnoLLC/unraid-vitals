@@ -1,18 +1,4 @@
 <?php
-/**
- * unraid-vitals — scripts/vitals-storage-scan.php (P15-05)
- *
- * Nightly, low-I/O-priority scan of every share: top-20 folders by size,
- * a per-share total (for the 30-day growth chart, built from repeated
- * scans over time), a rough file-type breakdown, and files not accessed
- * in over a year. Cached entirely in the agents' SQLite DB — the UI never
- * triggers a scan on request, only reads whatever the last scan produced.
- *
- * Run from cron once nightly (see install.sh). Skips a share if EVERY
- * backing disk for it is currently spun down, unless --force is passed —
- * `du` would spin every disk back up just to answer "how big is this
- * folder", defeating the whole point of spin-down.
- */
 
 require_once __DIR__ . '/../include/store.php';
 
@@ -20,7 +6,7 @@ $force = in_array('--force', $argv, true);
 $quiet = in_array('--quiet', $argv, true);
 $log = function (string $m) use ($quiet) { if (!$quiet) echo $m . "\n"; };
 
-$db = v_events_db();   // ensures kb_events/kb_lessons exist; also creates the DB file
+$db = v_events_db();   
 if (!$db) { fwrite(STDERR, "vitals-storage-scan: no DB path available (array not mounted?)\n"); exit(1); }
 
 $db->exec("CREATE TABLE IF NOT EXISTS storage_scans (
@@ -42,18 +28,18 @@ foreach ($shares['list'] ?? [] as $s) {
   $path = '/mnt/user/' . $name;
   if (!is_dir($path)) { $skipped++; continue; }
 
-  // Skip if every disk this share could live on is spun down (unless forced)
-  // -- v_shares() doesn't map share->disk list, so as a conservative proxy
-  // check whether ALL array disks are spun down; a share almost always
-  // spans more than one disk via fuse/shfs, so "any disk is up" is the
-  // right bar to avoid a false skip.
+  
+  
+  
+  
+  
   $allDown = count($spundownByDisk) > 0 && !in_array(false, $spundownByDisk, true);
   if ($allDown && !$force) { $skipped++; $log("skip $name (all disks spun down)"); continue; }
 
   $log("scanning $name ...");
-  // -d1: one level of subfolder totals (the "top folders" the ticket asks
-  // for); ionice -c3 (idle) + nice -n 19 keep this off the array's back
-  // during normal use; -x stays on one filesystem (shfs union mount).
+  
+  
+  
   $cmd = 'nice -n 19 ionice -c3 du -b -d1 -x ' . escapeshellarg($path) . ' 2>/dev/null';
   $out = @shell_exec($cmd);
   if ($out === null) { $skipped++; continue; }
@@ -71,9 +57,9 @@ foreach ($shares['list'] ?? [] as $s) {
   usort($folders, fn($a, $b) => $b['bytes'] <=> $a['bytes']);
   $folders = array_slice($folders, 0, 20);
 
-  // File-type breakdown: sample-based (a full recursive walk over a
-  // multi-TB share is the exact I/O cost this ticket asks us to avoid) --
-  // `find` capped at a generous depth and count, grouped by extension.
+  
+  
+  
   $typeBytes = [];
   $findCmd = 'nice -n 19 ionice -c3 find ' . escapeshellarg($path)
     . ' -maxdepth 4 -type f -printf "%s %f\\n" 2>/dev/null | head -n 20000';
@@ -90,7 +76,7 @@ foreach ($shares['list'] ?? [] as $s) {
   arsort($typeBytes);
   $typeBytes = array_slice($typeBytes, 0, 12, true);
 
-  // Stale data: not accessed in 365+ days, same sampled walk depth.
+  
   $staleCmd = 'nice -n 19 ionice -c3 find ' . escapeshellarg($path)
     . ' -maxdepth 4 -type f -atime +365 -printf "%s\\n" 2>/dev/null | head -n 20000';
   $staleOut = @shell_exec($staleCmd);
@@ -114,8 +100,6 @@ foreach ($shares['list'] ?? [] as $s) {
   $scanned++;
 }
 
-// Retention: keep 60 days of history per share (enough for a 30-day growth
-// chart with margin), prune older rows so the DB doesn't grow unbounded.
 $db->exec("DELETE FROM storage_scans WHERE scanned_at < " . (time() - 60 * 86400));
 
 $db->close();

@@ -1,4 +1,4 @@
-/** General system-health specialist — cross-cutting synthesis + error-log triage. */
+
 import { runSpecialist } from './contract.mjs';
 import { activeSource, tail } from '../lib/sources.mjs';
 import { healthBrief } from '../viewmodels/health.mjs';
@@ -20,14 +20,14 @@ export async function run() {
     maxTokens: 1000,
     knownSubjects: [...containers.map(c => c.name), snap.system?.name],
     sections: [
-      // healthBrief already carries memory, load, cores, disks and container
-      // counts — duplicating them here burned prompt budget and risked the two
-      // copies disagreeing.
+      
+      
+      
       { name: 'system', priority: 5, text: `${healthBrief(source, 6)}
 Memory: ${snap.mem?.pct ?? 'n/a'}% used, swap ${snap.mem?.swapPct ?? snap.mem?.swap_pct ?? 0}% (${snap.mem?.swapUsed ?? snap.mem?.swap_used ?? 0} bytes)
 Stopped containers (name each one): ${stopped.join(', ') || 'none'}` },
-      // Lowest priority: the log tail is the first thing trimmed when the
-      // prompt is over budget — it is context, the metrics are the facts.
+      
+      
       { name: 'collector_log', priority: 1, text: `Collector log tail (last ~120 lines, may include noise — only flag real errors):
 ${log.slice(-4000) || '(no log content)'}` },
       { name: 'instructions', priority: 9, text: 'Flag: swap actively in use (indicates memory pressure), unexpectedly high load vs core count, containers that appear stopped unexpectedly (crashed vs. intentionally down — you cannot tell for certain, say so), and any real error/exception lines in the collector log (ignore benign info-level lines).' }

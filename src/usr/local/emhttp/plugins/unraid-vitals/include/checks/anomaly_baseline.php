@@ -1,15 +1,8 @@
 <?php
-/**
- * unraid-vitals — checks/anomaly_baseline.php (P15-03)
- *
- * Wraps v_anomaly_check() (see store.php for the median+MAD hour-of-week
- * baseline math) as a finding. Runs on live hourly flash history, not
- * $snap — needs 2+ weeks of rollups, which $snap alone never carries.
- */
 
 function v_check_anomaly_baseline(array $snap): array {
   $result = v_anomaly_check();
-  if ($result['status'] !== 'ok') return [];   // not enough history yet — no finding, not an error
+  if ($result['status'] !== 'ok') return [];   
 
   $out = [];
   foreach ($result['findings'] as $f) {

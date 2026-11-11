@@ -1,13 +1,4 @@
-/**
- * Network specialist — per-interface throughput.
- *
- * This used to call the model directly: no structured-output schema, no
- * JSON-repair retry, and no grounding. A single unbalanced sample therefore
- * failed the whole agent run (two consecutive "unbalanced JSON in model
- * response" errors in the live run log). It now goes through
- * runSpecialist() like every other specialist, so it gets the schema, the
- * one-shot repair retry and the subject/number grounding for free.
- */
+
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
 import { peaks, changes } from '../viewmodels/health.mjs';

@@ -1,23 +1,10 @@
-/** Disk & array health specialist — SMART trends, fill rate, spin health. */
+
 import { runSpecialist } from './contract.mjs';
 import { activeSource } from '../lib/sources.mjs';
 import { peaks, changes } from '../viewmodels/health.mjs';
 
 export const AGENT_ID = 'disks';
 
-/**
- * #117 (P20-12) floorFindings for disks: deterministic threshold rules — no
- * model arithmetic.
- *
- * Reads the SNAPSHOT only. It must never be gated on a row surviving
- * budgetPrompt(): a trimmed row is precisely the case where the model can no
- * longer see the breach and the floor is the only reporter left. Gating on the
- * prompt text here silently converted "prompt got big" into "no finding" — the
- * full-pool fixture missed deterministically whenever trimming kicked in and
- * passed whenever it didn't, which is what made it look flaky.
- *
- * Exported (not trapped in run()) so tests can pin the rules without an LLM.
- */
 export function diskFloorFindings(disks = [], smart = {}) {
   const out = [];
   for (const d of disks) {

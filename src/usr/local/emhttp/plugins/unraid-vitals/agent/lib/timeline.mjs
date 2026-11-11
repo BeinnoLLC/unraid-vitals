@@ -1,28 +1,4 @@
-/**
- * unraid-vitals agent — the timeline: one answer to "what happened between
- * T1 and T2" for every research/diagnostics/study consumer.
- *
- * Why this exists: the plugin keeps history in three places with three
- * shapes and three time spans, and every agent that wanted "the last N
- * hours" was re-deriving (and getting wrong) which one to read:
- *
- *   ring     /var/tmp/unraid-vitals/history.json   ~2h, per-minute, rich
- *            (field 't' epoch; cpu/mem/load/temp_max/net/ctr/smart/...)
- *   rollups  /boot/config/plugins/unraid-vitals/history/YYYY-MM.jsonl
- *            months, per-hour aggregates (field 'h' = epoch/3600;
- *            cpu_avg/max/p95, mem_*, temp_*, net_rx/tx bytes, fill_max, smart)
- *   events   kb_events in vitals.db — alert breaches, agent findings,
- *            VM transitions, control actions (started_at/resolved_at)
- *
- * window(hours) stitches them: minute samples where the ring has them,
- * hourly rollups for everything older, plus every event in range — so a
- * "past 2 days" question and a 6-hour diagnostics scan read the SAME code
- * path and disagree only in how much of it is minute- vs hour-resolution.
- *
- * Everything here is plain arithmetic, no LLM: the point is to hand the
- * models pre-computed facts (ranges, deltas, per-container peaks, what
- * changed) instead of raw rows, which small local models mis-add.
- */
+
 import { readFileSync, readdirSync } from 'node:fs';
 import { history, latestSnapshot } from './sources.mjs';
 import { listEvents } from './db.mjs';
@@ -44,8 +20,6 @@ function stats(vals) {
   };
 }
 
-/** Hourly rollup rows whose hour falls inside [from, to]. Reads only the
- *  month files that can contain the range. */
 export function rollups(from, to = now()) {
   const rows = [];
   let files = [];
@@ -63,28 +37,16 @@ export function rollups(from, to = now()) {
         const r = JSON.parse(line);
         const t = (r.h ?? 0) * 3600;
         if (t >= from - 3599 && t <= to) rows.push({ ...r, t });
-      } catch { /* one bad line must not lose the month */ }
+      } catch {  }
     }
   }
   return rows.sort((a, b) => a.t - b.t);
 }
 
-/** Ring samples inside [from, to]. Ring field is 't' (NOT 'time'). */
 export function samples(from, to = now()) {
   return history().filter(p => (p.t ?? 0) >= from && (p.t ?? 0) <= to);
 }
 
-/**
- * The stitched window. Returns pre-computed facts, not raw rows:
- *   coverage   — what resolution covers which part of the range
- *   scalars    — {cpu, mem, load, temp_max, gpu} stats across the range
- *   containers — per-container CPU/mem peaks + which ones appeared/vanished
- *   disks      — per-disk temp peak, SMART counter deltas (start vs end)
- *   fill       — array fill % start→end (growth rate per day)
- *   net        — total bytes moved, peak rates
- *   events     — kb_events in range (all kinds), plus flapping detection
- *   changes    — bullet list of notable state changes, for the prompt
- */
 export function window(hours = 6, { entity } = {}) {
   const to = now();
   const from = to - hours * 3600;
@@ -94,14 +56,14 @@ export function window(hours = 6, { entity } = {}) {
   const events = listEvents({ sinceHours: hours, entity, limit: 500 });
   const snap = latestSnapshot();
 
-  // --- scalars: ring gives minutes, rollups give hours; merge both ----------
+  
   const cpuVals = [...roll.flatMap(r => [r.cpu_avg, r.cpu_max]), ...ring.map(p => p.cpu)];
   const memVals = [...roll.flatMap(r => [r.mem_avg, r.mem_max]), ...ring.map(p => p.mem)];
   const loadVals = [...roll.flatMap(r => [r.load_avg, r.load_max]), ...ring.map(p => p.load)];
   const tempVals = [...roll.flatMap(r => [r.temp_avg, r.temp_max]), ...ring.map(p => p.temp_max)];
   const gpuVals = [...roll.flatMap(r => [r.gpu_avg, r.gpu_max]), ...ring.map(p => p.gpu)];
 
-  // --- containers (ring only — rollups don't keep per-container) -----------
+  
   const ctr = {};
   for (const p of ring) {
     for (const [name, [cpu, memKib]] of Object.entries(p.ctr || {})) {
@@ -115,13 +77,13 @@ export function window(hours = 6, { entity } = {}) {
     appeared: c.first > ringStart + 120, vanished: c.last < to - 180
   })).sort((a, b) => (b.cpu?.p95 ?? 0) - (a.cpu?.p95 ?? 0));
 
-  // --- disks: temp peaks + SMART monotonic counters start vs end ------------
+  
   const disk = {};
   const smartRows = [...roll.map(r => ({ t: r.t, smart: r.smart })), ...ring.map(p => ({ t: p.t, smart: p.smart }))]
     .filter(x => x.smart && typeof x.smart === 'object');
   for (const { t, smart } of smartRows) {
     for (const [dev, val] of Object.entries(smart)) {
-      // ring shape: [temp, realloc, pending]; rollup shape: full smart map {name, temp, reallocated, pending, ...}
+      
       const rec = Array.isArray(val)
         ? { name: dev, temp: val[0], realloc: val[1], pending: val[2] }
         : { name: val.name || dev, temp: val.temp, realloc: val.reallocated, pending: val.pending, crc: val.crc, uncorr: val.uncorrectable };
@@ -139,7 +101,7 @@ export function window(hours = 6, { entity } = {}) {
     uncorr_delta: (d.last?.uncorr ?? 0) - (d.first?.uncorr ?? 0),
   }));
 
-  // --- fill growth ----------------------------------------------------------
+  
   const fillSeries = [...roll.map(r => ({ t: r.t, v: r.fs_used })), ...ring.map(p => ({ t: p.t, v: p.fs_used }))].filter(x => x.v != null);
   let fill = null;
   if (fillSeries.length >= 2) {
@@ -148,18 +110,18 @@ export function window(hours = 6, { entity } = {}) {
     fill = { start_bytes: a.v, end_bytes: b.v, delta_bytes: b.v - a.v, per_day_bytes: Math.round((b.v - a.v) / days) };
   }
 
-  // --- network --------------------------------------------------------------
+  
   const rxRates = ring.map(p => p.net_rx), txRates = ring.map(p => p.net_tx);
   const rollBytes = roll.reduce((s, r) => ({ rx: s.rx + (r.net_rx || 0), tx: s.tx + (r.net_tx || 0) }), { rx: 0, tx: 0 });
   const ringBytes = ring.reduce((s, p) => ({ rx: s.rx + (p.net_rx || 0) * 60, tx: s.tx + (p.net_tx || 0) * 60 }), { rx: 0, tx: 0 });
   const net = { rx_bytes: Math.round(rollBytes.rx + ringBytes.rx), tx_bytes: Math.round(rollBytes.tx + ringBytes.tx), rx_rate: stats(rxRates), tx_rate: stats(txRates) };
 
-  // --- events: flapping = same alert_key opened 3+ times in the window -----
+  
   const byKey = {};
   for (const e of events) if (e.alert_key) (byKey[e.alert_key] ||= []).push(e);
   const flapping = Object.entries(byKey).filter(([, l]) => l.length >= 3).map(([k, l]) => ({ key: k, count: l.length, entity: l[0].entity, kind: l[0].kind }));
 
-  // --- changes: prose bullets the model can quote verbatim ------------------
+  
   const changes = [];
   for (const c of containers) {
     if (c.appeared) changes.push(`${iso(c.seen_from)} container ${c.name} first seen (started/created)`);
@@ -189,8 +151,6 @@ export function window(hours = 6, { entity } = {}) {
   };
 }
 
-/** Compact prose rendering of window() for a prompt section. Numbers are
- *  already aggregated, so the model reads facts rather than doing sums. */
 export function describeWindow(w) {
   const s = (st, unit = '') => st ? `${st.min}${unit}–${st.max}${unit} (avg ${st.avg}${unit}, p95 ${st.p95}${unit})` : 'n/a';
   const lines = [

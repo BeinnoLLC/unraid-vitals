@@ -1,17 +1,7 @@
 <?php
-/* unraid-vitals — P18-03 / #91: per-agent schedules.
- *
- * analyze.mjs <agent id...>: each agent gets its own registry job (same lock,
- * so they still serialize). SCHED_AGENTS_<NAME> (cron) + SCHED_AGENTS_<NAME>_
- * ENABLED. The old combined 'agents' job stays as the umbrella DISABLED by
- * default when any per-agent job is enabled — replaced by five explicit jobs
- * with per-agent defaults (disks daily, thermal 30 min, pools daily, network
- * hourly, general 6h, updates daily, unraid-release daily — the real agents).
- */
 
 declare(strict_types=1);
 
-/** Per-agent job declarations — merged into the registry at apply time. */
 function v_agent_jobs(): array {
   $base = '/usr/local/emhttp/plugins/unraid-vitals';
   return [
@@ -25,7 +15,6 @@ function v_agent_jobs(): array {
   ];
 }
 
-/** Registry extension: agent jobs appear as normal jobs (ids agents_<name>). */
 function v_sched_agent_registry(): array {
   $out = [];
   foreach (v_agent_jobs() as $name => $a) {
@@ -45,11 +34,6 @@ function v_sched_agent_registry(): array {
   return $out;
 }
 
-/**
- * Patch on v_sched_registry(): the combined agents job is enabled only when
- * NO per-agent job has been explicitly enabled (back-compat); otherwise it
- * goes away in favor of the per-agent crons.
- */
 function v_sched_registry_with_agents(): array {
   $reg = v_sched_registry();
   $cfg = @parse_ini_file(VITALS_FLASH . '/vitals.cfg') ?: [];
@@ -60,9 +44,9 @@ function v_sched_registry_with_agents(): array {
   foreach (v_sched_agent_registry() as $id => $job) {
     $reg[$id] = $job;
   }
-  // umbrella agents job: default-disabled when any per-agent override exists —
-  // simplest truthful model: if no SCHED_AGENTS key was ever written AND no per-agent
-  // explicit config exists → keep legacy behavior (one hourly job).
+  
+  
+  
   $legacyConfigured = isset($cfg['SCHED_AGENTS']) || isset($cfg['SCHED_AGENTS_ENABLED']);
   if ($anyPerAgent || $legacyConfigured) {
     $reg['agents']['label'] = $reg['agents']['label'] . ' [per-agent schedules active]';

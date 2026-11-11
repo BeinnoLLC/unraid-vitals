@@ -1,15 +1,7 @@
 <?php
-/* unraid-vitals — include/playbooks.php (P17-02 / #85)
- *
- * Loads docs/playbooks.md shipped inside the plugin, splits it per check
- * topic (## headings), serves per-check-id playbook text to the UI.
- * Also seeds the KB (P20-11 integration point: seed_knowledge_base() picks
- * these up as trusted source docs).
- */
 
 declare(strict_types=1);
 
-/** Parse playbooks.md → [ 'anchor' => ['title' =>, 'body' => ] ]. */
 function v_playbooks_all(): array {
   static $cache = null;
   if ($cache !== null) return $cache;
@@ -22,8 +14,8 @@ function v_playbooks_all(): array {
   foreach ($m as $sec) {
     $title = trim($sec[1]);
     $body = trim($sec[2]);
-    // stable anchor: lowercase FIRST, then non-alnum → dash (otherwise an
-    // uppercase C becomes a dash: "-ontainer-log-sizes" was observed live).
+    
+    
     $anchor = strtolower(preg_replace('/[^a-z0-9]+/', '-', strtolower(preg_replace('/\s*\(.*\)$/', '', $title))));
     $anchor = trim($anchor, '-');
     $out[$anchor] = ['title' => $title, 'body' => $body];
@@ -32,10 +24,9 @@ function v_playbooks_all(): array {
   return $out;
 }
 
-/** One playbook, by check_id → anchor map (finding → doc). */
 function v_playbook_for(string $checkId): ?array {
-  // check_id → playbook anchor mapping (kept explicit; new checks must add a row).
-  // Anchors are computed from the heading with the "(P14-xx)" suffix stripped.
+  
+  
   $map = [
     'docker_image_full' => 'docker-img-usage-writable-layers',
     'docker_log_large' => 'container-log-sizes',

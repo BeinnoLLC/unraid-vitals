@@ -1,16 +1,4 @@
 <?php
-/* unraid-vitals — include/kb_seed.php (P20-11 / #115 part)
- *
- * Seeds the knowledge base with trusted Unraid troubleshooting documents:
- *   1. The shipped fix playbooks (docs/playbooks.md — every check's
- *      what/confirm/fix/not-to-do, trusted local doc).
- *   2. A curated base of common Unraid failure modes (kept inline here —
- *      small, factual, non-version-specific).
- *
- * Seeding is idempotent: source='seeded', a source_ref anchor per doc; an
- * existing row is updated (not duplicated). Runs once per plugin version
- * (seed marker holds the last seeded version) or on --force.
- */
 
 declare(strict_types=1);
 
@@ -27,12 +15,11 @@ function v_kb_seed_marker(): ?int {
   return $row ? (int)$row['at'] : null;
 }
 
-/** @return int number of seeded/updated documents */
 function v_kb_seed(bool $force = false): int {
   $db = v_events_db();
   if (!$db) return 0;
   $lastAt = v_kb_seed_marker();
-  if (!$force && $lastAt !== null && (time() - $lastAt) < 604800) return 0; // weekly refresh cadence
+  if (!$force && $lastAt !== null && (time() - $lastAt) < 604800) return 0; 
 
   $now = time();
   $db->exec("CREATE TABLE IF NOT EXISTS kb_documents (
@@ -47,7 +34,7 @@ function v_kb_seed(bool $force = false): int {
 
   $n = 0;
 
-  // 1. fix playbooks (the exact text that ships with the plugin)
+  
   foreach (v_playbooks_all() as $anchor => $pb) {
     $title = 'Playbook: ' . $pb['title'];
     $content = $pb['body'];
@@ -61,7 +48,7 @@ function v_kb_seed(bool $force = false): int {
       $u->bindValue(3, $now, SQLITE3_INTEGER);
       $u->bindValue(4, (int)$row['id'], SQLITE3_INTEGER);
       $u->execute();
-      // re-index FTS
+      
       $db->exec("INSERT INTO kb_fts(kb_fts, rowid, title, content, topic) VALUES ('delete', {$row['id']}, '', '', '')");
     } else {
       $i = $db->prepare("INSERT INTO kb_documents (source, source_ref, topic, title, content, kind, summary, severity, tags, created_at) VALUES ('seeded', ?, 'playbooks', ?, ?, 'report', ?, 'medium', 'documentation,unraid', ?)");
@@ -75,7 +62,7 @@ function v_kb_seed(bool $force = false): int {
     }
   }
 
-  // 2. curated base knowledge (common failure modes, stable facts)
+  
   $base = [
     ['disk_failed', 'What a failed disk looks like', "SMART health FAILED, growing reallocated/pending sectors, or unmountable filesystem all count as a failing disk.\n\nSteps: 1) copy whatever reads off the disk now; 2) do NOT remove the disk from a started array; 3) Tools → New Perms is not a fix; 4) with parity valid, replace at a scheduled window and let rebuild run.\n\nNever pull a parity disk while the array is started."],
     ['docker_img_full', 'docker.img full — symptoms and fix', "Symptoms: containers fail to start or crash with 'no space left on device', Docker tab slow.\n\nFix: delete unused images/dangling layers (Cleanup tab), shrink container logs, fix containers writing inside the image instead of mapped volumes.\n\nIf the img itself is oversized you must recreate it — back the list of images up first (docker save)."],
@@ -102,7 +89,7 @@ function v_kb_seed(bool $force = false): int {
     }
   }
 
-  // stamp the marker
+  
   $db->exec("INSERT INTO kb_seed (id, version, at) VALUES (1, '" . V_KB_SEED_VERSION . "', $now)
              ON CONFLICT(id) DO UPDATE SET version='" . V_KB_SEED_VERSION . "', at=$now");
   return $n;
