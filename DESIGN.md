@@ -29,7 +29,7 @@ colors:
   v-card-hover: "rgba(127, 127, 127, .085)"
   # --v-muted is `currentColor` (inherits the Unraid theme text colour; muting is done with opacity),
   # so it is documented in prose, not as a colour token.
-  # Fixed contrast colours used on filled status surfaces (raw literals today, see mismatches UV5).
+  # Fixed contrast colours used on filled status surfaces (raw literals today, see docs/design-audit.md UV5).
   on-accent: "#ffffff"
   on-warn: "#1a1a1a"
   # Unraid webGui theme references (NOT defined by the plugin; html.Theme--<name> :root vars
@@ -502,7 +502,7 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 
 1. No hex/`rgb()`/`hsl()` literal and no `font-family` in `css/vitals.css` outside the
    `.vitals { }` token block (lines 9-48), or in `js/vitals.js` / `*.page`. The check is
-   `scripts/check-design-tokens.sh` (proposal in mismatches.md); vendor files are exempt.
+   `scripts/check-design-tokens.sh` (proposal in docs/design-audit.md); vendor files are exempt.
 2. Canvas/SVG colours in vitals.js come from `PAL` (refreshed by `resolvePalette()`) or
    `SERIES_COLORS`. No hex at call sites.
 3. Every `var(--v-*)` used must be defined in the token block. No `var(--v-x, #hex)` fallbacks.
@@ -516,7 +516,7 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 
 ## Known mismatches
 
-Full list with file:line, counts, severity and fix scope: `mismatches.md` (same folder). IDs:
+Full list with file:line, counts, severity and fix scope: `docs/design-audit.md`. IDs:
 UV1 overlay surfaces dark-only · UV2 translucent toast/popover · UV3 status text fails on
 light themes · UV4 undefined custom properties · UV5 raw status hex + wrong fallbacks in CSS ·
 UV6 duplicate JS palette · UV7 Dashboard tile palette · UV8 keyboard/dialog semantics ·
