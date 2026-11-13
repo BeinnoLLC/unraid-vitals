@@ -14,6 +14,7 @@
     "test:node": "bash scripts/run-tests.sh",
     "test:php": "bash scripts/run-php-tests.sh",
     "test": "npm run test:node && npm run test:php",
-    "check": "npm run lint:php && npm run lint:js && npm run lint:shell && npm test"
+    "lint:tokens": "bash scripts/check-design-tokens.sh",
+    "check": "npm run lint:php && npm run lint:js && npm run lint:shell && npm test && npm run lint:tokens"
   }
 }
