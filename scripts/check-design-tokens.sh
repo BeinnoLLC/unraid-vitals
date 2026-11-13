@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # check-design-tokens.sh — report raw colour literals or font-family declarations
 # outside the token block of css/vitals.css (the `.vitals { ... }` rule at the top).
-# See DESIGN.md and docs/design-system/mismatches.md.
+# See DESIGN.md and docs/design-audit.md.
 #
 # Usage: scripts/check-design-tokens.sh [plugin_dir]
 #   MAX_HITS=<n>  baseline of tolerated literals (default 173, the count at 31de94e).
