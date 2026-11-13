@@ -3,7 +3,7 @@
 <!ENTITY name      "unraid-vitals">
 <!ENTITY author    "hazemhagrass">
 <!ENTITY version   "2026.10.14">
-<!ENTITY md5       "c229f6f27e46e7a9aa7e464ad26efd19">
+<!ENTITY md5       "6f7940120bdd14625cf1683016990d8b">
 <!ENTITY plugdir   "/usr/local/emhttp/plugins/&name;">
 <!ENTITY github    "BeinnoLLC/unraid-vitals">
 <!ENTITY pkgname   "unraid-vitals-2026.10.14-x86_64-1">
@@ -13,6 +13,10 @@
         icon="fa-heartbeat" support="https://forums.unraid.net/topic/TODO-vitals/">
 
   <CHANGES>
+###2026.10.14
+- Dashboard: 4 critical bugs fixed — thresholds, load errors, daily errors, busy state
+- Plugin manifest: escape ampersand in CHANGES section for XML validity
+- Tests/CI: scheduler executed against a real cron directory; 24 PHP acceptance suites now run in CI; checks assertions scoped to rootfs_full
 ###2026.10.12
 - The scheduler can no longer leave a dead cron job behind: the cron directory is resolved through a constant (V_CROND_DIR), so the code that writes and removes scheduling state is now executed by a test against a real directory instead of only being string-matched — 35 assertions reading the cron files back off disk
 - No more "Undefined array key" PHP warnings from schedule apply on a box with no per-job overrides set (vitals.log)

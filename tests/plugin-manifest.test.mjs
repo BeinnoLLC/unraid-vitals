@@ -98,3 +98,24 @@ test('the tracked manifest is not older than the newest release tag', () => {
     + 'it would install the older build; rebuild so build.sh rewrites plugins/unraid-vitals.plg',
   );
 });
+
+function changesSection(text) {
+  const m = text.match(/<CHANGES>([\s\S]*?)<\/CHANGES>/);
+  assert.ok(m, 'could not find <CHANGES>...</CHANGES> section');
+  return m[1];
+}
+
+const RAW_AMP = /&(?!(amp|lt|gt|quot|apos|#\d+|[a-zA-Z]+);)/;
+
+test('CHANGES sections contain no raw ampersands', () => {
+  const files = [
+    new URL('../plugins/unraid-vitals.plg', import.meta.url),
+    new URL('../build/plugin.plg.template', import.meta.url),
+  ];
+  for (const u of files) {
+    const text = readFileSync(u, 'utf8');
+    const section = changesSection(text);
+    const m = section.match(RAW_AMP);
+    assert.ok(!m, `${u.pathname} CHANGES has a raw '&' (found "${m && m[0]}")`);
+  }
+});
