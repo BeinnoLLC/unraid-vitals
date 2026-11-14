@@ -110,6 +110,9 @@
   --v-radius-sm: 8px;
 
   /* Fluid type scale — one continuous curve instead of per-breakpoint rules. */
+  /* Fixed tiny step for badges/count chips (UV13 part 1/3) — the former 9.5–10.5px
+     literals round onto it; badges are fixed-size chrome, so it is not fluid. */
+  --v-fs-2xs: 10px;
   --v-fs-xs: clamp(10.5px, .5vw + 9px, 11.5px);
   --v-fs-sm: clamp(12px, .55vw + 10px, 13px);
   --v-fs-md: clamp(13px, .6vw + 11px, 14.5px);
@@ -193,13 +196,13 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-iconbar { display: inline-flex; border: 1px solid var(--v-border); border-radius: var(--v-radius-sm); overflow: hidden; }
 .vitals .v-ibtn {
   position: relative; width: 34px; height: 30px; border: none; background: var(--v-card); color: var(--v-muted);
-  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: 13px;
+  cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--v-fs-md);
   transition: background .14s ease, color .14s ease;
 }
 .vitals .v-ibtn + .v-ibtn { border-left: 1px solid var(--v-border); }
 .vitals .v-ibtn:hover { background: var(--v-card-hover); color: inherit; }
 .vitals .v-ibtn.on { background: var(--v-accent-fill); color: var(--v-on-accent); }
-.vitals .v-ibtn .v-badge { position: absolute; top: 3px; right: 3px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; }
+.vitals .v-ibtn .v-badge { position: absolute; top: 3px; right: 3px; margin: 0; min-width: 15px; height: 15px; font-size: var(--v-fs-2xs); }
 .vitals .v-hero .v-tabs { margin: 0; padding: 0 8px; border-top: 1px solid var(--v-border); border-bottom: none; gap: 0; }
 .vitals .v-hero .v-tab {
   border: none; border-radius: 0; margin: 0; padding: 10px 14px; background: transparent;
@@ -234,7 +237,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   width: 90px; font-variant-numeric: tabular-nums;
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
-.vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
+.vitals .v-btn.xs { padding: 3px 7px; font-size: var(--v-fs-sm); line-height: 1; }
 .vitals .v-btn.xs.active { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
 
 /* P15-05: storage analyzer */
@@ -292,7 +295,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-browse-meta { color: var(--v-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
 .vitals .v-kb-search { display: flex; gap: 8px; align-items: center; }
 .vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-.vitals .v-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
+.vitals .v-chip { font-size: var(--v-fs-xs); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
 .vitals .v-chip.on { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
 /* Severity filter chips — un-selected state hints at the tone so "critical"
    reads as urgent even before you click it, not just once selected. */
@@ -343,7 +346,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
 
 /* Labeled inline form field (used by study duration/cadence selects). */
-.vitals .v-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--v-muted); }
+.vitals .v-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--v-fs-xs); color: var(--v-muted); }
 .vitals .v-field .v-input { width: auto; min-width: 110px; }
 .vitals .v-row { display: flex; align-items: flex-end; }
 
@@ -407,7 +410,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-badge {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 17px; height: 17px; padding: 0 4px; margin-left: 6px;
-  border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 1;
+  border-radius: 9px; font-size: var(--v-fs-2xs); font-weight: 700; line-height: 1;
   background: color-mix(in srgb, var(--v-neutral) 25%, transparent); color: var(--v-fg);
 }
 .vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad-fill); color: var(--v-on-accent); }
@@ -502,7 +505,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   animation: v-fanicon-spin linear infinite; }
 .vitals .v-fanicon.stalled .v-fanicon-blades { animation: none; }
 .vitals .v-fanicon-badge { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px;
-  border-radius: 50%; background: var(--v-bad-fill); color: var(--v-on-accent); font-size: 10px; font-weight: 800;
+  border-radius: 50%; background: var(--v-bad-fill); color: var(--v-on-accent); font-size: var(--v-fs-2xs); font-weight: 800;
   display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 0 0 2px var(--v-card); }
 @keyframes v-fanicon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--v-bad) 35%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
@@ -807,7 +810,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   color: var(--v-warn-fg);
 }
 .vitals .v-warnbadge {
-  display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700;
+  display: inline-block; margin-left: 6px; font-size: var(--v-fs-2xs); font-weight: 700;
   padding: 1px 5px; border-radius: 4px; vertical-align: middle;
   background: color-mix(in srgb, var(--v-bad) 18%, transparent); color: var(--v-bad-fg);
 }
@@ -942,7 +945,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* KB category tag badge + chip tint */
-.vitals .v-tag-badge { font-size: 10.5px; font-weight: 600; letter-spacing: .2px; line-height: 1;
+.vitals .v-tag-badge { font-size: var(--v-fs-2xs); font-weight: 600; letter-spacing: .2px; line-height: 1;
   padding: 3px 8px; border-radius: 999px; cursor: pointer; white-space: nowrap;
   color: var(--v-muted); background: color-mix(in srgb, var(--v-neutral) 12%, transparent); border: 1px solid transparent;
   transition: background .12s ease, color .12s ease; }
