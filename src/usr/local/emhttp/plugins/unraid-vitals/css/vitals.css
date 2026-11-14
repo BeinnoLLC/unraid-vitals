@@ -23,6 +23,13 @@
   --v-on-accent: #fff;
   --v-on-warn: #1a1a1a;
 
+  /* Fills for surfaces that back white --v-on-accent text (UV12, UNRAIDPLUG-206)
+     — dedicated tokens because --v-accent/--v-bad/--v-info also feed text,
+     borders and focus rings. White contrast: 6.29:1 / 4.83:1 / 5.17:1. */
+  --v-accent-fill: #4f46e5;
+  --v-bad-fill: #dc2626;
+  --v-info-fill: #2563eb;
+
   --v-cpu: #4f9cf9;
   --v-mem: #b07cf9;
   --v-load: #f9a94f;
@@ -117,6 +124,10 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   --v-bad-fg: #b91c1c;
   --v-bad: #b91c1c;
   --v-accent-fg: #4f46e5;
+  /* White-on-fill surfaces (UV12): critical fill keeps the light themes' hue
+     (white on #b91c1c = 6.47:1); --v-accent-fill / --v-info-fill back white
+     text in both theme families and inherit the AA values from the base. */
+  --v-bad-fill: #b91c1c;
 }
 
 .vitals * { box-sizing: border-box; }
@@ -159,7 +170,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 .vitals .v-ibtn + .v-ibtn { border-left: 1px solid var(--v-border); }
 .vitals .v-ibtn:hover { background: var(--v-card-hover); color: inherit; }
-.vitals .v-ibtn.on { background: var(--v-accent); color: var(--v-on-accent); }
+.vitals .v-ibtn.on { background: var(--v-accent-fill); color: var(--v-on-accent); }
 .vitals .v-ibtn .v-badge { position: absolute; top: 3px; right: 3px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; }
 .vitals .v-hero .v-tabs { margin: 0; padding: 0 8px; border-top: 1px solid var(--v-border); border-bottom: none; gap: 0; }
 .vitals .v-hero .v-tab {
@@ -184,8 +195,8 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals :is(.v-ibtn, .v-seg-btn, .v-chip, .v-chart-menu-btn, .v-tag-badge, .v-price-input):focus-visible {
   outline: 2px solid var(--v-accent); outline-offset: 2px;
 }
-.vitals .v-btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-on-accent); font-weight: 600; }
-.vitals .v-btn.primary:hover { filter: brightness(1.08); background: var(--v-accent); }
+.vitals .v-btn.primary { background: var(--v-accent-fill); border-color: var(--v-accent); color: var(--v-on-accent); font-weight: 600; }
+.vitals .v-btn.primary:hover { filter: brightness(1.08); background: var(--v-accent-fill); }
 .vitals .v-btn.danger { border-color: var(--v-bad); color: var(--v-bad); }
 .vitals .v-btn.danger:hover { background: color-mix(in srgb, var(--v-bad) 12%, transparent); }
 .vitals .v-btn:disabled, .vitals .v-btn[disabled] { opacity: .55; cursor: not-allowed; }
@@ -196,7 +207,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 .vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
-.vitals .v-btn.xs.active { background: var(--v-accent); color: var(--v-on-accent); border-color: var(--v-accent); }
+.vitals .v-btn.xs.active { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
 
 /* P15-05: storage analyzer */
 .vitals .v-tabs-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -254,16 +265,16 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-kb-search { display: flex; gap: 8px; align-items: center; }
 .vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .vitals .v-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
-.vitals .v-chip.on { background: var(--v-accent); color: var(--v-on-accent); border-color: var(--v-accent); }
+.vitals .v-chip.on { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
 /* Severity filter chips — un-selected state hints at the tone so "critical"
    reads as urgent even before you click it, not just once selected. */
 .vitals .v-chip-sev-critical { border-color: color-mix(in srgb, var(--v-bad-fg) 45%, var(--v-border)); color: var(--v-bad-fg); }
 .vitals .v-chip-sev-high { border-color: color-mix(in srgb, var(--v-warn) 45%, var(--v-border)); color: var(--v-warn); }
 .vitals .v-chip-sev-medium { border-color: color-mix(in srgb, var(--v-info) 45%, var(--v-border)); color: var(--v-info); }
 .vitals .v-chip-sev-low { border-color: color-mix(in srgb, var(--v-ok-fg) 45%, var(--v-border)); color: var(--v-ok-fg); }
-.vitals .v-chip-sev-critical.on { background: var(--v-bad-fg); border-color: var(--v-bad-fg); color: var(--v-on-accent); }
+.vitals .v-chip-sev-critical.on { background: var(--v-bad-fill); border-color: var(--v-bad-fg); color: var(--v-on-accent); }
 .vitals .v-chip-sev-high.on { background: var(--v-warn); border-color: var(--v-warn); color: var(--v-on-warn); }
-.vitals .v-chip-sev-medium.on { background: var(--v-info); border-color: var(--v-info); color: var(--v-on-accent); }
+.vitals .v-chip-sev-medium.on { background: var(--v-info-fill); border-color: var(--v-info); color: var(--v-on-accent); }
 .vitals .v-chip-sev-low.on { background: var(--v-ok-fg); border-color: var(--v-ok-fg); color: var(--v-on-warn); }
 .vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
 .vitals .v-kb-doc:last-child { border-bottom: none; }
@@ -300,7 +311,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .14s ease, color .14s ease;
 }
 .vitals .v-seg-btn + .v-seg-btn { border-left: 1px solid var(--v-border); }
-.vitals .v-seg-btn.active { background: var(--v-accent); color: var(--v-on-accent); }
+.vitals .v-seg-btn.active { background: var(--v-accent-fill); color: var(--v-on-accent); }
 .vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
 
 /* Labeled inline form field (used by study duration/cadence selects). */
@@ -371,9 +382,9 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 1;
   background: color-mix(in srgb, var(--v-neutral) 25%, transparent); color: var(--v-fg);
 }
-.vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad); color: var(--v-on-accent); }
+.vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad-fill); color: var(--v-on-accent); }
 .vitals .v-badge-warning { background: var(--v-warn); color: var(--v-on-warn); }
-.vitals .v-badge-info { background: var(--v-info); color: var(--v-on-accent); }
+.vitals .v-badge-info { background: var(--v-info-fill); color: var(--v-on-accent); }
 .vitals .v-ai-agent.warn { color: var(--v-warn); border-color: color-mix(in srgb, var(--v-warn) 50%, transparent); }
 
 /* ---- reference-dashboard primitives ------------------------------------- */
@@ -463,7 +474,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   animation: v-fanicon-spin linear infinite; }
 .vitals .v-fanicon.stalled .v-fanicon-blades { animation: none; }
 .vitals .v-fanicon-badge { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px;
-  border-radius: 50%; background: var(--v-bad); color: var(--v-on-accent); font-size: 10px; font-weight: 800;
+  border-radius: 50%; background: var(--v-bad-fill); color: var(--v-on-accent); font-size: 10px; font-weight: 800;
   display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 0 0 2px var(--v-card); }
 @keyframes v-fanicon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--v-bad) 35%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
