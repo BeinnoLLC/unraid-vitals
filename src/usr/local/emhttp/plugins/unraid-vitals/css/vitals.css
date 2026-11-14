@@ -18,6 +18,11 @@
   --v-bad: #ef4444;
   --v-bad-fg: #f87171;
 
+  /* On-colours for filled accent/status surfaces (UV5 — same values as the
+     literals they replace). */
+  --v-on-accent: #fff;
+  --v-on-warn: #1a1a1a;
+
   --v-cpu: #4f9cf9;
   --v-mem: #b07cf9;
   --v-load: #f9a94f;
@@ -26,10 +31,18 @@
   --v-temp: #f97066;
   --v-gpu: #22d3ee;
 
+  /* Semantic status hues (UV5 — same values as the literals they replace). */
+  --v-info: #4f9cf9;
+  --v-think: #2dd4bf;
+
   /* Opaque base surface for overlays (modal, drawer, popover, toast) — Unraid's
      own theme background var, so overlays follow the active theme instead of a
      fixed dark. The fallback lives only here in the token block. */
   --v-surface: var(--background-color, #1d1b1b);
+
+  /* Base neutral for per-use alpha tints — color-mix(in srgb, var(--v-neutral)
+     N%, transparent) reproduces the old rgba(127,127,127,…) literals exactly. */
+  --v-neutral: rgb(127, 127, 127);
 
   --v-border: rgba(127, 127, 127, .18);
   --v-card: rgba(127, 127, 127, .045);
@@ -93,7 +106,7 @@
 }
 .vitals .v-ibtn + .v-ibtn { border-left: 1px solid var(--v-border); }
 .vitals .v-ibtn:hover { background: var(--v-card-hover); color: inherit; }
-.vitals .v-ibtn.on { background: var(--v-accent); color: #fff; }
+.vitals .v-ibtn.on { background: var(--v-accent); color: var(--v-on-accent); }
 .vitals .v-ibtn .v-badge { position: absolute; top: 3px; right: 3px; margin: 0; min-width: 15px; height: 15px; font-size: 9.5px; }
 .vitals .v-hero .v-tabs { margin: 0; padding: 0 8px; border-top: 1px solid var(--v-border); border-bottom: none; gap: 0; }
 .vitals .v-hero .v-tab {
@@ -110,7 +123,7 @@
 }
 .vitals .v-btn:hover, .vitals .v-select:hover { border-color: var(--v-accent); background: var(--v-card-hover); }
 .vitals .v-btn:focus-visible, .vitals .v-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; }
-.vitals .v-btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: #fff; font-weight: 600; }
+.vitals .v-btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-on-accent); font-weight: 600; }
 .vitals .v-btn.primary:hover { filter: brightness(1.08); background: var(--v-accent); }
 .vitals .v-btn.danger { border-color: var(--v-bad); color: var(--v-bad); }
 .vitals .v-btn.danger:hover { background: color-mix(in srgb, var(--v-bad) 12%, transparent); }
@@ -122,7 +135,7 @@
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 .vitals .v-btn.xs { padding: 3px 7px; font-size: 12px; line-height: 1; }
-.vitals .v-btn.xs.active { background: var(--v-accent); color: #fff; border-color: var(--v-accent); }
+.vitals .v-btn.xs.active { background: var(--v-accent); color: var(--v-on-accent); border-color: var(--v-accent); }
 
 /* P15-05: storage analyzer */
 .vitals .v-tabs-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -180,17 +193,17 @@
 .vitals .v-kb-search { display: flex; gap: 8px; align-items: center; }
 .vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .vitals .v-chip { font-size: 11px; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
-.vitals .v-chip.on { background: var(--v-accent); color: #fff; border-color: var(--v-accent); }
+.vitals .v-chip.on { background: var(--v-accent); color: var(--v-on-accent); border-color: var(--v-accent); }
 /* Severity filter chips — un-selected state hints at the tone so "critical"
    reads as urgent even before you click it, not just once selected. */
-.vitals .v-chip-sev-critical { border-color: color-mix(in srgb, var(--v-bad-fg, #ef4444) 45%, var(--v-border)); color: var(--v-bad-fg, #ef4444); }
-.vitals .v-chip-sev-high { border-color: color-mix(in srgb, #f59e0b 45%, var(--v-border)); color: #f59e0b; }
-.vitals .v-chip-sev-medium { border-color: color-mix(in srgb, #4f9cf9 45%, var(--v-border)); color: #4f9cf9; }
-.vitals .v-chip-sev-low { border-color: color-mix(in srgb, var(--v-ok-fg, #4ade80) 45%, var(--v-border)); color: var(--v-ok-fg, #4ade80); }
-.vitals .v-chip-sev-critical.on { background: var(--v-bad-fg, #ef4444); border-color: var(--v-bad-fg, #ef4444); color: #fff; }
-.vitals .v-chip-sev-high.on { background: #f59e0b; border-color: #f59e0b; color: #1a1a1a; }
-.vitals .v-chip-sev-medium.on { background: #4f9cf9; border-color: #4f9cf9; color: #fff; }
-.vitals .v-chip-sev-low.on { background: var(--v-ok-fg, #4ade80); border-color: var(--v-ok-fg, #4ade80); color: #1a1a1a; }
+.vitals .v-chip-sev-critical { border-color: color-mix(in srgb, var(--v-bad-fg) 45%, var(--v-border)); color: var(--v-bad-fg); }
+.vitals .v-chip-sev-high { border-color: color-mix(in srgb, var(--v-warn) 45%, var(--v-border)); color: var(--v-warn); }
+.vitals .v-chip-sev-medium { border-color: color-mix(in srgb, var(--v-info) 45%, var(--v-border)); color: var(--v-info); }
+.vitals .v-chip-sev-low { border-color: color-mix(in srgb, var(--v-ok-fg) 45%, var(--v-border)); color: var(--v-ok-fg); }
+.vitals .v-chip-sev-critical.on { background: var(--v-bad-fg); border-color: var(--v-bad-fg); color: var(--v-on-accent); }
+.vitals .v-chip-sev-high.on { background: var(--v-warn); border-color: var(--v-warn); color: var(--v-on-warn); }
+.vitals .v-chip-sev-medium.on { background: var(--v-info); border-color: var(--v-info); color: var(--v-on-accent); }
+.vitals .v-chip-sev-low.on { background: var(--v-ok-fg); border-color: var(--v-ok-fg); color: var(--v-on-warn); }
 .vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
 .vitals .v-kb-doc:last-child { border-bottom: none; }
 .vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
@@ -226,7 +239,7 @@
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .14s ease, color .14s ease;
 }
 .vitals .v-seg-btn + .v-seg-btn { border-left: 1px solid var(--v-border); }
-.vitals .v-seg-btn.active { background: var(--v-accent); color: #fff; }
+.vitals .v-seg-btn.active { background: var(--v-accent); color: var(--v-on-accent); }
 .vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
 
 /* Labeled inline form field (used by study duration/cadence selects). */
@@ -245,11 +258,11 @@
 .vitals .v-sensor-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .vitals .v-sensor-label { font-size: 11px; color: var(--v-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-sensor-th { font-size: 10px; color: var(--v-muted); opacity: .75; margin-top: 1px; }
-.vitals .v-temp-ok    { border-left-color: var(--v-ok-fg, #22c55e); }
-.vitals .v-temp-warn  { border-left-color: #f59e0b; }
-.vitals .v-temp-warn .v-sensor-val { color: #f59e0b; }
-.vitals .v-temp-crit  { border-left-color: var(--v-bad, #ef4444); }
-.vitals .v-temp-crit .v-sensor-val { color: var(--v-bad, #ef4444); }
+.vitals .v-temp-ok    { border-left-color: var(--v-ok-fg); }
+.vitals .v-temp-warn  { border-left-color: var(--v-warn); }
+.vitals .v-temp-warn .v-sensor-val { color: var(--v-warn); }
+.vitals .v-temp-crit  { border-left-color: var(--v-bad); }
+.vitals .v-temp-crit .v-sensor-val { color: var(--v-bad); }
 
 /* gauge tiles (Temperatures tab) — arc ring with a bold center readout,
    replaces the flat number tile so a sensor's proximity to its threshold
@@ -262,8 +275,8 @@
 .vitals .v-gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
 .vitals .v-gauge-big { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .vitals .v-gauge-small { font-size: 9.5px; color: var(--v-muted); margin-top: 1px; }
-.vitals .v-gauge-tile.v-temp-warn .v-gauge-big { color: #f59e0b; }
-.vitals .v-gauge-tile.v-temp-crit .v-gauge-big { color: var(--v-bad, #ef4444); }
+.vitals .v-gauge-tile.v-temp-warn .v-gauge-big { color: var(--v-warn); }
+.vitals .v-gauge-tile.v-temp-crit .v-gauge-big { color: var(--v-bad); }
 
 /* ---- right-side log drawer --------------------------------------------- */
 .vitals { position: relative; }
@@ -281,7 +294,7 @@
 .vitals .v-drawer-q { width: auto; flex: 1; min-width: 120px; }
 .vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; }
 .vitals .v-log-line { padding: 1.5px 14px; white-space: pre-wrap; word-break: break-word; color: var(--v-muted); }
-.vitals .v-log-line.crit { color: var(--v-bad, #ef4444); background: rgba(239,68,68,.06); }
+.vitals .v-log-line.crit { color: var(--v-bad); background: color-mix(in srgb, var(--v-bad) 6%, transparent); }
 .vitals .v-log-ts { color: var(--v-muted); opacity: .65; margin-right: 8px; }
 .vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: 11px; color: var(--v-muted); }
 
@@ -295,12 +308,12 @@
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 17px; height: 17px; padding: 0 4px; margin-left: 6px;
   border-radius: 9px; font-size: 10.5px; font-weight: 700; line-height: 1;
-  background: rgba(127,127,127,.25); color: var(--v-fg);
+  background: color-mix(in srgb, var(--v-neutral) 25%, transparent); color: var(--v-fg);
 }
-.vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad, #ef4444); color: #fff; }
-.vitals .v-badge-warning { background: #f59e0b; color: #1a1a1a; }
-.vitals .v-badge-info { background: #4f9cf9; color: #fff; }
-.vitals .v-ai-agent.warn { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+.vitals .v-badge-critical, .vitals .v-badge-alert, .vitals .v-badge-error { background: var(--v-bad); color: var(--v-on-accent); }
+.vitals .v-badge-warning { background: var(--v-warn); color: var(--v-on-warn); }
+.vitals .v-badge-info { background: var(--v-info); color: var(--v-on-accent); }
+.vitals .v-ai-agent.warn { color: var(--v-warn); border-color: color-mix(in srgb, var(--v-warn) 50%, transparent); }
 
 /* ---- reference-dashboard primitives ------------------------------------- */
 /* Grafana-style sparkline inside cards */
@@ -311,7 +324,7 @@
 .vitals .v-hbars { display: flex; flex-direction: column; gap: 7px; }
 .vitals .v-hbar-row { display: grid; grid-template-columns: minmax(64px, 96px) 1fr 52px; gap: 8px; align-items: center; }
 .vitals .v-hbar-label { font-size: 11.5px; color: var(--v-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
-.vitals .v-hbar-track { height: 12px; border-radius: 6px; background: rgba(127,127,127,.12); overflow: hidden; }
+.vitals .v-hbar-track { height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--v-neutral) 12%, transparent); overflow: hidden; }
 .vitals .v-hbar-track i { display: block; height: 100%; border-radius: 6px; opacity: .9; transition: width .3s ease; }
 .vitals .v-hbar-val { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--v-muted); }
 
@@ -354,13 +367,13 @@
    so left/right 0 spans the data region and top/bottom 0 spans its height
    — no hard-coded axis offsets, no bleeding into the legend below. */
 .vitals .u-over { overflow: visible; }
-.vitals .v-th-line { position: absolute; left: 0; right: 0; border-top: 1px dashed #f87171; pointer-events: none; z-index: 2; }
-.vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: #f87171aa; }
+.vitals .v-th-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--v-bad-fg); pointer-events: none; z-index: 2; }
+.vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: color-mix(in srgb, var(--v-bad-fg) 66.67%, transparent); }
 
 /* P15-04: event markers — thin vertical line + a small pointer-catching
    hit target, positioned in JS via uPlot's own x-scale so it always lines
    up with the data underneath. */
-.vitals .v-ev-marker { position: absolute; top: 0; bottom: 0; width: 1px; border-left: 1.5px dashed #60a5fa; cursor: pointer; z-index: 3; }
+.vitals .v-ev-marker { position: absolute; top: 0; bottom: 0; width: 1px; border-left: 1.5px dashed var(--v-info); cursor: pointer; z-index: 3; }
 .vitals .v-ev-marker .v-ev-dot { position: absolute; top: -4px; left: -3px; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 
 /* fan tiles */
@@ -368,14 +381,14 @@
 .vitals .v-fan { display: flex; align-items: center; gap: 10px; }
 .vitals .v-fan .v-sensor-val { font-size: 20px; }
 .vitals .v-fan.idle { opacity: .45; }
-.vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad, #ef4444); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
-.vitals .v-volt-oor { border-left-color: var(--v-bad, #ef4444); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
+.vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
+.vitals .v-volt-oor { border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
 .vitals .v-fan-text { min-width: 0; flex: 1; }
-.vitals .v-fan-bar { height: 5px; border-radius: 3px; background: rgba(127,127,127,.15); margin-top: 6px; overflow: hidden; }
-.vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu, #4f9cf9); border-radius: 3px; }
+.vitals .v-fan-bar { height: 5px; border-radius: 3px; background: color-mix(in srgb, var(--v-neutral) 15%, transparent); margin-top: 6px; overflow: hidden; }
+.vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu); border-radius: 3px; }
 .vitals .v-sensor-th b { font-weight: 700; }
-.vitals .v-sensor-th b.warn { color: #f59e0b; }
-.vitals .v-sensor-th b.crit { color: var(--v-bad, #ef4444); }
+.vitals .v-sensor-th b.warn { color: var(--v-warn); }
+.vitals .v-sensor-th b.crit { color: var(--v-bad); }
 
 /* Animated fan icon: conic-gradient ring shows PWM duty %, inner SVG blade
    spins at a speed derived from RPM (see FanIcon in vitals.js). Kept to
@@ -389,10 +402,10 @@
   animation: v-fanicon-spin linear infinite; }
 .vitals .v-fanicon.stalled .v-fanicon-blades { animation: none; }
 .vitals .v-fanicon-badge { position: absolute; top: -3px; right: -3px; width: 16px; height: 16px;
-  border-radius: 50%; background: var(--v-bad, #ef4444); color: #fff; font-size: 10px; font-weight: 800;
+  border-radius: 50%; background: var(--v-bad); color: var(--v-on-accent); font-size: 10px; font-weight: 800;
   display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 0 0 2px var(--v-card); }
 @keyframes v-fanicon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-@keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,.35); } 50% { box-shadow: 0 0 0 5px rgba(239,68,68,0); } }
+@keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--v-bad) 35%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
 @media (prefers-reduced-motion: reduce) {
   .vitals .v-fanicon-blades { animation: none; }
 }
@@ -505,7 +518,7 @@
   color: var(--v-accent);
 }
 .vitals .v-card-delta.up   { background: color-mix(in srgb, var(--v-ok-fg) 18%, transparent); color: var(--v-ok-fg); }
-.vitals .v-card-delta.down { background: color-mix(in srgb, #f87171 18%, transparent); color: #f87171; }
+.vitals .v-card-delta.down { background: color-mix(in srgb, var(--v-bad-fg) 18%, transparent); color: var(--v-bad-fg); }
 .vitals .v-bar {
   height: 5px; border-radius: 3px; background: color-mix(in srgb, currentColor 12%, transparent);
   margin-top: 11px; overflow: hidden;
@@ -628,8 +641,8 @@
 /* model capability pills — each capability gets its own hue so they read at
    a glance instead of a wall of identical gray chips. */
 .vitals .v-pill.think {
-  background: color-mix(in srgb, #2dd4bf 15%, transparent);
-  border-color: color-mix(in srgb, #2dd4bf 45%, transparent); color: #2dd4bf;
+  background: color-mix(in srgb, var(--v-think) 15%, transparent);
+  border-color: color-mix(in srgb, var(--v-think) 45%, transparent); color: var(--v-think);
 }
 .vitals .v-pill.vision {
   background: color-mix(in srgb, var(--v-cpu) 15%, transparent);
@@ -785,11 +798,11 @@
 /* Ask-once plan hint: live "this will run as a 12h study / one-shot
    question, ready in ~X" line under the input while typing. */
 .vitals .v-plan-hint { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
-  color: var(--v-muted); background: rgba(127,127,127,.08); border: 1px solid var(--v-border);
+  color: var(--v-muted); background: color-mix(in srgb, var(--v-neutral) 8%, transparent); border: 1px solid var(--v-border);
   border-radius: 8px; padding: 7px 11px; }
 .vitals .v-plan-hint i { color: var(--v-accent); }
-.vitals .v-plan-hint.study i { color: var(--v-warn, #fbbf24); }
-.vitals .v-plan-hint.study { border-color: color-mix(in srgb, var(--v-warn, #fbbf24) 35%, var(--v-border)); }
+.vitals .v-plan-hint.study i { color: var(--v-warn); }
+.vitals .v-plan-hint.study { border-color: color-mix(in srgb, var(--v-warn) 35%, var(--v-border)); }
 .vitals .v-plan-meta { margin-left: auto; font-size: 11px; opacity: .75; white-space: nowrap; }
 
 /* Toast stack: bottom-right cards for async notifications ("research
@@ -801,10 +814,10 @@
   background: var(--v-surface); border: 1px solid var(--v-border);
   border-left: 3px solid var(--v-accent); border-radius: 10px; padding: 10px 13px;
   box-shadow: 0 8px 24px rgba(0,0,0,.35); animation: v-toast-in .22s ease-out; }
-.vitals .v-toast-success { border-left-color: var(--v-ok, #34d399); }
-.vitals .v-toast-success > i { color: var(--v-ok, #34d399); }
-.vitals .v-toast-warn { border-left-color: var(--v-bad, #ef4444); }
-.vitals .v-toast-warn > i { color: var(--v-bad, #ef4444); }
+.vitals .v-toast-success { border-left-color: var(--v-ok); }
+.vitals .v-toast-success > i { color: var(--v-ok); }
+.vitals .v-toast-warn { border-left-color: var(--v-bad); }
+.vitals .v-toast-warn > i { color: var(--v-bad); }
 .vitals .v-toast-info > i { color: var(--v-accent); }
 .vitals .v-toast > i { margin-top: 2px; }
 .vitals .v-toast-title { font-weight: 650; font-size: 13px; }
@@ -819,11 +832,11 @@
   transition: transform .12s ease, box-shadow .12s ease; }
 .vitals .v-therm:hover { transform: translateY(-1px); }
 .vitals .v-therm-val { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vitals .v-therm-ok .v-therm-val { color: #34d399; }
-.vitals .v-therm-warn .v-therm-val { color: #f59e0b; }
-.vitals .v-therm-warn { border-color: color-mix(in srgb, #f59e0b 45%, var(--v-border)); background: color-mix(in srgb, #f59e0b 7%, var(--v-card)); }
-.vitals .v-therm-crit .v-therm-val { color: #ef4444; }
-.vitals .v-therm-crit { border-color: color-mix(in srgb, #ef4444 55%, var(--v-border)); background: color-mix(in srgb, #ef4444 9%, var(--v-card));
+.vitals .v-therm-ok .v-therm-val { color: var(--v-ok); }
+.vitals .v-therm-warn .v-therm-val { color: var(--v-warn); }
+.vitals .v-therm-warn { border-color: color-mix(in srgb, var(--v-warn) 45%, var(--v-border)); background: color-mix(in srgb, var(--v-warn) 7%, var(--v-card)); }
+.vitals .v-therm-crit .v-therm-val { color: var(--v-bad); }
+.vitals .v-therm-crit { border-color: color-mix(in srgb, var(--v-bad) 55%, var(--v-border)); background: color-mix(in srgb, var(--v-bad) 9%, var(--v-card));
   animation: v-fan-stall-pulse 1.8s ease-in-out infinite; }
 .vitals .v-therm-label { font-size: 10.5px; color: var(--v-muted); text-align: center; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -831,9 +844,9 @@
 /* KB category tag badge + chip tint */
 .vitals .v-tag-badge { font-size: 10.5px; font-weight: 600; letter-spacing: .2px; line-height: 1;
   padding: 3px 8px; border-radius: 999px; cursor: pointer; white-space: nowrap;
-  color: var(--v-muted); background: rgba(127,127,127,.12); border: 1px solid transparent;
+  color: var(--v-muted); background: color-mix(in srgb, var(--v-neutral) 12%, transparent); border: 1px solid transparent;
   transition: background .12s ease, color .12s ease; }
-.vitals .v-tag-badge:hover { background: rgba(127,127,127,.22); }
+.vitals .v-tag-badge:hover { background: color-mix(in srgb, var(--v-neutral) 22%, transparent); }
 .vitals .v-tag-badge.on { color: var(--v-accent); background: color-mix(in srgb, var(--v-accent) 18%, transparent);
   border-color: color-mix(in srgb, var(--v-accent) 45%, transparent); }
 .vitals .v-chip-tag.on { border-color: color-mix(in srgb, var(--v-accent) 45%, transparent);
@@ -841,9 +854,9 @@
 
 /* Radar / spider chart (SVG) + side legend. */
 .vitals .v-radar-wrap { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
-.vitals .v-radar-ring { fill: none; stroke: rgba(127,127,127,.18); stroke-width: 1; }
-.vitals .v-radar-ring.rim { stroke: rgba(127,127,127,.4); }
-.vitals .v-radar-spoke { stroke: rgba(127,127,127,.14); stroke-width: 1; }
+.vitals .v-radar-ring { fill: none; stroke: var(--v-border); stroke-width: 1; }
+.vitals .v-radar-ring.rim { stroke: color-mix(in srgb, var(--v-neutral) 40%, transparent); }
+.vitals .v-radar-spoke { stroke: color-mix(in srgb, var(--v-neutral) 14%, transparent); stroke-width: 1; }
 .vitals .v-radar-poly { fill: color-mix(in srgb, var(--v-accent) 22%, transparent);
   stroke: var(--v-accent); stroke-width: 2; stroke-linejoin: round; }
 .vitals .v-radar-label { fill: var(--v-muted); font-size: 11px; }
