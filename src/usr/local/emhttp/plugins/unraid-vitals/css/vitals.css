@@ -35,6 +35,42 @@
   --v-info: #4f9cf9;
   --v-think: #2dd4bf;
 
+  /* Canvas/SVG palette — resolved by tok() in js/vitals.js (UV6; values are
+     the literals they replace, no visual change). */
+  --v-info-fg: #60a5fa;
+  --v-warm: #eab308;
+  --v-cool: #34d399;
+  --v-dim: #666;
+  --v-muted-fg: #9ca3af;
+  --v-muted-stroke: #8b8f9a;
+  --v-axis: #8889;
+  --v-axis-2: #8886;
+  --v-grid: #8882;
+  --v-track: rgba(127, 127, 127, .15);
+
+  /* Chart series palette (UV6 — the former SERIES_COLORS array in vitals.js;
+     pickColor() wraps around every --v-series-N). */
+  --v-series-1: #4f9cf9;
+  --v-series-2: #b07cf9;
+  --v-series-3: #35c48a;
+  --v-series-4: #f97066;
+  --v-series-5: #22d3ee;
+  --v-series-6: #a78bfa;
+  --v-series-7: #f472b6;
+  --v-series-8: #fbbf24;
+  --v-series-9: #34d399;
+  --v-series-10: #60a5fa;
+  --v-series-11: #fb7185;
+  --v-series-12: #facc15;
+  --v-series-13: #4ade80;
+  --v-series-14: #38bdf8;
+  --v-series-15: #e879f9;
+  --v-series-16: #c4b5fd;
+  --v-series-17: #fdba74;
+  --v-series-18: #67e8f9;
+  --v-series-19: #86efac;
+  --v-series-20: #fca5a5;
+
   /* Opaque base surface for overlays (modal, drawer, popover, toast) — Unraid's
      own theme background var, so overlays follow the active theme instead of a
      fixed dark. The fallback lives only here in the token block. */
