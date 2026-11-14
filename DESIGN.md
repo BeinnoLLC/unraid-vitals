@@ -33,7 +33,8 @@ colors:
   on-accent: "#ffffff"
   on-warn: "#1a1a1a"
   # Unraid webGui theme references (NOT defined by the plugin; html.Theme--<name> :root vars
-  # from unraid/webgui emhttp/plugins/dynamix/styles/themes/*.css, upstream master 2026-11-13).
+  # from unraid/webgui (formerly limetech/webgui) emhttp/plugins/dynamix/styles/themes/*.css,
+  # upstream master 2026-11-13).
   unraid-black-background: "#1d1b1b"
   unraid-black-text: "#f2f2f2"
   unraid-white-background: "#f2f2f2"
@@ -166,6 +167,17 @@ Token naming: keys in the front matter are the CSS custom property names without
 plugin tokens, and `on-accent` / `on-warn` name colours that are raw literals in code today
 (see Known mismatches).
 
+### Shared Beinno basics
+
+Follows the family basics in the `beinno-design-system` skill (not copied here).
+- Logo: none. The app header uses the FontAwesome `fa-heartbeat` glyph in `.v-logo`
+  (`js/vitals.js:1064`, css `:68`), the Dashboard tile uses the same glyph
+  (`Vitals.Dashboard.page:19`), and the `.plg` icon is `fa-heartbeat` too
+  (`plugins/unraid-vitals.plg:13`). Do not create or AI-generate a Beinno logo for it.
+- Promo videos: none yet. When made, they follow the shared basics: an English and an Egyptian
+  Arabic version, built from real screenshots, through `beinno-video`. The plugin UI itself stays
+  LTR (see Layout).
+
 ## Colors
 
 ### Token block (`css/vitals.css:9-48`)
@@ -209,8 +221,8 @@ It follows the active theme only through:
    or a dark page.
 3. `--v-muted: currentColor` plus opacity.
 
-Host theme values (upstream `unraid/webgui` master, `html.Theme--<name>` + `:root` vars, fetched
-2026-11-13; not re-verified on a device):
+Host theme values (upstream `unraid/webgui` master, formerly `limetech/webgui`;
+`html.Theme--<name>` + `:root` vars, fetched 2026-11-13; not re-verified on a device):
 
 | Theme | `--background-color` | `--text-color` | Kind |
 |---|---|---|---|
@@ -421,7 +433,9 @@ local `--vt-*` custom properties declared once at the top of its `<style>`.
   fallbacks today disagree with their tokens (UV5).
 - Don't reference undefined properties (`--v-fg`, `--v-bg`, `--v-bg2`, `--v-panel`, `--v-panel-bg`).
 - Don't add inline `style:` for colour or spacing in vitals.js. Add a class.
-- Don't add `@media` breakpoints other than 639/640, 1023/1024 (and the existing 380 card rule).
+- Don't add NEW `@media` breakpoints beyond the existing ones. Tiers are 639/640 and 1023/1024;
+  the existing extras 380, 800, 860, 900 and 1300 (`vitals.css:759, 404, 130, 417, 407`) are UV18
+  and get folded in over time.
 - Don't edit `js/vendor/*` or `css/uPlot.min.css`.
 
 ## Motion
@@ -501,8 +515,10 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 ## HARD RULES
 
 1. No hex/`rgb()`/`hsl()` literal and no `font-family` in `css/vitals.css` outside the
-   `.vitals { }` token block (lines 9-48), or in `js/vitals.js` / `*.page`. The check is
-   `scripts/check-design-tokens.sh` (proposal in docs/design-audit.md); vendor files are exempt.
+   `.vitals { }` token block (lines 9-48), or in `js/vitals.js` / `*.page`; vendor files are
+   exempt. Enforced by `npm run lint:tokens` (`scripts/check-design-tokens.sh`, part of
+   `npm run check`). It is a ratchet: today's 173 literals are tolerated (`MAX_HITS` baseline), no
+   new ones are allowed, and the baseline is lowered as literals move to tokens.
 2. Canvas/SVG colours in vitals.js come from `PAL` (refreshed by `resolvePalette()`) or
    `SERIES_COLORS`. No hex at call sites.
 3. Every `var(--v-*)` used must be defined in the token block. No `var(--v-x, #hex)` fallbacks.
@@ -510,20 +526,39 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 5. Every clickable element is a `<button>`/`<a href>` with a visible `:focus-visible` ring.
 6. Icon-only buttons have `aria-label`. Dialogs/drawers have `role="dialog"` and `aria-modal`, and close on Escape.
 7. New font sizes use `--v-fs-*`. New radii use `--v-radius`, `--v-radius-sm`, 999px or 50%.
-8. Breakpoints: 639/640 and 1023/1024 only (plus the existing 380 cards rule).
+8. Breakpoints: no NEW breakpoints beyond the existing ones: tiers 639/640 and 1023/1024, plus the
+   existing 380, 800, 860, 900 and 1300 rules (UV18, to be folded in over time).
 9. Every animation has a `prefers-reduced-motion: reduce` opt-out.
 10. Check text contrast against black, white, azure and gray before merging.
 
 ## Known mismatches
 
-Full list with file:line, counts, severity and fix scope: `docs/design-audit.md`. IDs:
-UV1 overlay surfaces dark-only · UV2 translucent toast/popover · UV3 status text fails on
-light themes · UV4 undefined custom properties · UV5 raw status hex + wrong fallbacks in CSS ·
-UV6 duplicate JS palette · UV7 Dashboard tile palette · UV8 keyboard/dialog semantics ·
-UV9 missing focus rings · UV10 unlabeled controls · UV11 opacity-muted contrast ·
-UV12 filled-surface contrast · UV13 px type sizes · UV14 radius literals · UV15 z-index scale ·
-UV16 reduced motion · UV17 duplicate components/dead code · UV18 breakpoints · UV19 inline styles ·
-UV20 header comment drift · UV21 RTL hardening. Plane ticket IDs: none filed yet (beinno-plane).
+Full list with file:line, counts, severity and fix scope: `docs/design-audit.md`. Each item is
+a Plane ticket (project Unraid Plugins, label `design-system`):
+
+| ID | Mismatch | Plane |
+|---|---|---|
+| UV1 | overlay surfaces dark-only | UNRAIDPLUG-207 |
+| UV2 | translucent toast/popover | UNRAIDPLUG-201 |
+| UV3 | status text fails on light themes | UNRAIDPLUG-202 |
+| UV4 | undefined custom properties | UNRAIDPLUG-204 |
+| UV5 | raw status hex + wrong fallbacks in CSS | UNRAIDPLUG-205 |
+| UV6 | duplicate JS palette | UNRAIDPLUG-208 |
+| UV7 | Dashboard tile palette | UNRAIDPLUG-211 |
+| UV8 | keyboard/dialog semantics | UNRAIDPLUG-203 |
+| UV9 | missing focus rings | UNRAIDPLUG-209 |
+| UV10 | unlabeled controls | UNRAIDPLUG-210 |
+| UV11 | opacity-muted contrast | UNRAIDPLUG-212 |
+| UV12 | filled-surface contrast | UNRAIDPLUG-206 |
+| UV13 | px type sizes | UNRAIDPLUG-213 |
+| UV14 | radius literals | UNRAIDPLUG-214 |
+| UV15 | z-index scale | UNRAIDPLUG-215 |
+| UV16 | reduced motion | UNRAIDPLUG-216 |
+| UV17 | duplicate components/dead code | UNRAIDPLUG-217 |
+| UV18 | breakpoints | UNRAIDPLUG-218 |
+| UV19 | inline styles | UNRAIDPLUG-219 |
+| UV20 | header comment drift | UNRAIDPLUG-220 |
+| UV21 | RTL hardening | UNRAIDPLUG-221 |
 
 `npx -y @google/design.md lint DESIGN.md` (2026-11-13): **0 errors, 24 warnings, 1 info**.
 - `contrast-ratio` ×5: `button-primary` and `chip-on` (white on `#6366f1`, 4.47:1) and
