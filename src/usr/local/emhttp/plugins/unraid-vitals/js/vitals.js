@@ -112,27 +112,27 @@ function renderMd(md) {
   return out;
 }
 
-/* uPlot needs concrete colours; the vars live on .vitals, not :root. */
-var PAL = {
-  'v-cpu': '#4f9cf9', 'v-mem': '#b07cf9', 'v-load': '#f9a94f', 'v-rx': '#35c48a',
-  'v-tx': '#f97066', 'v-temp': '#f97066', 'v-gpu': '#22d3ee', 'v-accent': '#818cf8',
-  'v-ok-fg': '#4ade80', 'v-warn-fg': '#fbbf24', 'v-bad-fg': '#f87171'
-};
-function resolvePalette() {
+/* Canvas/SVG code needs concrete colour strings (uPlot strokes, gradient
+   stops, inline styles) — resolve them from the --v-* tokens in the token
+   block of css/vitals.css (UV6: the CSS tokens are the single source of
+   colour truth; there is no JS palette). The .vitals host and its computed
+   style are cached; the style declaration is live, so a theme or class
+   change is re-read on the next lookup. */
+var TOK_HOST = null, TOK_CS = null;
+function tok(name) {
   var host = document.querySelector('.vitals') || document.documentElement;
-  var cs = getComputedStyle(host);
-  Object.keys(PAL).forEach(function (k) {
-    var v = cs.getPropertyValue('--' + k).trim();
-    if (v) PAL[k] = v;
-  });
+  if (host !== TOK_HOST) {
+    TOK_HOST = host;
+    TOK_CS = getComputedStyle(host);
+  }
+  return (TOK_CS.getPropertyValue('--' + name) || '').trim();
 }
-var SERIES_COLORS = ['#4f9cf9', '#b07cf9', '#35c48a', '#f97066', '#22d3ee',
-                     '#a78bfa', '#f472b6', '#fbbf24', '#34d399', '#60a5fa',
-                     '#fb7185', '#facc15', '#4ade80', '#38bdf8', '#e879f9',
-                     '#c4b5fd', '#fdba74', '#67e8f9', '#86efac', '#fca5a5'];
-function pickColor(i) { return SERIES_COLORS[i % SERIES_COLORS.length]; }
 
-/** '#rrggbb' -> 'rgba(r,g,b,a)' for uPlot area fills (needs concrete colours). */
+var SERIES_N = 20; /* --v-series-1 through --v-series-20 in the token block */
+function pickColor(i) { return tok('v-series-' + (i % SERIES_N + 1)); }
+
+/** Hex -> translucent CSS colour for uPlot area fills (canvas needs concrete
+ *  colours, built per draw). */
 function withAlpha(hex, a) {
   if (hex && hex.slice(0, 1) === '#' && (hex.length === 7 || hex.length === 4)) {
     var r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -159,7 +159,7 @@ function gradientFill(hex, topAlpha) {
     // string) and silently break EVERY chart on the page, not just the one
     // with the bad series — fall back to a neutral gray instead of
     // propagating the bad value into the canvas API.
-    var safeHex = (hex && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) ? hex : '#8b8f9a';
+    var safeHex = (hex && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) ? hex : tok('v-muted-stroke');
     g.addColorStop(0, withAlpha(safeHex, topAlpha == null ? 0.38 : topAlpha));
     g.addColorStop(1, withAlpha(safeHex, 0.02));
     return g;
@@ -168,9 +168,9 @@ function gradientFill(hex, topAlpha) {
 
 /* Grafana-style stat tile: value on a tinted background, tone-driven colour.
    P: {label, value, sub, tone: ok|info|warn|crit|muted, spark: [[t,v]...]} */
-var TONE_COLOR = { ok: '#4ade80', info: '#4f9cf9', warn: '#fbbf24', crit: '#f87171', muted: '#9ca3af' };
+var TONE_TOKEN = { ok: 'v-ok-fg', info: 'v-info', warn: 'v-warn-fg', crit: 'v-bad-fg', muted: 'v-muted-fg' };
 function StatTile(P) {
-  var tone = TONE_COLOR[P.tone || 'muted'];
+  var tone = tok(TONE_TOKEN[P.tone || 'muted']);
   return h('div', { class: 'v-stat-tile', style: '--tile:' + tone },
     h('div', { class: 'v-stat-tile-label' }, P.label),
     h('div', { class: 'v-stat-tile-value' }, P.value),
@@ -248,7 +248,7 @@ function FanIcon(P) {
   var period = spinning ? Math.round(Math.max(0.35, Math.min(3, 1400 / rpm)) * 4) / 4 : 0;
   var pct = duty != null ? Math.max(0, Math.min(100, duty)) : (rpm > 0 ? null : 0);
   var ringDeg = pct != null ? Math.round(pct * 3.6) : null;
-  var tone = stalled ? '#f87171' : (spinning ? '#4f9cf9' : '#9ca3af');
+  var tone = stalled ? tok('v-bad-fg') : (spinning ? tok('v-info') : tok('v-muted-fg'));
   return h('div', { class: 'v-fanicon' + (stalled ? ' stalled' : '') },
     h('div', {
       class: 'v-fanicon-ring',
@@ -283,7 +283,7 @@ function Spark(P) {
       cursor: { show: false }, legend: { show: false },
       scales: { x: { time: false } },
       axes: [{}, {}],
-      series: [{}, { stroke: P.color || PAL['v-accent'], width: 1.4, fill: withAlpha(P.color || PAL['v-accent'], .18), spanGaps: true }],
+      series: [{}, { stroke: P.color || tok('v-accent'), width: 1.4, fill: withAlpha(P.color || tok('v-accent'), .18), spanGaps: true }],
       padding: [2, 2, 2, 2],
       ms: 1,
     };
@@ -304,7 +304,7 @@ function Donut(P) {
   return h('div', { class: 'v-donut-wrap' },
     h('div', { class: 'v-donut', style: 'width:' + size + 'px;height:' + size + 'px' },
       h('svg', { width: size, height: size, viewBox: '0 0 ' + size + ' ' + size },
-        h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: 'rgba(127,127,127,.15)', 'stroke-width': th }),
+        h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: tok('v-track'), 'stroke-width': th }),
         segs.map(function (s, i) {
           var frac = total ? s.value / total : 0;
           var el = h('circle', { key: i, cx: size / 2, cy: size / 2, r: r, fill: 'none',
@@ -337,8 +337,8 @@ function Gauge(P) {
   var dash = (pct / 100) * c;
   return h('div', { class: 'v-gauge', style: 'width:' + size + 'px;height:' + size + 'px' },
     h('svg', { width: size, height: size, viewBox: '0 0 ' + size + ' ' + size },
-      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: 'rgba(127,127,127,.15)', 'stroke-width': th }),
-      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: P.color || PAL['v-accent'],
+      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: tok('v-track'), 'stroke-width': th }),
+      h('circle', { cx: size / 2, cy: size / 2, r: r, fill: 'none', stroke: P.color || tok('v-accent'),
         'stroke-width': th, 'stroke-linecap': 'round',
         'stroke-dasharray': dash + ' ' + (c - dash),
         transform: 'rotate(-90 ' + size / 2 + ' ' + size / 2 + ')',
@@ -512,10 +512,10 @@ function Chart(P) {
         y2: P.y2Fmt ? { range: [P.y2Floor != null ? P.y2Floor : 0, P.y2Max != null ? P.y2Max : 100] } : undefined,
       },
       axes: [
-        { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false },
+        { stroke: tok('v-axis'), grid: { stroke: tok('v-grid'), width: 1 }, ticks: { show: false },
           space: 70, size: 26,
           values: function (u, sp) { return sp.map(ts); } },
-        { stroke: '#8889', grid: { stroke: '#8882', width: 1 }, ticks: { show: false }, size: 46,
+        { stroke: tok('v-axis'), grid: { stroke: tok('v-grid'), width: 1 }, ticks: { show: false }, size: 46,
           incrs: P.yFmt === bytes ? BYTE_INCRS : (P.integer ? INT_INCRS : undefined),
           values: function (u, sp) {
             // Never print the same label twice down an axis (a 0..1 range
@@ -543,7 +543,7 @@ function Chart(P) {
       padding: [8, 10, 0, P.y2Fmt ? 46 : 0],
     };
     if (P.y2Fmt) {
-      opts.axes.push({ stroke: '#8886', grid: { show: false }, ticks: { show: false }, side: 1, size: 44,
+      opts.axes.push({ stroke: tok('v-axis-2'), grid: { show: false }, ticks: { show: false }, side: 1, size: 44,
         scale: 'y2', values: function (u, sp) { return sp.map(function (v) { return P.y2Fmt(v); }); } });
       opts.padding[1] = 52;
     }
@@ -629,14 +629,14 @@ function Chart(P) {
         var el = document.createElement('div');
         el.className = 'v-th-line';
         el.style.top = y + 'px';
-        el.style.borderColor = t.color || '#f87171';
+        el.style.borderColor = t.color || tok('v-bad-fg');
         if (t.label) el.setAttribute('data-label', t.label);
         over.appendChild(el);
       });
     };
 
     var events = P.events || [];
-    var evColor = { critical: '#f87171', alert: '#f87171', warning: '#fbbf24', info: '#60a5fa' };
+    var evColor = { critical: tok('v-bad-fg'), alert: tok('v-bad-fg'), warning: tok('v-warn-fg'), info: tok('v-info-fg') };
     var drawEvents = function () {
       var over = overlayLayer();
       if (!over || !plot.current) return;
@@ -982,7 +982,6 @@ function App() {
   };
 
   useEffect(function () {
-    resolvePalette();
     load(false);
     loadFindings();
     var iv2 = setInterval(loadFindings, 60000);
@@ -1209,9 +1208,9 @@ function DashTab(P) {
   }, []);
 
   var cpuSeries = [
-    { name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) },
-    { name: 'Memory %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) },
-    { name: 'Load (norm)', color: PAL['v-load'],
+    { name: 'CPU %', color: tok('v-cpu'), points: pick(function (p) { return p.cpu; }) },
+    { name: 'Memory %', color: tok('v-mem'), points: pick(function (p) { return p.mem; }) },
+    { name: 'Load (norm)', color: tok('v-load'),
       points: pick(function (p) { return p.load == null ? null : Math.min(100, p.load * 100 / cores); }) }
   ];
 
@@ -1225,8 +1224,8 @@ function DashTab(P) {
           points: pick(function (p) { return p.net && p.net[ifn] ? p.net[ifn][1] : null; }) });
         return acc;
       }, [])
-    : [{ name: 'RX', color: PAL['v-rx'], points: pick(function (p) { return p.net_rx; }) },
-       { name: 'TX', color: PAL['v-tx'], points: pick(function (p) { return p.net_tx; }) }];
+    : [{ name: 'RX', color: tok('v-rx'), points: pick(function (p) { return p.net_rx; }) },
+       { name: 'TX', color: tok('v-tx'), points: pick(function (p) { return p.net_tx; }) }];
 
   var ctrTop = topKeys(pts, 'ctr', 0, 6);
   var ctrSeries = ctrTop.map(function (name, i) {
@@ -1251,31 +1250,31 @@ function DashTab(P) {
     return { delta: (r > 0 ? '+' : '') + r + (unit || ''), deltaKind: r > 0 ? 'up' : r < 0 ? 'down' : '' };
   };
   var cards = [
-    { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
+    { label: 'CPU', icon: 'fa-microchip', color: tok('v-cpu'), value: pctStr(d.cpu && d.cpu.total),
       level: lvl(d.cpu && d.cpu.total, 80, 95),
       sub: (load.cores || '?') + ' threads · load ' +
            (load.l1 != null ? load.l1.toFixed(2) : '—'),
       ring: d.cpu && d.cpu.total },
-    merge(merge({ label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(d.mem && d.mem.pct),
+    merge(merge({ label: 'Memory', icon: 'fa-server', color: tok('v-mem'), value: pctStr(d.mem && d.mem.pct),
       level: lvl(d.mem && d.mem.pct, 80, 92),
       sub: bytes(d.mem && d.mem.used) + ' of ' + bytes(d.mem && d.mem.total), ring: d.mem && d.mem.pct },
-      sparkOf(function (p) { return p.mem; }, PAL['v-mem'])),
+      sparkOf(function (p) { return p.mem; }, tok('v-mem'))),
       deltaOf(function (p) { return p.mem; }, 'pt')),
-    { label: 'Array', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(t.data_disks || 0), unit: 'data',
+    { label: 'Array', icon: 'fa-hdd-o', color: tok('v-accent'), value: String(t.data_disks || 0), unit: 'data',
       sub: d.system.md_state + ' · ' + (t.parity_disks || 0) + ' parity · ' + (t.cache_disks || 0) + ' pool' },
-    { label: 'Storage', icon: 'fa-database', color: PAL['v-mem'], value: pctStr(t.used_pct),
+    { label: 'Storage', icon: 'fa-database', color: tok('v-mem'), value: pctStr(t.used_pct),
       level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free) + ' free of ' + bytes(t.fs_size), ring: t.used_pct },
-    merge(merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: PAL['v-temp'],
+    merge(merge({ label: 'Hottest disk', icon: 'fa-thermometer-half', color: tok('v-temp'),
       value: tMax == null ? '—' : String(tMax), unit: tMax == null ? '' : '°C',
       level: tMax == null ? '' : lvl(tMax, alertTemp - 10, alertTemp), sub: temps.length + ' disks reporting' },
-      sparkOf(function (p) { return p.temp_max; }, PAL['v-temp'])),
+      sparkOf(function (p) { return p.temp_max; }, tok('v-temp'))),
       deltaOf(function (p) { return p.temp_max; }, '°')),
-    { label: 'Containers', icon: 'fa-cubes', color: PAL['v-ok-fg'],
+    { label: 'Containers', icon: 'fa-cubes', color: tok('v-ok-fg'),
       value: String((d.docker || {}).running || 0), unit: '/ ' + ((d.docker || {}).count || 0),
       sub: ((d.docker || {}).stopped || 0) + ' stopped' },
-    { label: 'Uptime', icon: 'fa-clock-o', color: PAL['v-accent'], value: dur(d.system.uptime),
+    { label: 'Uptime', icon: 'fa-clock-o', color: tok('v-accent'), value: dur(d.system.uptime),
       sub: 'kernel ' + d.system.kernel },
-    { label: 'Shares', icon: 'fa-folder-open-o', color: PAL['v-accent'],
+    { label: 'Shares', icon: 'fa-folder-open-o', color: tok('v-accent'),
       value: String((d.shares || {}).total || 0),
       sub: ((d.shares || {}).cache || 0) + ' cached · ' + ((d.shares || {}).array || 0) + ' array' }
   ];
@@ -1284,8 +1283,8 @@ function DashTab(P) {
   var dkr = d.docker || {};
   var donut = {
     segments: [
-      { label: 'Running', value: dkr.running || 0, color: PAL['v-ok-fg'] },
-      { label: 'Stopped', value: dkr.stopped || 0, color: PAL['v-warn-fg'] },
+      { label: 'Running', value: dkr.running || 0, color: tok('v-ok-fg') },
+      { label: 'Stopped', value: dkr.stopped || 0, color: tok('v-warn-fg') },
     ],
     center: { big: String(dkr.count || 0), small: 'containers' },
     size: 120,
@@ -1349,10 +1348,10 @@ function DashTab(P) {
       h(Panel, { title: 'Network flow', hint: 'stacked RX + TX' },
         h(Chart, { series: netSeries, height: 165, stack: true, area: true, yFmt: bytes })),
       h(Panel, { title: 'Disk temperature', hint: 'alert at ' + alertTemp + '°C' },
-        h(Chart, { series: [{ name: 'Hottest °C', color: PAL['v-temp'],
+        h(Chart, { series: [{ name: 'Hottest °C', color: tok('v-temp'),
             points: pick(function (p) { return p.temp_max; }) }],
           floor: tMax == null ? 0 : Math.max(0, Math.floor(tMax - 10)), height: 165,
-          thresholds: [{ v: alertTemp, color: '#f87171', label: 'alert ' + alertTemp + '°' }],
+          thresholds: [{ v: alertTemp, color: tok('v-bad-fg'), label: 'alert ' + alertTemp + '°' }],
           events: P.chartEvents,
           onEventClick: function (e) { window.alert(new Date(e.t * 1000).toLocaleString() + '\\n' + e.label); },
           yFmt: function (v) { return v + '°'; } }))),
@@ -1515,7 +1514,7 @@ function ArrayTab(P) {
     }
     return { label: name, value: cur == null ? '—' : cur + '°' + (max24 != null && max24 !== cur ? ' (24h max ' + max24 + '°)' : ''),
       pct: cur == null ? 0 : Math.min(100, (cur / 60) * 100),
-      color: cur == null ? '#666' : cur >= 55 ? PAL['v-bad-fg'] : cur >= 45 ? PAL['v-warn-fg'] : PAL['v-ok-fg'] };
+      color: cur == null ? tok('v-dim') : cur >= 55 ? tok('v-bad-fg') : cur >= 45 ? tok('v-warn-fg') : tok('v-ok-fg') };
   }).sort(function (a, b) { return (b.pct || 0) - (a.pct || 0); });
 
   // Per-disk throughput (P15-02): read+write bytes/sec combined into one
@@ -1549,22 +1548,22 @@ function ArrayTab(P) {
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
-        { label: 'Array state', icon: 'fa-hdd-o', color: PAL['v-accent'], value: d.system.md_state,
+        { label: 'Array state', icon: 'fa-hdd-o', color: tok('v-accent'), value: d.system.md_state,
           sub: t.data_disks + ' data · ' + t.parity_disks + ' parity' },
-        { label: 'Raw capacity', icon: 'fa-database', color: PAL['v-mem'], value: bytes(t.raw, 1),
+        { label: 'Raw capacity', icon: 'fa-database', color: tok('v-mem'), value: bytes(t.raw, 1),
           sub: t.fs_size ? bytes(t.fs_size, 1) + ' usable' : '' },
-        { label: 'Used', icon: 'fa-pie-chart', color: PAL['v-mem'], value: pctStr(t.used_pct),
+        { label: 'Used', icon: 'fa-pie-chart', color: tok('v-mem'), value: pctStr(t.used_pct),
           bar: t.used_pct, level: lvl(t.used_pct, 85, 95), sub: bytes(t.fs_free, 1) + ' free' },
-        { label: 'Mean fill', icon: 'fa-bar-chart', color: PAL['v-load'], value: pctStr(avg),
+        { label: 'Mean fill', icon: 'fa-bar-chart', color: tok('v-load'), value: pctStr(avg),
           level: lvl(avg, 85, 95), sub: used.length + ' filesystems' },
-        { label: 'Pool devices', icon: 'fa-server', color: PAL['v-accent'], value: String(t.cache_disks || 0),
+        { label: 'Pool devices', icon: 'fa-server', color: tok('v-accent'), value: String(t.cache_disks || 0),
           sub: (a.cache || []).filter(function (x) { return x.spundown; }).length + ' spun down' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Per-disk temperature', span2: true, hint: smTop.length ? 'hottest ' + smTop.length + ', alert at 55°' : '' },
         smSeries.length ? h('div', null,
           h(Chart, { series: smSeries, height: 190, area: true, hideLegend: true,
-            thresholds: [{ v: 55, color: '#f8717166', label: '55° alert' }],
+            thresholds: [{ v: 55, color: withAlpha(tok('v-bad-fg'), .4), label: '55° alert' }],
             yFmt: function (v) { return v + '°'; },
             empty: 'Per-disk temps appear once SMART data is cached.' }),
           h(ChartStats, { series: smSeries.map(function (s) {
@@ -1721,16 +1720,16 @@ function DockerTab(P) {
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
-        { label: 'Defined', icon: 'fa-cubes', color: PAL['v-accent'], value: String(dk.count || 0),
+        { label: 'Defined', icon: 'fa-cubes', color: tok('v-accent'), value: String(dk.count || 0),
           sub: 'containers' },
-        { label: 'Running', icon: 'fa-play-circle', color: PAL['v-ok-fg'], value: String(dk.running || 0),
+        { label: 'Running', icon: 'fa-play-circle', color: tok('v-ok-fg'), value: String(dk.running || 0),
           bar: dk.count ? 100 * dk.running / dk.count : 0, sub: dk.stopped + ' stopped' },
-        { label: 'Stopped', icon: 'fa-stop-circle', color: PAL['v-warn-fg'], value: String(dk.stopped || 0),
+        { label: 'Stopped', icon: 'fa-stop-circle', color: tok('v-warn-fg'), value: String(dk.stopped || 0),
           sub: 'down or crashed' },
-        { label: 'Top CPU', icon: 'fa-fire', color: PAL['v-load'],
+        { label: 'Top CPU', icon: 'fa-fire', color: tok('v-load'),
           value: byCpu.length ? byCpu[0].name : '—',
           sub: byCpu.length ? (byCpu[0].cpu || 0).toFixed(1) + '% now' : '' },
-        { label: 'Top memory', icon: 'fa-server', color: PAL['v-mem'],
+        { label: 'Top memory', icon: 'fa-server', color: tok('v-mem'),
           value: byMem.length ? byMem[0].name : '—',
           sub: byMem.length ? bytes(byMem[0].mem_bytes) : '' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
@@ -1797,13 +1796,13 @@ function NetTab(P) {
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
-        { label: 'Interfaces', icon: 'fa-exchange', color: PAL['v-accent'], value: String(ifs.length),
+        { label: 'Interfaces', icon: 'fa-exchange', color: tok('v-accent'), value: String(ifs.length),
           sub: active.length + ' carrying traffic' },
-        { label: 'Total RX', icon: 'fa-download', color: PAL['v-rx'], value: bytes(sum(0, 'rx_rate')) + '/s',
+        { label: 'Total RX', icon: 'fa-download', color: tok('v-rx'), value: bytes(sum(0, 'rx_rate')) + '/s',
           sub: bytes(sum(0, 'rx_total')) + ' since boot' },
-        { label: 'Total TX', icon: 'fa-upload', color: PAL['v-tx'], value: bytes(sum(0, 'tx_rate')) + '/s',
+        { label: 'Total TX', icon: 'fa-upload', color: tok('v-tx'), value: bytes(sum(0, 'tx_rate')) + '/s',
           sub: bytes(sum(0, 'tx_total')) + ' since boot' },
-        { label: 'Busiest', icon: 'fa-bolt', color: PAL['v-load'], value: sorted[0] || '—',
+        { label: 'Busiest', icon: 'fa-bolt', color: tok('v-load'), value: sorted[0] || '—',
           sub: sorted[0] ? bytes((net[sorted[0]].rx_rate || 0) + (net[sorted[0]].tx_rate || 0)) + '/s' : '' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
     h(Panel, { title: 'Throughput per interface', span2: true, hint: ifTop.length ? 'top ' + ifTop.length : '' },
@@ -1830,8 +1829,8 @@ function SysTab(P) {
   var d = P.d, pts = P.pts;
   var pick = function (f) { return pts.map(function (p) { return [p.t, f(p)]; }); };
   var mem = d.mem || {}, load = d.load || {}, sys = d.system || {};
-  var sCpu = [{ name: 'CPU %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }) }];
-  var sMem = [{ name: 'Mem %', color: PAL['v-mem'], points: pick(function (p) { return p.mem; }) }];
+  var sCpu = [{ name: 'CPU %', color: tok('v-cpu'), points: pick(function (p) { return p.cpu; }) }];
+  var sMem = [{ name: 'Mem %', color: tok('v-mem'), points: pick(function (p) { return p.mem; }) }];
   // P17-03: diagnostics export — Unraid bundle + anonymized forum summary.
   var diagState = useState(null); var diag = diagState[0], setDiag = diagState[1];
   var dgState = useState('idle'); var diagBusy = dgState[0], setDiagBusy = dgState[1];
@@ -1856,19 +1855,19 @@ function SysTab(P) {
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
-        { label: 'CPU', icon: 'fa-microchip', color: PAL['v-cpu'], value: pctStr(d.cpu && d.cpu.total),
+        { label: 'CPU', icon: 'fa-microchip', color: tok('v-cpu'), value: pctStr(d.cpu && d.cpu.total),
           sub: sys.cpu, bar: d.cpu && d.cpu.total },
-        { label: 'Load 1m', icon: 'fa-tachometer', color: PAL['v-load'],
+        { label: 'Load 1m', icon: 'fa-tachometer', color: tok('v-load'),
           value: load.l1 == null ? '—' : load.l1.toFixed(2),
           sub: load.l5 != null ? load.l5.toFixed(2) + ' · ' + load.l15.toFixed(2) + ' (5m · 15m)' : '' },
-        { label: 'Memory', icon: 'fa-server', color: PAL['v-mem'], value: pctStr(mem.pct), bar: mem.pct,
+        { label: 'Memory', icon: 'fa-server', color: tok('v-mem'), value: pctStr(mem.pct), bar: mem.pct,
           sub: bytes(mem.used) + ' · ' + bytes(mem.available) + ' avail' },
-        { label: 'Cached', icon: 'fa-files-o', color: PAL['v-accent'],
+        { label: 'Cached', icon: 'fa-files-o', color: tok('v-accent'),
           value: bytes((mem.buffers || 0) + (mem.cached || 0)), sub: 'kernel reclaimable' },
-        { label: 'Swap', icon: 'fa-exchange', color: mem.swap_used ? PAL['v-warn-fg'] : PAL['v-ok-fg'],
+        { label: 'Swap', icon: 'fa-exchange', color: mem.swap_used ? tok('v-warn-fg') : tok('v-ok-fg'),
           value: mem.swap_total ? pctStr(mem.swap_pct) : 'none',
           sub: mem.swap_total ? bytes(mem.swap_used) + ' of ' + bytes(mem.swap_total) : 'no swap configured' },
-        { label: 'Uptime', icon: 'fa-clock-o', color: PAL['v-accent'], value: dur(sys.uptime),
+        { label: 'Uptime', icon: 'fa-clock-o', color: tok('v-accent'), value: dur(sys.uptime),
           sub: sys.hostname || '' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
     h('div', { class: 'v-grid' },
@@ -1963,13 +1962,13 @@ function SharesTab(P) {
   return h('div', null,
     h('div', { class: 'v-cards' },
       [
-        { label: 'Shares', icon: 'fa-folder-open-o', color: PAL['v-accent'], value: String(sh.total || 0),
+        { label: 'Shares', icon: 'fa-folder-open-o', color: tok('v-accent'), value: String(sh.total || 0),
           sub: (sh.cache || 0) + ' using the pool' },
-        { label: 'Pool + array', icon: 'fa-server', color: PAL['v-ok-fg'], value: String(byPool('yes')),
+        { label: 'Pool + array', icon: 'fa-server', color: tok('v-ok-fg'), value: String(byPool('yes')),
           sub: 'cache then array' },
-        { label: 'Pool only', icon: 'fa-exclamation-triangle', color: PAL['v-warn-fg'], value: String(byPool('only')),
+        { label: 'Pool only', icon: 'fa-exclamation-triangle', color: tok('v-warn-fg'), value: String(byPool('only')),
           sub: 'no array copy' },
-        { label: 'Array only', icon: 'fa-hdd-o', color: PAL['v-accent'], value: String(byPool('no')),
+        { label: 'Array only', icon: 'fa-hdd-o', color: tok('v-accent'), value: String(byPool('no')),
           sub: 'skips the pool' }
       ].map(function (c, i) { return h(StatCard, merge(c, { key: i })); })),
     h(Panel, { title: 'All shares', span2: true, hint: list.length + ' configured' },
@@ -2015,7 +2014,7 @@ function SharesTab(P) {
               h('div', { class: 'v-storage-col' },
                 h('h4', null, '30-day growth'),
                 current.growth.length >= 2
-                  ? h(Chart, { series: [{ name: current.share, color: PAL['v-accent'],
+                  ? h(Chart, { series: [{ name: current.share, color: tok('v-accent'),
                         points: current.growth }], height: 190, yFmt: bytes })
                   : h('div', { class: 'v-empty' }, 'Needs 2+ nightly scans to chart growth — currently '
                       + current.growth.length + '.'),
@@ -2026,7 +2025,7 @@ function SharesTab(P) {
                     var pct = current.total_bytes ? Math.min(100, 100 * b / current.total_bytes) : 0;
                     return h('div', { key: ext, class: 'v-storage-type-row' },
                       h('span', { class: 'v-storage-type-name' }, '.' + ext),
-                      h('div', { class: 'v-bar' }, h('i', { style: 'width:' + pct + '%;background:' + PAL['v-accent'] })),
+                      h('div', { class: 'v-bar' }, h('i', { style: 'width:' + pct + '%;background:' + tok('v-accent') })),
                       h('span', { class: 'v-storage-type-size' }, bytes(b)));
                   })) : null)) : null))),
     h(Panel, { title: 'Duplicate files', span2: true,
@@ -2201,18 +2200,18 @@ function PowerTab(P) {
 
   var componentCards = [];
   if (pw.cpu_watts != null) componentCards.push({ label: 'CPU package', icon: 'fa-microchip',
-    color: PAL['v-cpu'], value: pw.cpu_watts.toFixed(1), unit: 'W',
+    color: tok('v-cpu'), value: pw.cpu_watts.toFixed(1), unit: 'W',
     sub: 'from CPU energy-counter sensor (RAPL)' });
   if (pw.gpu_watts != null) componentCards.push({ label: 'GPU', icon: 'fa-tv',
-    color: PAL['v-gpu'], value: pw.gpu_watts.toFixed(1), unit: 'W', sub: 'nvidia-smi power.draw' });
+    color: tok('v-gpu'), value: pw.gpu_watts.toFixed(1), unit: 'W', sub: 'nvidia-smi power.draw' });
   if (pw.ups_watts != null) componentCards.push({ label: 'UPS load', icon: 'fa-plug',
-    color: PAL['v-accent'], value: pw.ups_watts.toFixed(1), unit: 'W',
+    color: tok('v-accent'), value: pw.ups_watts.toFixed(1), unit: 'W',
     sub: (pw.ups_load_pct != null ? pw.ups_load_pct + '% of rated capacity' : '') });
 
   return h('div', null,
     h('div', { class: 'v-cards v-cards-4' },
       h(StatCard, { label: 'Total draw', icon: 'fa-bolt',
-        color: have ? PAL['v-warn-fg'] : '#8b8f9a',
+        color: have ? tok('v-warn-fg') : tok('v-muted-stroke'),
         value: have ? pw.total_watts.toFixed(1) : '—', unit: have ? 'W' : '',
         sub: have
           ? ('includes: ' + pw.total_includes.join(' + '))
@@ -2236,11 +2235,11 @@ function PowerTab(P) {
         : h(Chart, {
             series: [
               pw.cpu_watts != null || pts.some(function (p) { return p.watts_cpu != null; }) ?
-                { name: 'CPU', color: PAL['v-cpu'], points: pick(function (p) { return p.watts_cpu; }) } : null,
+                { name: 'CPU', color: tok('v-cpu'), points: pick(function (p) { return p.watts_cpu; }) } : null,
               pts.some(function (p) { return p.watts_gpu != null; }) ?
-                { name: 'GPU', color: PAL['v-gpu'], points: pick(function (p) { return p.watts_gpu; }) } : null,
+                { name: 'GPU', color: tok('v-gpu'), points: pick(function (p) { return p.watts_gpu; }) } : null,
               pts.some(function (p) { return p.watts_ups != null; }) ?
-                { name: 'UPS load', color: PAL['v-accent'], points: pick(function (p) { return p.watts_ups; }) } : null,
+                { name: 'UPS load', color: tok('v-accent'), points: pick(function (p) { return p.watts_ups; }) } : null,
             ].filter(Boolean),
             height: 220, area: true, yFmt: function (v) { return v + 'W'; }
           })),
@@ -2254,7 +2253,7 @@ function PowerTab(P) {
           !energy || !energy.days.length ? h('div', { class: 'v-empty', style: 'margin-top:10px' },
             'No hourly history with power data yet — check back after a few hours of uptime.')
           : h('div', null,
-              h(Chart, { series: [{ name: 'kWh/day', color: PAL['v-warn-fg'],
+              h(Chart, { series: [{ name: 'kWh/day', color: tok('v-warn-fg'),
                 points: energy.days.map(function (d) { return [Date.parse(d.day + 'T00:00:00Z') / 1000, d.kwh]; }) }],
                 height: 150, yFmt: function (v) { return v.toFixed(1) + ' kWh'; } }),
               h(Table, { noScroll: true },
@@ -2340,11 +2339,11 @@ function HwTab(P) {
   });
   var heat = function (v, t) {
     var ref = t && (t.crit != null ? t.crit : (t.max != null ? t.max : null));
-    if (ref != null && v >= ref * 0.92) return '#ef4444';
-    if (v >= 75) return '#ef4444';
-    if (v >= 60) return '#f59e0b';
-    if (v >= 45) return '#eab308';
-    return '#34d399';
+    if (ref != null && v >= ref * 0.92) return tok('v-bad');
+    if (v >= 75) return tok('v-bad');
+    if (v >= 60) return tok('v-warn');
+    if (v >= 45) return tok('v-warm');
+    return tok('v-cool');
   };
   var ThermalMap = function () {
     var all = (sensors.temps || []).concat(diskTemps);
@@ -2396,7 +2395,7 @@ function HwTab(P) {
         h('div', { class: 'v-radar-legend' },
           radarAxes.map(function (a, i) {
             return h('div', { key: i, class: 'v-radar-row' },
-              h('span', { class: 'v-radar-dot', style: 'background:' + (a.value >= 85 ? '#ef4444' : a.value >= 60 ? '#f59e0b' : '#34d399') }),
+              h('span', { class: 'v-radar-dot', style: 'background:' + (a.value >= 85 ? tok('v-bad') : a.value >= 60 ? tok('v-warn') : tok('v-cool')) }),
               h('span', { class: 'v-radar-name' }, a.label),
               h('span', { class: 'v-radar-val' }, Math.round(a.value) + '%'));
           })),
@@ -2415,7 +2414,7 @@ function HwTab(P) {
             // lvl() uses so the ring still means something.
             var pct = ref != null ? (t.value / ref) * 100 : (t.value / 90) * 100;
             var level = lvl(t);
-            var color = level === 'crit' ? '#f87171' : level === 'warn' ? '#f59e0b' : '#34d399';
+            var color = level === 'crit' ? tok('v-bad-fg') : level === 'warn' ? tok('v-warn') : tok('v-cool');
             return h('div', { key: t.id, class: 'v-gauge-tile v-temp-' + level, title:
               (t.crit != null ? 'chip crit: ' + t.crit + '°C' : '') +
               (t.max != null ? (t.crit != null ? ' · ' : '') + 'chip max: ' + t.max + '°C' : '') },
@@ -2437,7 +2436,7 @@ function HwTab(P) {
           })))) ), height: 190, area: true, hideLegend: true,
         thresholds: topTempIds.map(function (id) {
           var m = sensorMeta[id];
-          return m && m.max ? { v: m.max, color: '#f8717166', label: m.label + ' max' } : null;
+          return m && m.max ? { v: m.max, color: withAlpha(tok('v-bad-fg'), .4), label: m.label + ' max' } : null;
         }).filter(Boolean),
         yFmt: function (v) { return v + '°C'; }
       }),
@@ -2446,8 +2445,8 @@ function HwTab(P) {
       hint: 'CPU package temp (left) over total CPU load (right) — throttling shows as temp up while load drops' },
       tempSeries ? h(Chart, {
         series: [
-          { name: 'CPU temp °C', color: PAL['v-temp'], points: tempSeriesFor(topTempIds[0] || '') },
-          { name: 'CPU load %', color: PAL['v-cpu'], points: pick(function (p) { return p.cpu; }), axis: 2 },
+          { name: 'CPU temp °C', color: tok('v-temp'), points: tempSeriesFor(topTempIds[0] || '') },
+          { name: 'CPU load %', color: tok('v-cpu'), points: pick(function (p) { return p.cpu; }), axis: 2 },
         ],
         max: 100, y2Max: 100, height: 170, area: true, y2Fmt: function (v) { return v + '%'; },
         yFmt: function (v) { return v + '°'; }
@@ -2538,7 +2537,7 @@ function HwTab(P) {
             h('td', { class: 'num v-name' }, String(r[1])));
         })),
         cpuFreqSeries ? h(Chart, {
-          series: [{ name: 'Avg CPU freq (MHz)', color: PAL['v-cpu'], points: cpuFreqSeriesFor() }],
+          series: [{ name: 'Avg CPU freq (MHz)', color: tok('v-cpu'), points: cpuFreqSeriesFor() }],
           height: 150, area: true, hideLegend: true, yFmt: function (v) { return Math.round(v) + ' MHz'; }
         }) : null)) : null,
     h(Panel, { title: 'Virtual machines', span2: true,
@@ -2564,9 +2563,9 @@ function HwTab(P) {
                 h('td', { class: 'num v-name' }, String(r[1])));
             })),
             gpuHist ? h(Chart, { series: [
-              { name: 'Util %', color: PAL['v-gpu'],
+              { name: 'Util %', color: tok('v-gpu'),
                 points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[0] : null; }) },
-              { name: 'Temp °C', color: PAL['v-temp'],
+              { name: 'Temp °C', color: tok('v-temp'),
                 points: pick(function (p) { return p.gpu_hist ? p.gpu_hist[2] : null; }) }
             ], max: 100, height: 160, yFmt: String }) : null)
           : h('div', { class: 'v-empty' }, 'No GPU reported.')),
@@ -2800,7 +2799,7 @@ function KbWorkspace() {
                   h('button', { class: 'v-btn xs', onClick: function () { act('kb_lesson_pin', { id: l.id, pin: l.confidence >= 0.9 ? 'no' : 'yes' }); } },
                     l.confidence >= 0.9 ? 'Unpin' : 'Pin'),
                   ' ',
-                  h('button', { class: 'v-btn xs', style: 'color:#c00', onClick: function () { if (window.confirm('Delete lesson #' + l.id + '?')) act('kb_lesson_delete', { id: l.id }); } }, 'Delete'))));
+                  h('button', { class: 'v-btn xs danger', onClick: function () { if (window.confirm('Delete lesson #' + l.id + '?')) act('kb_lesson_delete', { id: l.id }); } }, 'Delete'))));
           }))
         : h(Table, null,
           h('tr', null, h('th', null, 'Event'), h('th', null, 'Detection'), h('th', null, 'Action taken'), h('th', null, 'Outcome'), h('th', null, '')),

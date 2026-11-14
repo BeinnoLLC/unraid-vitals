@@ -200,7 +200,9 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 | `--v-on-accent` | `#fff` | text/icon on filled accent and status surfaces (primary button, active seg/chip/icon button, severity chips `.on`, badges) |
 | `--v-on-warn` | `#1a1a1a` | dark text on the light fills (`--v-warn`, `--v-ok-fg`): warn badge, high/low severity chips `.on` |
 | `--v-cpu` `--v-mem` `--v-load` `--v-rx` `--v-tx` `--v-temp` `--v-gpu` | `#4f9cf9` `#b07cf9` `#f9a94f` `#35c48a` `#f97066` `#f97066` `#22d3ee` | metric identity (series strokes, card icon tints, bars). `--v-tx` and `--v-temp` share a value. |
-| `--v-info` | `#4f9cf9` | informational status: info badge, medium severity chip, chart event markers (replaces the raw `#4f9cf9`/`#60a5fa`) |
+| `--v-info` | `#4f9cf9` | informational status: info badge, medium severity chip (replaces the raw `#4f9cf9`; canvas event markers use `--v-info-fg`) |
+| `--v-info-fg` | `#60a5fa` | chart event markers (info) — UV6, value-preserving twin of `--v-info` for canvas/SVG (the former raw `#60a5fa` in `vitals.js`) |
+| `--v-warm` / `--v-cool` | `#eab308` / `#34d399` | temperature ramp tiers and severity dots: warm / cool (UV6, the former JS literals) |
 | `--v-think` | `#2dd4bf` | "think" capability pill hue |
 | `--v-neutral` | `rgb(127, 127, 127)` | base neutral for per-use alpha tints: `color-mix(in srgb, var(--v-neutral) N%, transparent)` reproduces the old `rgba(127,127,127,…)` literals (UV5) |
 | `--v-border` | `rgba(127,127,127,.18)` | every hairline: panels, tables, inputs, tab strip |
@@ -208,6 +210,12 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 | `--v-card-hover` | `rgba(127,127,127,.085)` | hover surface |
 | `--v-surface` | `var(--background-color, #1d1b1b)` | opaque overlay surface: modal, drawers, chart popover, toasts. Follows the active Unraid theme background; `#1d1b1b` is the fallback when the host lacks the var (UV1/UV2). |
 | `--v-muted` | `currentColor` | "secondary" text. It is NOT a grey: it resolves to the inherited theme text colour, and muting comes from `opacity` (`.muted` .55, `.v-sub` .62, `th` .58, `.v-foot` .45). |
+| `--v-dim` | `#666` | faint "no reading" chip text in JS-rendered tables (UV6, the former raw `#666`) |
+| `--v-muted-fg` | `#9ca3af` | muted tone text: stat-tile `muted` tone, idle fan icon (UV6, the former raw `#9ca3af`) |
+| `--v-muted-stroke` | `#8b8f9a` | muted chart stroke: gradient-fill fallback, missing-sensor dot (UV6, the former raw `#8b8f9a`) |
+| `--v-axis` / `--v-axis-2` / `--v-grid` | `#8889` / `#8886` / `#8882` | uPlot axis strokes (x+y, y2 right side) and gridlines (UV6, the former raw `#8889`/`#8886`/`#8882`) |
+| `--v-track` | `rgba(127,127,127,.15)` | gauge/donut ring track stroke in SVG (UV6, the former raw literal) |
+| `--v-series-1 … --v-series-20` | `#4f9cf9` `#b07cf9` `#35c48a` `#f97066` `#22d3ee` `#a78bfa` `#f472b6` `#fbbf24` `#34d399` `#60a5fa` `#fb7185` `#facc15` `#4ade80` `#38bdf8` `#e879f9` `#c4b5fd` `#fdba74` `#67e8f9` `#86efac` `#fca5a5` | chart series palette: `pickColor(i)` reads `--v-series-(i % 20 + 1)` (UV6, the former `SERIES_COLORS` array) |
 
 Pattern for tinted status surfaces (pills, warn notes, delta chips, tag badges):
 `background: color-mix(in srgb, <status> 15%, transparent); border-color: color-mix(in srgb, <status> 45%, transparent); color: <status>-fg`.
