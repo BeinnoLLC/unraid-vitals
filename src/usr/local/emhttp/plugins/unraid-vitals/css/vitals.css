@@ -111,7 +111,10 @@
 
   /* Fluid type scale — one continuous curve instead of per-breakpoint rules. */
   /* Fixed tiny step for badges/count chips (UV13 part 1/3) — the former 9.5–10.5px
-     literals round onto it; badges are fixed-size chrome, so it is not fluid. */
+     literals round onto it; badges are fixed-size chrome, so it is not fluid.
+     Part 2/3: the remaining 9.5/10.5px literals snap onto it the same way (±0.5px),
+     and the lone 15px core % readout snaps onto --v-fs-md (0.5px at the cap).
+     The phone block (max-width 639px) keeps its deliberate fixed-size pins. */
   --v-fs-2xs: 10px;
   --v-fs-xs: clamp(10.5px, .5vw + 9px, 11.5px);
   --v-fs-sm: clamp(12px, .55vw + 10px, 13px);
@@ -181,7 +184,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-title h2 { margin: 0; font-size: var(--v-fs-xl); font-weight: 650; letter-spacing: -.02em; line-height: 1.15; }
 .vitals .v-logo {
   width: 36px; height: 36px; border-radius: 10px; flex: 0 0 auto;
-  display: flex; align-items: center; justify-content: center; font-size: 17px;
+  display: flex; align-items: center; justify-content: center; font-size: var(--v-fs-lg);
   background: color-mix(in srgb, var(--v-accent) 16%, transparent); color: var(--v-accent-fg);
 }
 .vitals .v-sub {
@@ -243,14 +246,14 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 /* P15-05: storage analyzer */
 .vitals .v-tabs-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .vitals .v-storage-detail { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-.vitals .v-storage-col h4 { margin: 0 0 8px; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; color: var(--v-muted); }
-.vitals .v-storage-stale { margin-top: 10px; font-size: 12.5px; color: var(--v-warn-fg); display: flex; align-items: center; gap: 6px; }
+.vitals .v-storage-col h4 { margin: 0 0 8px; font-size: var(--v-fs-sm); text-transform: uppercase; letter-spacing: .03em; color: var(--v-muted); }
+.vitals .v-storage-stale { margin-top: 10px; font-size: var(--v-fs-sm); color: var(--v-warn-fg); display: flex; align-items: center; gap: 6px; }
 .vitals .v-storage-types { margin-top: 14px; }
-.vitals .v-storage-type-row { display: grid; grid-template-columns: 56px 1fr 64px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.vitals .v-storage-type-row { display: grid; grid-template-columns: 56px 1fr 64px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: var(--v-fs-sm); }
 .vitals .v-storage-type-name { font-family: monospace; opacity: .8; }
 .vitals .v-storage-type-size { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
 @media (max-width: 860px) { .vitals .v-storage-detail { grid-template-columns: 1fr; } }
-.vitals .v-dup-paths { font-size: 11px; max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals .v-dup-paths { font-size: var(--v-fs-xs); max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-txt-warn { color: var(--v-warn-fg); font-weight: 600; }
 .vitals .v-txt-ok { color: var(--v-ok-fg); font-weight: 600; }
 .vitals .v-price-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
@@ -260,21 +263,21 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
 .vitals .v-core-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 6px; }
 .vitals .v-core { border: 1px solid var(--v-border); border-radius: 6px; padding: 6px 4px; text-align: center; background: var(--v-card); }
-.vitals .v-core-n { font-size: 10px; color: var(--v-muted); text-transform: uppercase; letter-spacing: .03em; }
-.vitals .v-core-pct { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.vitals .v-core-pin { font-size: 10px; color: var(--v-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
+.vitals .v-core-n { font-size: var(--v-fs-2xs); color: var(--v-muted); text-transform: uppercase; letter-spacing: .03em; }
+.vitals .v-core-pct { font-size: var(--v-fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+.vitals .v-core-pin { font-size: var(--v-fs-2xs); color: var(--v-accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 .vitals .v-core.warn .v-core-pct { color: var(--v-warn-fg); }
 .vitals .v-core.crit .v-core-pct { color: var(--v-bad); }
 .vitals .v-ai-panel { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
-.vitals .v-ai-head { font-size: 12px; font-weight: 600; color: var(--v-muted); text-transform: uppercase; letter-spacing: .04em; }
+.vitals .v-ai-head { font-size: var(--v-fs-sm); font-weight: 600; color: var(--v-muted); text-transform: uppercase; letter-spacing: .04em; }
 .vitals .v-ai-head .muted { text-transform: none; font-weight: 400; letter-spacing: 0; }
 .vitals .v-ai-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--v-border); background: var(--v-card); }
 .vitals .v-ai-item > i { margin-top: 2px; flex: 0 0 auto; }
 .vitals .v-ai-body { flex: 1 1 auto; min-width: 0; }
-.vitals .v-ai-title { font-weight: 600; font-size: 13px; }
-.vitals .v-ai-agent { margin-left: 8px; font-size: 10px; font-weight: 500; text-transform: uppercase; color: var(--v-muted); letter-spacing: .03em; }
-.vitals .v-ai-detail { font-size: 12px; color: var(--v-muted); margin-top: 2px; }
-.vitals .v-ai-rec { font-size: 12px; color: var(--v-accent); margin-top: 4px; }
+.vitals .v-ai-title { font-weight: 600; font-size: var(--v-fs-md); }
+.vitals .v-ai-agent { margin-left: 8px; font-size: var(--v-fs-2xs); font-weight: 500; text-transform: uppercase; color: var(--v-muted); letter-spacing: .03em; }
+.vitals .v-ai-detail { font-size: var(--v-fs-sm); color: var(--v-muted); margin-top: 2px; }
+.vitals .v-ai-rec { font-size: var(--v-fs-sm); color: var(--v-accent); margin-top: 4px; }
 .vitals .v-ai-ok > i { color: var(--v-ok-fg); }
 .vitals .v-ai-info > i { color: var(--v-accent); }
 .vitals .v-ai-warning { border-color: var(--v-warn-fg); }
@@ -282,17 +285,17 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-ai-error, .vitals .v-ai-critical { border-color: var(--v-bad); }
 .vitals .v-ai-error > i, .vitals .v-ai-critical > i { color: var(--v-bad); }
 .vitals .v-share-comment { max-width: 220px; }
-.vitals .v-share-comment-err { color: var(--v-bad); font-size: 11px; margin-top: 3px; }
+.vitals .v-share-comment-err { color: var(--v-bad); font-size: var(--v-fs-xs); margin-top: 3px; }
 .vitals .v-kb-search .v-input, .vitals textarea.v-input { width: auto; }
 .vitals .v-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
 .vitals .v-modal { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 10px; width: min(640px, 92vw); max-height: 78vh; display: flex; flex-direction: column; overflow: hidden; }
 .vitals .v-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--v-border); font-weight: 600; }
 .vitals .v-modal-body { padding: 8px; overflow-y: auto; flex: 1 1 auto; }
-.vitals .v-browse-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: default; font-size: 13px; }
+.vitals .v-browse-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: default; font-size: var(--v-fs-md); }
 .vitals .v-browse-row[onclick], .vitals .v-browse-row.muted { cursor: pointer; }
 .vitals .v-browse-row:hover { background: var(--v-card); }
 .vitals .v-browse-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vitals .v-browse-meta { color: var(--v-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.vitals .v-browse-meta { color: var(--v-muted); font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; }
 .vitals .v-kb-search { display: flex; gap: 8px; align-items: center; }
 .vitals .v-kb-topics { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .vitals .v-chip { font-size: var(--v-fs-xs); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--v-border); color: var(--v-muted); cursor: pointer; }
@@ -310,26 +313,26 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
 .vitals .v-kb-doc:last-child { border-bottom: none; }
 .vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.vitals .v-kb-doc-title { font-weight: 600; font-size: 13px; }
-.vitals .v-kb-doc-body { font-size: 12.5px; color: var(--v-muted); white-space: pre-wrap; line-height: 1.5; }
-.vitals .v-kb-doc-summary { font-size: 12.5px; font-style: italic; opacity: .85; margin-bottom: 8px; }
+.vitals .v-kb-doc-title { font-weight: 600; font-size: var(--v-fs-md); }
+.vitals .v-kb-doc-body { font-size: var(--v-fs-sm); color: var(--v-muted); white-space: pre-wrap; line-height: 1.5; }
+.vitals .v-kb-doc-summary { font-size: var(--v-fs-sm); font-style: italic; opacity: .85; margin-bottom: 8px; }
 /* Rich reports (research / study kind) — render through renderMd() as real
    headings/lists/paragraphs, so this drops the pre-wrap and gives them
    normal prose rhythm instead of the flat finding-note look. */
-.vitals .v-kb-doc-body.v-kb-doc-rich { white-space: normal; font-size: 13px; }
+.vitals .v-kb-doc-body.v-kb-doc-rich { white-space: normal; font-size: var(--v-fs-md); }
 .vitals .v-kb-doc-body.v-kb-doc-rich h3,
 .vitals .v-kb-doc-body.v-kb-doc-rich h4,
-.vitals .v-kb-doc-body.v-kb-doc-rich h5 { color: var(--v-fg, inherit); margin: 14px 0 6px; font-size: 13px; opacity: .95; }
+.vitals .v-kb-doc-body.v-kb-doc-rich h5 { color: var(--v-fg, inherit); margin: 14px 0 6px; font-size: var(--v-fs-md); opacity: .95; }
 .vitals .v-kb-doc-body.v-kb-doc-rich h3:first-child,
 .vitals .v-kb-doc-body.v-kb-doc-rich h4:first-child { margin-top: 0; }
 .vitals .v-kb-doc-body.v-kb-doc-rich p { margin: 0 0 10px; }
 .vitals .v-kb-doc-body.v-kb-doc-rich ul, .vitals .v-kb-doc-body.v-kb-doc-rich ol { margin: 0 0 10px 18px; padding: 0; }
 .vitals .v-kb-doc-body.v-kb-doc-rich li { margin-bottom: 3px; }
-.vitals .v-kb-doc-body.v-kb-doc-rich code { background: color-mix(in srgb, currentColor 10%, transparent); padding: 1px 4px; border-radius: 3px; font-size: 11.5px; }
+.vitals .v-kb-doc-body.v-kb-doc-rich code { background: color-mix(in srgb, currentColor 10%, transparent); padding: 1px 4px; border-radius: 3px; font-size: var(--v-fs-xs); }
 .vitals .v-kb-doc-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin: 8px 0 12px; }
 .vitals .v-kb-doc-fig { margin: 0; }
 .vitals .v-kb-doc-fig img { width: 100%; border-radius: var(--v-radius-sm); border: 1px solid var(--v-border); display: block; }
-.vitals .v-kb-doc-fig figcaption { font-size: 11px; opacity: .65; margin-top: 3px; text-align: center; }
+.vitals .v-kb-doc-fig figcaption { font-size: var(--v-fs-xs); opacity: .65; margin-top: 3px; text-align: center; }
 .vitals .v-pill.info {
   background: color-mix(in srgb, var(--v-accent) 15%, transparent);
   border-color: color-mix(in srgb, var(--v-accent) 45%, transparent); color: var(--v-accent);
@@ -352,15 +355,15 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 
 /* Study observation journal. */
 .vitals .v-journal { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.vitals .v-journal li { font-size: 12.5px; line-height: 1.5; padding: 6px 8px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); }
+.vitals .v-journal li { font-size: var(--v-fs-sm); line-height: 1.5; padding: 6px 8px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); }
 .vitals .v-journal .muted { font-variant-numeric: tabular-nums; margin-right: 4px; }
 
 /* ---- hwmon sensor tiles ------------------------------------------------ */
 .vitals .v-sensor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .vitals .v-sensor { padding: 8px 10px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); border-left-width: 3px; }
-.vitals .v-sensor-val { font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vitals .v-sensor-label { font-size: 11px; color: var(--v-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vitals .v-sensor-th { font-size: 10px; color: var(--v-muted); opacity: .75; margin-top: 1px; }
+.vitals .v-sensor-val { font-size: var(--v-fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-sensor-label { font-size: var(--v-fs-xs); color: var(--v-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vitals .v-sensor-th { font-size: var(--v-fs-2xs); color: var(--v-muted); opacity: .75; margin-top: 1px; }
 .vitals .v-temp-ok    { border-left-color: var(--v-ok-fg); }
 .vitals .v-temp-warn  { border-left-color: var(--v-warn); }
 .vitals .v-temp-warn .v-sensor-val { color: var(--v-warn); }
@@ -376,8 +379,8 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-gauge-tile .v-sensor-label { text-align: center; max-width: 100%; }
 .vitals .v-gauge { position: relative; flex: none; }
 .vitals .v-gauge-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-.vitals .v-gauge-big { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vitals .v-gauge-small { font-size: 9.5px; color: var(--v-muted); margin-top: 1px; }
+.vitals .v-gauge-big { font-size: var(--v-fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-gauge-small { font-size: var(--v-fs-2xs); color: var(--v-muted); margin-top: 1px; }
 .vitals .v-gauge-tile.v-temp-warn .v-gauge-big { color: var(--v-warn); }
 .vitals .v-gauge-tile.v-temp-crit .v-gauge-big { color: var(--v-bad); }
 
@@ -392,14 +395,14 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 @keyframes v-drawer-in { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
 .vitals .v-drawer-head { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid var(--v-border); font-weight: 600; }
-.vitals .v-drawer-title { font-size: 14px; }
+.vitals .v-drawer-title { font-size: var(--v-fs-md); }
 .vitals .v-drawer-tools { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--v-border); flex-wrap: wrap; }
 .vitals .v-drawer-q { width: auto; flex: 1; min-width: 120px; }
-.vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.45; }
+.vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--v-fs-xs); line-height: 1.45; }
 .vitals .v-log-line { padding: 1.5px 14px; white-space: pre-wrap; word-break: break-word; color: var(--v-muted); }
 .vitals .v-log-line.crit { color: var(--v-bad); background: color-mix(in srgb, var(--v-bad) 6%, transparent); }
 .vitals .v-log-ts { color: var(--v-muted); opacity: .65; margin-right: 8px; }
-.vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: 11px; color: var(--v-muted); }
+.vitals .v-drawer-foot { padding: 8px 14px; border-top: 1px solid var(--v-border); font-size: var(--v-fs-xs); color: var(--v-muted); }
 
 /* findings drawer reuses the log-drawer shell but needs normal (non-mono)
    typography and padded cards instead of raw log lines */
@@ -426,24 +429,24 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 /* ranked horizontal bars */
 .vitals .v-hbars { display: flex; flex-direction: column; gap: 7px; }
 .vitals .v-hbar-row { display: grid; grid-template-columns: minmax(64px, 96px) 1fr 52px; gap: 8px; align-items: center; }
-.vitals .v-hbar-label { font-size: 11.5px; color: var(--v-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+.vitals .v-hbar-label { font-size: var(--v-fs-xs); color: var(--v-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
 .vitals .v-hbar-track { height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--v-neutral) 12%, transparent); overflow: hidden; }
 .vitals .v-hbar-track i { display: block; height: 100%; border-radius: 6px; opacity: .9; transition: width .3s ease; }
-.vitals .v-hbar-val { font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--v-muted); }
+.vitals .v-hbar-val { font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; color: var(--v-muted); }
 
 /* donut + legend */
 .vitals .v-donut-wrap { display: flex; align-items: center; gap: 16px; }
 .vitals .v-donut { position: relative; flex: none; }
 .vitals .v-donut-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-.vitals .v-donut-big { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.vitals .v-donut-small { font-size: 10px; color: var(--v-muted); }
-.vitals .v-donut-legend { display: flex; flex-direction: column; gap: 5px; font-size: 12px; }
+.vitals .v-donut-big { font-size: var(--v-fs-xl); font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-donut-small { font-size: var(--v-fs-2xs); color: var(--v-muted); }
+.vitals .v-donut-legend { display: flex; flex-direction: column; gap: 5px; font-size: var(--v-fs-sm); }
 .vitals .v-donut-key { display: flex; align-items: center; gap: 6px; color: var(--v-muted); }
 .vitals .v-donut-key i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .vitals .v-donut-key b { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--v-fg); }
 
 /* OctoPrint-style per-series stats under a chart */
-.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 10px 10px 2px; font-size: 11.5px;
+.vitals .v-chart-stats { display: flex; flex-wrap: wrap; gap: 6px 8px; padding: 10px 10px 2px; font-size: var(--v-fs-xs);
   margin-top: 4px; border-top: 1px solid var(--v-border); }
 /* Each series is its own bordered chip (not run-on inline text) so 5+
    high-cardinality sensors on one chart don't read as a single unbroken
@@ -458,11 +461,11 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-chart-stat > i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; margin-top: 4px; flex: none; }
 .vitals .v-chart-stat-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; overflow: hidden; }
 .vitals .v-chart-stat-name {
-  font-weight: 650; font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+  font-weight: 650; font-size: var(--v-fs-xs); overflow: hidden; text-overflow: ellipsis;
   white-space: nowrap; opacity: .85;
 }
-.vitals .v-chart-stat-now { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 12.5px; }
-.vitals .v-chart-stat-range { font-variant-numeric: tabular-nums; opacity: .55; font-size: 10.5px; white-space: nowrap; }
+.vitals .v-chart-stat-now { font-variant-numeric: tabular-nums; font-weight: 650; font-size: var(--v-fs-sm); }
+.vitals .v-chart-stat-range { font-variant-numeric: tabular-nums; opacity: .55; font-size: var(--v-fs-2xs); white-space: nowrap; }
 
 /* threshold overlay lines */
 .vitals .v-chart { position: relative; }
@@ -471,7 +474,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    — no hard-coded axis offsets, no bleeding into the legend below. */
 .vitals .u-over { overflow: visible; }
 .vitals .v-th-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--v-bad-fg); pointer-events: none; z-index: 2; }
-.vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: 9.5px; color: color-mix(in srgb, var(--v-bad-fg) 66.67%, transparent); }
+.vitals .v-th-line::after { content: attr(data-label); position: absolute; right: 2px; top: -13px; font-size: var(--v-fs-2xs); color: color-mix(in srgb, var(--v-bad-fg) 66.67%, transparent); }
 
 /* P15-04: event markers — thin vertical line + a small pointer-catching
    hit target, positioned in JS via uPlot's own x-scale so it always lines
@@ -482,7 +485,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 /* fan tiles */
 .vitals .v-fan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
 .vitals .v-fan { display: flex; align-items: center; gap: 10px; }
-.vitals .v-fan .v-sensor-val { font-size: 20px; }
+.vitals .v-fan .v-sensor-val { font-size: var(--v-fs-xl); }
 .vitals .v-fan.idle { opacity: .45; }
 .vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
 .vitals .v-volt-oor { border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
@@ -592,7 +595,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 .vitals .v-card-icon {
   width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center;
-  justify-content: center; font-size: 16px;
+  justify-content: center; font-size: var(--v-fs-lg);
   /* Fallback for browsers without color-mix(); the inline tint overrides it
      only when supported, so the badge is never left unstyled. */
   background: rgba(127, 127, 127, .14);
@@ -601,7 +604,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   position: absolute; inset: 3px; width: auto; height: auto; border-radius: 50%;
 }
 .vitals .v-card-label {
-  font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
+  font-size: var(--v-fs-2xs); text-transform: uppercase; letter-spacing: .06em;
   opacity: var(--v-muted-opacity); margin-bottom: 4px; font-weight: 650;
 }
 .vitals .v-card-value {
@@ -615,7 +618,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    alone doesn't tell you if it moved; colour communicates direction. */
 .vitals .v-card-spark-row { position: relative; margin-top: 4px; }
 .vitals .v-card-delta {
-  position: absolute; right: 0; top: -2px; font-size: 9.5px; font-weight: 700;
+  position: absolute; right: 0; top: -2px; font-size: var(--v-fs-2xs); font-weight: 700;
   padding: 2px 7px; border-radius: 999px; white-space: nowrap;
   background: color-mix(in srgb, var(--v-accent) 18%, transparent);
   color: var(--v-accent);
@@ -662,7 +665,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-chart-menu-btn {
   position: absolute; top: 2px; right: 2px; z-index: 4;
   width: 22px; height: 20px; border-radius: 6px; border: 1px solid transparent;
-  background: var(--v-card); color: var(--v-muted); font-size: 14px; line-height: 1;
+  background: var(--v-card); color: var(--v-muted); font-size: var(--v-fs-md); line-height: 1;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   opacity: .55;
 }
@@ -673,7 +676,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 8px;
   box-shadow: 0 12px 28px rgba(0,0,0,.35); padding: 6px; display: flex; flex-direction: column; gap: 2px;
 }
-.vitals .v-chart-menu-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; font-size: 11.5px; }
+.vitals .v-chart-menu-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; font-size: var(--v-fs-xs); }
 .vitals .v-chart-menu-row.muted { opacity: .6; }
 .vitals .v-chart-menu-swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
 .vitals .v-chart-menu-name { font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -690,9 +693,9 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    a plain unstyled <table>; without this it inherits nothing from the
    dark theme and reads as unreadable dark-on-dark or cramped default
    browser table spacing (user: "legends are broken for charts"). */
-.vitals .u-legend { font-size: 11.5px; text-align: left; margin: 8px 0 0; width: 100%; }
+.vitals .u-legend { font-size: var(--v-fs-xs); text-align: left; margin: 8px 0 0; width: 100%; }
 .vitals .u-legend tr { display: inline-flex; align-items: center; margin: 3px 12px 3px 0; }
-.vitals .u-legend th { font-weight: 600; padding: 2px 0; color: var(--v-fg); white-space: nowrap; text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+.vitals .u-legend th { font-weight: 600; padding: 2px 0; color: var(--v-fg); white-space: nowrap; text-transform: none; letter-spacing: 0; font-size: var(--v-fs-xs); }
 /* uPlot draws markers as an empty box with the series colour as a thin
    border — on a dark theme that reads as an unchecked checkbox. Fill it
    (background from the same border colour) so it's a proper swatch. */
@@ -797,7 +800,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   box-shadow: inset 0 -2px 0 var(--v-accent);
 }
 .vitals .v-tab:focus-visible { outline: 2px solid var(--v-accent); outline-offset: -2px; }
-.vitals .v-tab i { font-size: 13px; }
+.vitals .v-tab i { font-size: var(--v-fs-md); }
 .vitals .v-body { min-height: 200px; }
 
 /* Inline notice strip (e.g. SMART warnings under a table). */
@@ -900,13 +903,13 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 
 /* Ask-once plan hint: live "this will run as a 12h study / one-shot
    question, ready in ~X" line under the input while typing. */
-.vitals .v-plan-hint { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+.vitals .v-plan-hint { display: flex; align-items: center; gap: 8px; font-size: var(--v-fs-sm);
   color: var(--v-muted); background: color-mix(in srgb, var(--v-neutral) 8%, transparent); border: 1px solid var(--v-border);
   border-radius: 8px; padding: 7px 11px; }
 .vitals .v-plan-hint i { color: var(--v-accent); }
 .vitals .v-plan-hint.study i { color: var(--v-warn); }
 .vitals .v-plan-hint.study { border-color: color-mix(in srgb, var(--v-warn) 35%, var(--v-border)); }
-.vitals .v-plan-meta { margin-left: auto; font-size: 11px; opacity: .75; white-space: nowrap; }
+.vitals .v-plan-meta { margin-left: auto; font-size: var(--v-fs-xs); opacity: .75; white-space: nowrap; }
 
 /* Toast stack: bottom-right cards for async notifications ("research
    started, ~3 min", "research ready — click to view"). Pure UI, no state
@@ -923,8 +926,8 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-toast-warn > i { color: var(--v-bad); }
 .vitals .v-toast-info > i { color: var(--v-accent); }
 .vitals .v-toast > i { margin-top: 2px; }
-.vitals .v-toast-title { font-weight: 650; font-size: 13px; }
-.vitals .v-toast-msg { font-size: 12px; color: var(--v-muted); margin-top: 2px;
+.vitals .v-toast-title { font-weight: 650; font-size: var(--v-fs-md); }
+.vitals .v-toast-msg { font-size: var(--v-fs-sm); color: var(--v-muted); margin-top: 2px;
   overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 @keyframes v-toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
@@ -934,14 +937,14 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   align-items: center; gap: 3px; border: 1px solid var(--v-border); background: color-mix(in srgb, var(--v-accent) 4%, var(--v-card));
   transition: transform .12s ease, box-shadow .12s ease; }
 .vitals .v-therm:hover { transform: translateY(-1px); }
-.vitals .v-therm-val { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.vitals .v-therm-val { font-size: var(--v-fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
 .vitals .v-therm-ok .v-therm-val { color: var(--v-ok); }
 .vitals .v-therm-warn .v-therm-val { color: var(--v-warn); }
 .vitals .v-therm-warn { border-color: color-mix(in srgb, var(--v-warn) 45%, var(--v-border)); background: color-mix(in srgb, var(--v-warn) 7%, var(--v-card)); }
 .vitals .v-therm-crit .v-therm-val { color: var(--v-bad); }
 .vitals .v-therm-crit { border-color: color-mix(in srgb, var(--v-bad) 55%, var(--v-border)); background: color-mix(in srgb, var(--v-bad) 9%, var(--v-card));
   animation: v-fan-stall-pulse 1.8s ease-in-out infinite; }
-.vitals .v-therm-label { font-size: 10.5px; color: var(--v-muted); text-align: center; max-width: 100%;
+.vitals .v-therm-label { font-size: var(--v-fs-2xs); color: var(--v-muted); text-align: center; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* KB category tag badge + chip tint */
@@ -962,9 +965,9 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-radar-spoke { stroke: color-mix(in srgb, var(--v-neutral) 14%, transparent); stroke-width: 1; }
 .vitals .v-radar-poly { fill: color-mix(in srgb, var(--v-accent) 22%, transparent);
   stroke: var(--v-accent); stroke-width: 2; stroke-linejoin: round; }
-.vitals .v-radar-label { fill: var(--v-muted); font-size: 11px; }
+.vitals .v-radar-label { fill: var(--v-muted); font-size: var(--v-fs-xs); }
 .vitals .v-radar-legend { display: flex; flex-direction: column; gap: 6px; min-width: 150px; }
-.vitals .v-radar-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.vitals .v-radar-row { display: flex; align-items: center; gap: 8px; font-size: var(--v-fs-sm); }
 .vitals .v-radar-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .vitals .v-radar-name { flex: 1; }
 .vitals .v-radar-val { font-variant-numeric: tabular-nums; color: var(--v-muted); }
