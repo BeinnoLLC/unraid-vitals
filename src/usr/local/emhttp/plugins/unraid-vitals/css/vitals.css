@@ -123,6 +123,14 @@
 }
 .vitals .v-btn:hover, .vitals .v-select:hover { border-color: var(--v-accent); background: var(--v-card-hover); }
 .vitals .v-btn:focus-visible, .vitals .v-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; }
+/* UV9: one shared focus ring for the interactive controls that had none —
+   icon-bar buttons, segmented buttons, filter chips/tag badges, the chart ⋮
+   button and the price input. :focus-visible keeps it keyboard-only, so mouse
+   users see no change. (.v-chip/.v-tag-badge also cover their span-based KB
+   filter variants.) */
+.vitals :is(.v-ibtn, .v-seg-btn, .v-chip, .v-chart-menu-btn, .v-tag-badge, .v-price-input):focus-visible {
+  outline: 2px solid var(--v-accent); outline-offset: 2px;
+}
 .vitals .v-btn.primary { background: var(--v-accent); border-color: var(--v-accent); color: var(--v-on-accent); font-weight: 600; }
 .vitals .v-btn.primary:hover { filter: brightness(1.08); background: var(--v-accent); }
 .vitals .v-btn.danger { border-color: var(--v-bad); color: var(--v-bad); }
