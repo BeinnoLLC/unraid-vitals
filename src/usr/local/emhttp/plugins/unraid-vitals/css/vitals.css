@@ -86,6 +86,12 @@
   --v-fg: currentColor;
   --v-muted: currentColor;
 
+  /* Single opacity for all muted text (UV11, UNRAIDPLUG-212) — >=4.5:1 on both
+     black and white themes. Note: azure and gray themes fail even at full
+     opacity, because Unraid own muted text colour gives 4.25 / 3.29 — host
+     limitation, tracked in UNRAIDPLUG-212. */
+  --v-muted-opacity: .72;
+
   --v-gap: 16px;
   --v-radius: 12px;
   --v-radius-sm: 8px;
@@ -127,7 +133,7 @@
 }
 .vitals .v-sub {
   display: flex; align-items: center; gap: 7px; margin-top: 2px;
-  opacity: .62; font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap;
+  opacity: var(--v-muted-opacity); font-size: var(--v-fs-xs); font-variant-numeric: tabular-nums; white-space: nowrap;
 }
 .vitals .v-sub .v-dot { animation: v-pulse 2s infinite; }
 
@@ -543,7 +549,7 @@
 }
 .vitals .v-card-label {
   font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em;
-  opacity: .6; margin-bottom: 4px; font-weight: 650;
+  opacity: var(--v-muted-opacity); margin-bottom: 4px; font-weight: 650;
 }
 .vitals .v-card-value {
   font-size: clamp(17px, 1.7vw, 21px); font-weight: 650; line-height: 1.1;
@@ -572,7 +578,7 @@
 .vitals .ok    { color: var(--v-ok-fg); }
 .vitals .warn  { color: var(--v-warn-fg); }
 .vitals .crit  { color: var(--v-bad-fg); }
-.vitals .muted { opacity: .55; }
+.vitals .muted { opacity: var(--v-muted-opacity); }
 
 /* A small status dot for "this thing is live/healthy" contexts. */
 .vitals .v-dot {
@@ -651,7 +657,7 @@
 .vitals table { width: 100%; border-collapse: collapse; font-size: var(--v-fs-sm); }
 .vitals th {
   text-align: left; font-size: var(--v-fs-xs); text-transform: uppercase; letter-spacing: .06em;
-  opacity: .58; padding: 6px 8px; border-bottom: 1px solid var(--v-border); font-weight: 700;
+  opacity: var(--v-muted-opacity); padding: 6px 8px; border-bottom: 1px solid var(--v-border); font-weight: 700;
 }
 .vitals td { padding: 7px 8px; border-bottom: 1px solid var(--v-border); vertical-align: middle; }
 .vitals tbody tr { transition: background .12s ease; }
@@ -711,7 +717,7 @@
 }
 
 .vitals .v-foot {
-  opacity: .45; font-size: var(--v-fs-xs); text-align: right; margin-top: 6px;
+  opacity: var(--v-muted-opacity); font-size: var(--v-fs-xs); text-align: right; margin-top: 6px;
 }
 
 /* Tab strip ---------------------------------------------------------------
@@ -724,7 +730,7 @@
 }
 .vitals .v-tab {
   background: transparent; border: 1px solid transparent; border-bottom: none;
-  color: inherit; opacity: .62; cursor: pointer; font: inherit;
+  color: inherit; opacity: var(--v-muted-opacity); cursor: pointer; font: inherit;
   font-size: var(--v-fs-sm); font-weight: 600; padding: 8px 14px;
   border-radius: var(--v-radius-sm) var(--v-radius-sm) 0 0;
   display: inline-flex; align-items: center; gap: 7px;
