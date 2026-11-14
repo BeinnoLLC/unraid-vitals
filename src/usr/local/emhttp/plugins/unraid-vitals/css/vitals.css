@@ -34,6 +34,7 @@
   --v-border: rgba(127, 127, 127, .18);
   --v-card: rgba(127, 127, 127, .045);
   --v-card-hover: rgba(127, 127, 127, .085);
+  --v-fg: currentColor;
   --v-muted: currentColor;
 
   --v-gap: 16px;
@@ -137,7 +138,7 @@
 .vitals .v-txt-warn { color: var(--v-warn-fg); font-weight: 600; }
 .vitals .v-txt-ok { color: var(--v-ok-fg); font-weight: 600; }
 .vitals .v-price-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
-.vitals .v-price-input { width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--v-border); background: var(--v-bg2); color: inherit; }
+.vitals .v-price-input { width: 80px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--v-border); background: var(--v-card); color: inherit; }
 .vitals .v-export-row a.v-btn { text-decoration: none; display: inline-block; }
 
 .vitals .v-row-actions { display: flex; gap: 4px; align-items: center; }
@@ -676,7 +677,7 @@
 .vitals .v-tab:hover { opacity: .9; background: var(--v-card); }
 .vitals .v-tab.on {
   opacity: 1; background: var(--v-card); color: var(--v-accent-fg);
-  border-color: var(--v-border); border-bottom: 1px solid var(--v-panel-bg, transparent);
+  border-color: var(--v-border); border-bottom: 1px solid var(--v-surface);
   box-shadow: inset 0 -2px 0 var(--v-accent);
 }
 .vitals .v-tab:focus-visible { outline: 2px solid var(--v-accent); outline-offset: -2px; }
