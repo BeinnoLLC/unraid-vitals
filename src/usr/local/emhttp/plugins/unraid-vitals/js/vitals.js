@@ -421,7 +421,7 @@ function StatCard(P) {
           Math.round(Math.max(0, Math.min(100, P.ring)) * 3.6) + 'deg, var(--v-border) 0deg)',
       }) : null,
       h('div', { class: 'v-card-icon', style: 'background:color-mix(in srgb,' + P.color + ' 16%,transparent);color:' + P.color },
-        h('i', { class: 'fa ' + (P.icon || 'fa-circle') }))),
+        h('i', { class: 'fa ' + (P.icon || 'fa-circle'), 'aria-hidden': 'true' }))),
     h('div', { class: 'v-card-body' },
       h('div', { class: 'v-card-label' }, P.label),
       h('div', { class: 'v-card-value ' + (P.level || '') },
@@ -803,14 +803,14 @@ function DockerActions(P) {
       ? [
           h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Restart', 'aria-label': 'Restart',
             onClick: function () { run('docker_restart', P.name, { confirm: 'Restart ' + P.name + '?' }); } },
-            h('i', { class: 'fa fa-refresh' })),
+            h('i', { class: 'fa fa-refresh', 'aria-hidden': 'true' })),
           h('button', { key: 'stop', class: 'v-btn xs danger', disabled: isBusy, title: 'Stop', 'aria-label': 'Stop',
             onClick: function () { run('docker_stop', P.name, { confirm: 'Stop ' + P.name + '?' }); } },
-            h('i', { class: 'fa fa-stop' }))
+            h('i', { class: 'fa fa-stop', 'aria-hidden': 'true' }))
         ]
       : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start', 'aria-label': 'Start',
           onClick: function () { run('docker_start', P.name, {}); } },
-          h('i', { class: 'fa fa-play' })),
+          h('i', { class: 'fa fa-play', 'aria-hidden': 'true' })),
     isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
 }
 
@@ -823,24 +823,24 @@ function VmActions(P) {
       ? [
           h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Reboot (graceful)', 'aria-label': 'Reboot (graceful)',
             onClick: function () { run('vm_restart', P.name, { confirm: 'Reboot VM ' + P.name + '?' }); } },
-            h('i', { class: 'fa fa-refresh' })),
+            h('i', { class: 'fa fa-refresh', 'aria-hidden': 'true' })),
           h('button', { key: 'stop', class: 'v-btn xs', disabled: isBusy, title: 'Shutdown (graceful)', 'aria-label': 'Shutdown (graceful)',
             onClick: function () { run('vm_stop', P.name, { confirm: 'Shut down VM ' + P.name + ' gracefully?' }); } },
-            h('i', { class: 'fa fa-power-off' })),
+            h('i', { class: 'fa fa-power-off', 'aria-hidden': 'true' })),
           h('button', { key: 'force', class: 'v-btn xs danger', disabled: isBusy, title: 'Force off', 'aria-label': 'Force off',
             onClick: function () { run('vm_force_stop', P.name, { confirm: 'Force off VM ' + P.name + '? Unsaved data will be lost, same as pulling the power.' }); } },
-            h('i', { class: 'fa fa-bolt' }))
+            h('i', { class: 'fa fa-bolt', 'aria-hidden': 'true' }))
         ]
       : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start', 'aria-label': 'Start',
           onClick: function () { run('vm_start', P.name, {}); } },
-          h('i', { class: 'fa fa-play' })),
+          h('i', { class: 'fa fa-play', 'aria-hidden': 'true' })),
     isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
 }
 
 function VmTable(P) {
   var vms = P.vms || {};
   if (!vms.available) return h('div', { class: 'v-empty' },
-    h('i', { class: 'fa fa-info-circle' }), 'virsh not available on this system.');
+    h('i', { class: 'fa fa-info-circle', 'aria-hidden': 'true' }), 'virsh not available on this system.');
   var list = vms.list || [];
   if (!list.length) return h('div', { class: 'v-empty' }, 'No virtual machines defined.');
   return h(Table, null,
@@ -910,7 +910,7 @@ function SmartTable(P) {
           h('td', { class: 'num ' + lvl(wear, 80, 90) }, wear == null ? '—' : wear + '%'));
       })),
     flagged ? h('div', { class: 'v-warnnote' },
-      h('i', { class: 'fa fa-exclamation-triangle' }),
+      h('i', { class: 'fa fa-exclamation-triangle', 'aria-hidden': 'true' }),
       ' Reallocated, pending, or CRC counters actively growing — check disk/cabling.') : null);
 }
 
@@ -1056,11 +1056,28 @@ function App() {
   if (!pts.length && ring.length) pts = [ring[ring.length - 1]]; // sparse ring: keep the last sample
   var props = { d: d, pts: pts, range: range, daily: daily, findings: findings, chartEvents: chartEvents, settings: settings };
 
+  // UV10 follow-up: ARIA tab pattern on the main strip — roving tabindex
+  // with automatic activation (arrows move AND select, same as a click).
+  var onTabKey = function (e, id) {
+    var idx = -1, next = null, k;
+    for (k = 0; k < TABS.length; k++) if (TABS[k].id === id) { idx = k; break; }
+    if (idx < 0) return;
+    if (e.key === 'ArrowRight') next = (idx + 1) % TABS.length;
+    else if (e.key === 'ArrowLeft') next = (idx - 1 + TABS.length) % TABS.length;
+    else if (e.key === 'Home') next = 0;
+    else if (e.key === 'End') next = TABS.length - 1;
+    if (next === null) return;
+    e.preventDefault();
+    setTab(TABS[next].id);
+    var el = document.getElementById('v-tab-' + TABS[next].id);
+    if (el && el.focus) el.focus();
+  };
+
   return h('div', null,
     h('div', { class: 'v-hero' },
       h('div', { class: 'v-hero-row' },
         h('div', { class: 'v-title' },
-          h('i', { class: 'fa fa-heartbeat v-logo' }),
+          h('i', { class: 'fa fa-heartbeat v-logo', 'aria-hidden': 'true' }),
           h('div', null,
             h('h2', null, 'Vitals'),
             h('span', { class: 'v-sub' },
@@ -1077,20 +1094,23 @@ function App() {
           h('div', { class: 'v-iconbar' },
             h('button', { class: 'v-ibtn' + (status === 'busy' ? ' disabled' : ''), title: status === 'busy' ? 'Refreshing…' : 'Refresh now', 'aria-label': status === 'busy' ? 'Refreshing…' : 'Refresh now',
               disabled: status === 'busy', onClick: function () { if (status !== 'busy') load(true); } },
-              h('i', { class: 'fa ' + (status === 'busy' ? 'fa-spinner fa-spin' : 'fa-refresh') })),
+              h('i', { class: 'fa ' + (status === 'busy' ? 'fa-spinner fa-spin' : 'fa-refresh'), 'aria-hidden': 'true' })),
             h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
             h('button', { class: 'v-ibtn' + (drawerOpen ? ' on' : ''), title: 'Critical system logs', 'aria-label': 'Critical system logs',
               onClick: function () { setDrawerOpen(!drawerOpen); } },
-              h('i', { class: 'fa fa-file-text-o' }))))),
+              h('i', { class: 'fa fa-file-text-o', 'aria-hidden': 'true' }))))),
 
-      h('div', { class: 'v-tabs' },
+      h('div', { class: 'v-tabs', role: 'tablist', 'aria-label': 'Vitals sections' },
         TABS.map(function (t) {
-          return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''), 'aria-label': t.label,
-            onClick: function () { setTab(t.id); } },
-            h('i', { class: 'fa ' + t.icon }), h('span', null, t.label));
+          return h('button', { key: t.id, id: 'v-tab-' + t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''),
+            role: 'tab', 'aria-selected': tab === t.id ? 'true' : 'false', 'aria-controls': 'v-tabpanel',
+            tabindex: tab === t.id ? 0 : -1, 'aria-label': t.label,
+            onClick: function () { setTab(t.id); },
+            onKeyDown: function (e) { onTabKey(e, t.id); } },
+            h('i', { class: 'fa ' + t.icon, 'aria-hidden': 'true' }), h('span', null, t.label));
         }))),
 
-    h('div', { class: 'v-body' },
+    h('div', { class: 'v-body', id: 'v-tabpanel', role: 'tabpanel', 'aria-labelledby': 'v-tab-' + tab },
       !d ? h('div', { class: 'v-panel' }, h('div', { class: 'v-empty' }, 'Loading…'))
         : tab === 'dash'   ? h(DashTab,   props)
         : tab === 'array'  ? h(ArrayTab,  props)
@@ -1154,7 +1174,7 @@ function LogDrawer(P) {
     h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
     h('div', { class: 'v-drawer' },
       h('div', { class: 'v-drawer-head' },
-        h('i', { class: 'fa fa-file-text-o' }),
+        h('i', { class: 'fa fa-file-text-o', 'aria-hidden': 'true' }),
         h('span', { class: 'v-drawer-title' }, 'System logs'),
         h('span', { class: 'v-ai-agent' + (nCrit ? ' warn' : '') }, nCrit + ' critical'),
         h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
@@ -1168,7 +1188,7 @@ function LogDrawer(P) {
         h('button', { class: 'v-chip' + (autoScroll ? ' on' : ''), style: 'border-radius:6px',
           onClick: function () { setAutoScroll(!autoScroll); } }, 'follow tail')),
       h('div', { class: 'v-drawer-body', ref: bodyRef },
-        !data ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Loading log…')
+        !data ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin', 'aria-hidden': 'true' }), ' Loading log…')
         : data.error ? h('div', { class: 'v-empty' }, data.error)
         : !filtered.length ? h('div', { class: 'v-empty' }, criticalOnly || q ? 'No matching lines in this view.' : 'Log is empty.')
         : filtered.map(function (e, i) {
@@ -1380,15 +1400,15 @@ function DashTab(P) {
     h('div', { class: 'v-grid' },
       h(Panel, { title: 'Anomaly detection', span2: true,
         hint: anomaly && anomaly.status === 'ok' ? anomaly.have_hours + 'h of history' : '' },
-        !anomaly ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Building baseline…')
+        !anomaly ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin', 'aria-hidden': 'true' }), ' Building baseline…')
         : anomaly.status === 'need_more_data'
           ? h('div', { class: 'v-empty' }, 'Needs at least 2 weeks of history to build a per-hour baseline — '
               + anomaly.have_hours + ' of ' + anomaly.need_hours + ' hours collected so far.')
         : !anomaly.findings.length
-          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-check-circle' }), ' Everything is within its usual range for this time of week.')
+          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-check-circle', 'aria-hidden': 'true' }), ' Everything is within its usual range for this time of week.')
         : anomaly.findings.map(function (f, i) {
             return h('div', { key: i, class: 'v-ai-item' },
-              h('i', { class: 'fa fa-exclamation-triangle' }),
+              h('i', { class: 'fa fa-exclamation-triangle', 'aria-hidden': 'true' }),
               h('div', { class: 'v-ai-body' },
                 h('div', { class: 'v-ai-title' }, f.metric.toUpperCase() + ' is well outside its usual range for this time') ,
                 h('div', { class: 'v-ai-detail' }, 'Reading ' + f.value + ' for 3+ hours, vs a usual '
@@ -1421,7 +1441,7 @@ function AiBell(P) {
   return h('button', { class: 'v-ibtn v-bell' + (P.open ? ' on' : '') + (interesting.length ? ' has-badge' : ''),
       title: 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''),
       'aria-label': 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''), onClick: P.onClick },
-    h('i', { class: 'fa fa-magic' }),
+    h('i', { class: 'fa fa-magic', 'aria-hidden': 'true' }),
     interesting.length ? h('span', { class: 'v-badge v-badge-' + worst }, interesting.length) : null);
 }
 
@@ -1441,7 +1461,7 @@ function FindingsDrawer(P) {
     h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
     h('div', { class: 'v-drawer' },
       h('div', { class: 'v-drawer-head' },
-        h('i', { class: 'fa fa-magic' }),
+        h('i', { class: 'fa fa-magic', 'aria-hidden': 'true' }),
         h('span', { class: 'v-drawer-title' }, 'AI health findings'),
         h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
         h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
@@ -1454,11 +1474,11 @@ function FindingsDrawer(P) {
         !shown.length ? h('div', { class: 'v-empty' }, 'No findings yet — the agents run hourly.')
         : shown.map(function (f) {
             return h('div', { key: f.id, class: 'v-ai-item v-ai-' + f.severity },
-              h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle') }),
+              h('i', { class: 'fa ' + (SEV_ICON[f.severity] || 'fa-info-circle'), 'aria-hidden': 'true' }),
               h('div', { class: 'v-ai-body' },
                 h('div', { class: 'v-ai-title' }, f.title, f.agent ? h('span', { class: 'v-ai-agent' }, f.agent) : null),
                 f.detail ? h('div', { class: 'v-ai-detail' }, f.detail) : null,
-                f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o' }), ' ', f.recommendation) : null));
+                f.recommendation ? h('div', { class: 'v-ai-rec' }, h('i', { class: 'fa fa-lightbulb-o', 'aria-hidden': 'true' }), ' ', f.recommendation) : null));
           })),
       h('div', { class: 'v-drawer-foot' },
         shown.length + ' of ' + all.length + ' total findings'))) : null;
@@ -1573,7 +1593,7 @@ function ArrayTab(P) {
         h(HBars, { rows: hotRows, empty: 'Waiting for SMART samples.' })),
       h(Panel, { title: 'Capacity forecast', hint: forecast && forecast.length ? '30-day linear fit' : '', span2: true },
         forecast == null
-          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }), ' Fitting growth trend…')
+          ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin', 'aria-hidden': 'true' }), ' Fitting growth trend…')
         : !forecast.length
           ? h('div', { class: 'v-empty' }, 'No target is on track to fill within a year, or there is not yet 5+ days of history to fit a trend against.')
         : h(Table, null,
@@ -1983,7 +2003,7 @@ function SharesTab(P) {
               s.pool === 'yes' ? 'pool + array' : s.pool === 'only' ? 'pool only' : 'array only')),
             h('td', { class: 'num' }, s.free ? bytes(s.free, 1) : '—'),
             h('td', null, h('button', { class: 'v-btn xs', onClick: function () { setBrowseShare(s.name); } },
-              h('i', { class: 'fa fa-folder-open' }), ' Browse')));
+              h('i', { class: 'fa fa-folder-open', 'aria-hidden': 'true' }), ' Browse')));
         }))
         : h('div', { class: 'v-empty' }, 'No shares configured.')),
     h('div', { class: 'v-grid' },
@@ -2009,7 +2029,7 @@ function SharesTab(P) {
                       h('td', { class: 'num' }, bytes(f.bytes) + ' (' + pct.toFixed(0) + '%)'));
                   })) : h('div', { class: 'v-empty' }, 'No subfolder breakdown.'),
                 current.stale_count ? h('div', { class: 'v-storage-stale' },
-                  h('i', { class: 'fa fa-clock-o' }), ' ' + bytes(current.stale_bytes) + ' across '
+                  h('i', { class: 'fa fa-clock-o', 'aria-hidden': 'true' }), ' ' + bytes(current.stale_bytes) + ' across '
                     + current.stale_count + ' file(s) not accessed in over a year (sampled)') : null),
               h('div', { class: 'v-storage-col' },
                 h('h4', null, '30-day growth'),
@@ -2070,21 +2090,21 @@ function ShareBrowser(P) {
   return h('div', { class: 'v-modal-backdrop', onClick: P.onClose },
     h('div', { class: 'v-modal', onClick: function (e) { e.stopPropagation(); } },
       h('div', { class: 'v-modal-head' },
-        h('div', null, h('i', { class: 'fa fa-folder-open' }), ' ', P.share,
+        h('div', null, h('i', { class: 'fa fa-folder-open', 'aria-hidden': 'true' }), ' ', P.share,
           parts.length ? h('span', { class: 'muted' }, ' / ' + parts.join(' / ')) : null),
-        h('button', { class: 'v-btn xs', 'aria-label': 'Close', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
+        h('button', { class: 'v-btn xs', 'aria-label': 'Close', onClick: P.onClose }, h('i', { class: 'fa fa-times', 'aria-hidden': 'true' }))),
       h('div', { class: 'v-modal-body' },
         path ? h('div', { class: 'v-browse-row muted', onClick: function () {
                   var up = parts.slice(0, -1).join('/'); go(up);
                 } },
-                h('i', { class: 'fa fa-level-up' }), ' ..') : null,
+                h('i', { class: 'fa fa-level-up', 'aria-hidden': 'true' }), ' ..') : null,
         loading ? h('div', { class: 'v-empty' }, 'Loading…')
         : data && data.error ? h('div', { class: 'v-empty' }, data.error)
         : (data && data.entries || []).length === 0 ? h('div', { class: 'v-empty' }, 'Empty directory.')
         : (data.entries || []).map(function (e) {
             return h('div', { key: e.name, class: 'v-browse-row',
               onClick: e.dir ? function () { go((path ? path + '/' : '') + e.name); } : null },
-              h('i', { class: 'fa ' + (e.dir ? 'fa-folder' : 'fa-file-o') }),
+              h('i', { class: 'fa ' + (e.dir ? 'fa-folder' : 'fa-file-o'), 'aria-hidden': 'true' }),
               h('span', { class: 'v-browse-name' }, e.name),
               e.dir ? null : h('span', { class: 'v-browse-meta' }, bytes(e.size)),
               h('span', { class: 'v-browse-meta' }, ts(e.mtime)));
@@ -2154,7 +2174,7 @@ function ShareCommentCell(P) {
     failed ? h('div', { class: 'v-share-comment-err' }, 'AI generation failed.') : null,
     h('button', { class: 'v-btn xs' + (P.existing ? '' : ' primary'), style: 'margin-top:4px', 'aria-live': 'polite',
       disabled: busy || applying, onClick: generate },
-      h('i', { class: 'fa ' + icon }), ' ' + label));
+      h('i', { class: 'fa ' + icon, 'aria-hidden': 'true' }), ' ' + label));
 }
 
 /* ------------------------------------------------------------------ power */
@@ -2511,7 +2531,7 @@ function HwTab(P) {
               var outOfRange = (v.min != null && v.min > 0 && v.value < v.min) ||
                                 (v.max != null && v.max > 0 && v.value > v.max);
               return h('div', { key: v.id, class: 'v-sensor' + (outOfRange ? ' v-volt-oor' : '') },
-                h('i', { class: 'fa fa-bolt v-sensor-icon' + (outOfRange ? ' crit' : '') }),
+                h('i', { class: 'fa fa-bolt v-sensor-icon' + (outOfRange ? ' crit' : ''), 'aria-hidden': 'true' }),
                 h('div', { class: 'v-sensor-val' }, v.value.toFixed(2) + ' V'),
                 h('div', { class: 'v-sensor-label' }, v.label),
                 h('div', { class: 'v-sensor-th' },
@@ -2546,7 +2566,7 @@ function HwTab(P) {
     h(Panel, { title: 'GPU', span2: true },
       gpu.available === false
         ? h('div', { class: 'v-empty' },
-            h('i', { class: 'fa fa-info-circle' }),
+            h('i', { class: 'fa fa-info-circle', 'aria-hidden': 'true' }),
             gpu.reason === 'driver-not-loaded'
               ? 'nvidia-smi is installed but the host driver is not loaded — the GPU is most likely passed through to a VM.'
               : 'GPU not available' + (gpu.reason ? ' (' + gpu.reason + ')' : '') + '.',
@@ -2576,7 +2596,7 @@ function HwTab(P) {
               h('td', { class: 'num v-name' }, String(ups[r[1]])));
           }))
         : h('div', { class: 'v-empty' },
-            h('i', { class: 'fa fa-plug' }),
+            h('i', { class: 'fa fa-plug', 'aria-hidden': 'true' }),
             'No UPS configured, or apcupsd / NUT is not reporting.')),
     h(Panel, { title: 'SMART detail', span2: true,
       hint: Object.keys(d.smart || {}).length + ' disks' },
@@ -2668,7 +2688,7 @@ function ToastStack() {
       return h('div', { key: i, class: 'v-toast v-toast-' + t.kind,
                         role: t.kind === 'warn' ? 'alert' : undefined,
                         onClick: function () { ToastBus.dismiss(t); if (t.onClick) t.onClick(); } },
-        h('i', { class: 'fa ' + (t.icon || 'fa-info-circle') }),
+        h('i', { class: 'fa ' + (t.icon || 'fa-info-circle'), 'aria-hidden': 'true' }),
         h('div', { class: 'v-toast-body' },
           h('div', { class: 'v-toast-title' }, t.title || ''),
           t.body ? h('div', { class: 'v-toast-msg' }, t.body) : null));
@@ -2859,7 +2879,7 @@ function KbTab() {
         h('input', { class: 'v-input', 'aria-label': 'Search the knowledge base', style: 'flex:1', placeholder: 'e.g. cache pool temperature, disk errors, network drops…',
           value: q, onInput: function (e) { setQ(e.target.value); } }),
         h('button', { class: 'v-btn primary', type: 'submit', disabled: searching },
-          h('i', { class: 'fa fa-search' }), ' Search')),
+          h('i', { class: 'fa fa-search', 'aria-hidden': 'true' }), ' Search')),
       // Severity filter row — the strong filter the user asked for: each
       // chip shows its own count so "3 critical" is visible before you
       // even click it, and multiple filter axes (severity + topic) combine
@@ -2894,7 +2914,7 @@ function KbTab() {
           var sev = doc.severity || 'medium';
           return h('div', { key: doc.id, class: 'v-kb-doc' },
             h('div', { class: 'v-kb-doc-head' },
-              h('i', { class: 'fa ' + (SEV_KB_ICON[doc.source] || 'fa-file-text-o') }),
+              h('i', { class: 'fa ' + (SEV_KB_ICON[doc.source] || 'fa-file-text-o'), 'aria-hidden': 'true' }),
               h('span', { class: 'v-kb-doc-title' }, doc.title),
               h(Pill, { kind: KB_SEV_PILL[sev] || 'info' }, KB_SEV_LABEL[sev] || sev),
               doc.kind && doc.kind !== 'note' ? h(Pill, { kind: doc.kind === 'study' ? 'info' : 'run' }, doc.kind) : null,
@@ -3040,17 +3060,17 @@ function ResearchTab() {
           placeholder: 'e.g. "I need to monitor CPU spikes", "Why has the cache pool been running hot this week?", "Study the system for the next 12 hours"…',
           'aria-label': 'Research question', value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
         plan ? h('div', { class: 'v-plan-hint' + (plan.study ? ' study' : '') },
-          h('i', { class: 'fa ' + (plan.study ? 'fa-binoculars' : 'fa-flask') }),
+          h('i', { class: 'fa ' + (plan.study ? 'fa-binoculars' : 'fa-flask'), 'aria-hidden': 'true' }),
           h('span', null, plan.eta_label),
           plan.study ? h('span', { class: 'v-plan-meta' }, 'checks every ' + plan.tick + ' min') : null) : null,
         h('button', { class: 'v-btn primary', type: 'submit', 'aria-live': 'polite', disabled: submitting || !prompt.trim(), style: 'align-self:flex-start' },
-          h('i', { class: 'fa ' + (plan && plan.study ? 'fa-binoculars' : 'fa-flask') }),
+          h('i', { class: 'fa ' + (plan && plan.study ? 'fa-binoculars' : 'fa-flask'), 'aria-hidden': 'true' }),
           submitting ? ' Submitting…' : ' Research'))),
     activeJob ? h(Panel, { title: activeJob.mode === 'study' ? 'Study' : 'Result', span2: true,
         hint: activeJob.status + (activeJob.mode === 'study' && activeJob.status === 'studying'
           ? ' — ' + dur(activeJob.study_until - now) + ' remaining' : '') },
       activeJob.status === 'pending' || activeJob.status === 'running'
-        ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin' }),
+        ? h('div', { class: 'v-empty' }, h('i', { class: 'fa fa-spinner fa-spin', 'aria-hidden': 'true' }),
             ' Researching' + (activeJob.started_at ? ' — ' + dur(now - activeJob.started_at) + ' elapsed' : '') +
             '. This can take a few minutes, feel free to leave this tab.')
         : activeJob.status === 'studying'
@@ -3060,7 +3080,7 @@ function ResearchTab() {
                 h('i', { style: 'width:' + studyPct.toFixed(0) + '%;background:var(--v-accent)' })),
               h('span', { class: 'v-name', style: 'font-variant-numeric:tabular-nums;flex:none' }, studyPct.toFixed(0) + '%')),
             h('div', { class: 'v-empty', style: 'padding:8px 0' },
-              h('i', { class: 'fa fa-binoculars' }),
+              h('i', { class: 'fa fa-binoculars', 'aria-hidden': 'true' }),
               ' Studying — checking every ' + (activeJob.tick_minutes || 15) + ' min. ' +
               (activeJob.observations ? activeJob.observations.length : 0) + ' observation(s) so far.'),
             activeJob.observations && activeJob.observations.length
@@ -3075,7 +3095,7 @@ function ResearchTab() {
             h('div', null, 'Failed: ', activeJob.error),
             h('button', { class: 'v-btn xs', style: 'margin-top:8px', 'aria-live': 'polite', disabled: retryBusy,
                 onClick: function () { retryJob(activeJob.id); } },
-              h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), retryBusy ? ' Retrying…' : ' Retry'))
+              h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh'), 'aria-hidden': 'true' }), retryBusy ? ' Retrying…' : ' Retry'))
         : h('div', null,
           // P20-10: the answer renders through the allow-list markdown
           // renderer (never innerHTML of model output); citations land under
@@ -3098,7 +3118,7 @@ function ResearchTab() {
             ? h('button', { class: 'v-btn xs', style: 'margin-top:6px', onClick: function () {
                 setPrompt('Follow-up on "' + activeJob.prompt.slice(0, 120) + (activeJob.prompt.length > 120 ? '…' : '') + '" — context: ' + String(activeJob.answer || '').slice(0, 400).replace(/\s+/g, ' ') + '…\n\nMy question: ');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
-              } }, h('i', { class: 'fa fa-comments' }), ' Follow up')
+              } }, h('i', { class: 'fa fa-comments', 'aria-hidden': 'true' }), ' Follow up')
             : null)) : null,
     h(Panel, { title: 'Past questions', span2: true, hint: jobs.length + ' total' },
       !jobs.length ? h('div', { class: 'v-empty' }, 'No research jobs yet.')
@@ -3109,7 +3129,7 @@ function ResearchTab() {
             var pct = jobPct(j);
             return h('tr', { key: j.id },
               h('td', { class: 'v-name' },
-                j.origin && j.origin.indexOf('auto:') === 0 ? h(Pill, { kind: 'warn', title: 'Opened automatically by the ' + autoOriginLabel(j.origin) }, h('i', { class: 'fa fa-bolt' }), ' auto') : null,
+                j.origin && j.origin.indexOf('auto:') === 0 ? h(Pill, { kind: 'warn', title: 'Opened automatically by the ' + autoOriginLabel(j.origin) }, h('i', { class: 'fa fa-bolt', 'aria-hidden': 'true' }), ' auto') : null,
                 j.origin && j.origin.indexOf('auto:') === 0 ? ' ' : null,
                 j.prompt.length > 80 ? j.prompt.slice(0, 80) + '…' : j.prompt),
               h('td', null, j.mode === 'study' ? h(Pill, { kind: 'info' }, j.tick_minutes ? 'study/' + j.tick_minutes + 'm' : 'study') : '—'),
@@ -3127,7 +3147,7 @@ function ResearchTab() {
                 j.status === 'error' ? h('button', {
                   class: 'v-btn xs', style: 'margin-left:6px', 'aria-live': 'polite', disabled: retryBusy,
                   onClick: function () { retryJob(j.id); },
-                }, h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), ' Retry') : null));
+                }, h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh'), 'aria-hidden': 'true' }), ' Retry') : null));
           }))),
     h(AgentRunsPanel, {}));
 }
@@ -3691,8 +3711,8 @@ function SettingsTab() {
             'aria-label': 'Backup endpoint', value: cfg.LLM_STUDIO_BACKUP, onInput: set('LLM_STUDIO_BACKUP') })))),
       h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center', 'aria-live': 'polite' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
-          h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
-        saveState === 'saved' ? h('span', { class: 'ok' }, h('i', { class: 'fa fa-check' }), ' Saved & reapplied') : null,
+          h('i', { class: 'fa fa-save', 'aria-hidden': 'true' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
+        saveState === 'saved' ? h('span', { class: 'ok' }, h('i', { class: 'fa fa-check', 'aria-hidden': 'true' }), ' Saved & reapplied') : null,
         saveState === 'error' ? h('span', { class: 'crit' }, 'Save failed') : null)),
     h(Panel, { title: 'Deep scan (diagnostics + update checks)' },
       h('div', { class: 'muted', style: 'margin-bottom:8px;font-size:0.9em' },
@@ -3759,7 +3779,7 @@ function SettingsTab() {
             ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); }))))),
       h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center', 'aria-live': 'polite' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
-          h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')))),
+          h('i', { class: 'fa fa-save', 'aria-hidden': 'true' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')))),
     h(Panel, { title: 'Collector log', span2: true },
       h('pre', { class: 'v-mono v-scroll', style: 'max-height:220px;margin:0;white-space:pre-wrap' },
         meta.log_tail || '(no output yet)')));
