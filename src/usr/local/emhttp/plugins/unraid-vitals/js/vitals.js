@@ -2074,7 +2074,7 @@ function ShareBrowser(P) {
           parts.length ? h('span', { class: 'muted' }, ' / ' + parts.join(' / ')) : null),
         h('button', { class: 'v-btn xs', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
       h('div', { class: 'v-modal-body' },
-        path ? h('div', { class: 'v-browse-row muted', onClick: function () {
+        path ? h('button', { type: 'button', class: 'v-browse-row muted', onClick: function () {
                   var up = parts.slice(0, -1).join('/'); go(up);
                 } },
                 h('i', { class: 'fa fa-level-up' }), ' ..') : null,
@@ -2082,7 +2082,7 @@ function ShareBrowser(P) {
         : data && data.error ? h('div', { class: 'v-empty' }, data.error)
         : (data && data.entries || []).length === 0 ? h('div', { class: 'v-empty' }, 'Empty directory.')
         : (data.entries || []).map(function (e) {
-            return h('div', { key: e.name, class: 'v-browse-row',
+            return h('button', { key: e.name, type: 'button', class: 'v-browse-row',
               onClick: e.dir ? function () { go((path ? path + '/' : '') + e.name); } : null },
               h('i', { class: 'fa ' + (e.dir ? 'fa-folder' : 'fa-file-o') }),
               h('span', { class: 'v-browse-name' }, e.name),
@@ -2664,7 +2664,7 @@ function ToastStack() {
   if (!list.length) return null;
   return h('div', { class: 'v-toasts' },
     list.map(function (t, i) {
-      return h('div', { key: i, class: 'v-toast v-toast-' + t.kind,
+      return h('button', { key: i, type: 'button', class: 'v-toast v-toast-' + t.kind,
                         onClick: function () { ToastBus.dismiss(t); if (t.onClick) t.onClick(); } },
         h('i', { class: 'fa ' + (t.icon || 'fa-info-circle') }),
         h('div', { class: 'v-toast-body' },
@@ -2863,27 +2863,27 @@ function KbTab() {
       // even click it, and multiple filter axes (severity + topic) combine
       // (AND), not replace each other.
       h('div', { class: 'v-kb-topics', style: 'margin-top:8px' },
-        h('span', { class: 'v-chip' + (sevFilter === null ? ' on' : ''), onClick: function () { setSevFilter(null); } },
+        h('button', { type: 'button', class: 'v-chip' + (sevFilter === null ? ' on' : ''), onClick: function () { setSevFilter(null); } },
           'all (' + totalCount + ')'),
         KB_SEVERITIES.map(function (sv) {
-          return sevCounts[sv] ? h('span', {
-            key: sv, class: 'v-chip v-chip-sev-' + sv + (sevFilter === sv ? ' on' : ''),
+          return sevCounts[sv] ? h('button', {
+            type: 'button', key: sv, class: 'v-chip v-chip-sev-' + sv + (sevFilter === sv ? ' on' : ''),
             onClick: function () { setSevFilter(sv); },
           }, KB_SEV_LABEL[sv] + ' (' + sevCounts[sv] + ')') : null;
         })),
       // Category row — the agent-assigned tags, most-used first. Third
       // AND-axis: severity + tag + topic all combine.
       Object.keys(tagCounts).length ? h('div', { class: 'v-kb-topics' },
-        h('span', { class: 'v-chip' + (tagFilter === null ? ' on' : ''), onClick: function () { setTagFilter(null); } }, 'all categories'),
+        h('button', { type: 'button', class: 'v-chip' + (tagFilter === null ? ' on' : ''), onClick: function () { setTagFilter(null); } }, 'all categories'),
         Object.keys(tagCounts).map(function (t) {
-          return h('span', { key: t, class: 'v-chip v-chip-tag' + (tagFilter === t ? ' on' : ''),
+          return h('button', { type: 'button', key: t, class: 'v-chip v-chip-tag' + (tagFilter === t ? ' on' : ''),
             onClick: function () { setTagFilter(tagFilter === t ? null : t); } },
             t + ' (' + tagCounts[t] + ')');
         })) : null,
       topics.length ? h('div', { class: 'v-kb-topics' },
-        h('span', { class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all topics'),
+        h('button', { type: 'button', class: 'v-chip' + (topicFilter === null ? ' on' : ''), onClick: function () { setTopicFilter(null); } }, 'all topics'),
         topics.map(function (t) {
-          return h('span', { key: t.topic, class: 'v-chip' + (topicFilter === t.topic ? ' on' : ''),
+          return h('button', { type: 'button', key: t.topic, class: 'v-chip' + (topicFilter === t.topic ? ' on' : ''),
             onClick: function () { setTopicFilter(t.topic); } }, t.topic + ' (' + t.n + ')');
         })) : null),
     h(Panel, { title: q ? 'Results' : 'Recent knowledge', span2: true, hint: shown.length + ' documents' },
@@ -2897,7 +2897,7 @@ function KbTab() {
               h(Pill, { kind: KB_SEV_PILL[sev] || 'info' }, KB_SEV_LABEL[sev] || sev),
               doc.kind && doc.kind !== 'note' ? h(Pill, { kind: doc.kind === 'study' ? 'info' : 'run' }, doc.kind) : null,
               (doc.tags || []).map(function (t) {
-                return h('span', { key: t, class: 'v-tag-badge' + (tagFilter === t ? ' on' : ''),
+                return h('button', { type: 'button', key: t, class: 'v-tag-badge' + (tagFilter === t ? ' on' : ''),
                   title: 'Filter by category: ' + t,
                   onClick: function () { setTagFilter(tagFilter === t ? null : t); } }, t);
               }),
