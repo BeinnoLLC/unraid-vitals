@@ -108,6 +108,17 @@
   line-height: 1.5;
 }
 
+/* Theme-scoped token overrides (UV3, UNRAIDPLUG-202) — the default status and
+   accent tints above are tuned for the dark themes; the light white and azure
+   webGui themes need darker tints to pass WCAG AA on their backgrounds. */
+html.Theme--white .vitals, html.Theme--azure .vitals {
+  --v-ok-fg: #166534;
+  --v-warn-fg: #92400e;
+  --v-bad-fg: #b91c1c;
+  --v-bad: #b91c1c;
+  --v-accent-fg: #4f46e5;
+}
+
 .vitals * { box-sizing: border-box; }
 
 /* Header ------------------------------------------------------------------ */
