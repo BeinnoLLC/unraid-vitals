@@ -30,19 +30,38 @@ Title="Vitals"
   <a class="vt-link" href="/Vitals">Open Vitals &rarr;</a>
 </div>
 <style>
+/* Tile palette (UV7, UNRAIDPLUG-211) — self-contained on purpose: NO vitals.css
+  dependency. Every raw colour literal lives ONLY in these --vt-* declaration
+  lines (the AGENTS.md token rule scopes to vitals.css; see the UV7 PR note).
+  --vt-muted defers to Unraid's own --alt-text-color so muted text follows the
+  active theme's contrast; the hex is the fallback for hosts lacking the var. */
+#vitals-tile{
+  --vt-muted: var(--alt-text-color, #888);
+  --vt-sub: #666;
+  --vt-warn: #b8860b;
+  --vt-crit: #c0392b;
+}
+/* UV3 theme-scoped values: the base warn/crit tints fail AA on the light
+  themes (2.91/2.66 and 4.86/4.44 on white/azure); these audit-proposed values
+  pass there (6.33/5.79 and 5.78/5.28) while the base wins on black/gray. */
+html.Theme--white #vitals-tile,
+html.Theme--azure #vitals-tile{
+  --vt-warn: #92400e;
+  --vt-crit: #b91c1c;
+}
 #vitals-tile{padding:12px;display:flex;flex-direction:column;gap:8px}
 .vitals-tile .vt-head{display:flex;justify-content:space-between;align-items:baseline}
 .vitals-tile .vt-name{font-weight:600}
-.vitals-tile .vt-status{font-size:11px;color:#888}
+.vitals-tile .vt-status{font-size:11px;color:var(--vt-muted)}
 .vitals-tile .vt-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(82px,1fr));gap:6px}
 .vitals-tile .vt-cell{display:flex;flex-direction:column;gap:2px}
-.vitals-tile .vt-label{font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:#888}
+.vitals-tile .vt-label{font-size:10px;letter-spacing:.4px;text-transform:uppercase;color:var(--vt-muted)}
 .vitals-tile .vt-num{font-size:18px;font-variant-numeric:tabular-nums}
-.vitals-tile .vt-num.warn{color:#b8860b}
-.vitals-tile .vt-num.crit{color:#c0392b}
-.vitals-tile .vt-finding{font-size:12px;line-height:1.35;color:#666}
-.vitals-tile .vt-finding .vt-sev-critical{color:#c0392b;font-weight:600}
-.vitals-tile .vt-finding .vt-sev-warning{color:#b8860b;font-weight:600}
+.vitals-tile .vt-num.warn{color:var(--vt-warn)}
+.vitals-tile .vt-num.crit{color:var(--vt-crit)}
+.vitals-tile .vt-finding{font-size:12px;line-height:1.35;color:var(--vt-sub)}
+.vitals-tile .vt-finding .vt-sev-critical{color:var(--vt-crit);font-weight:600}
+.vitals-tile .vt-finding .vt-sev-warning{color:var(--vt-warn);font-weight:600}
 .vitals-tile .vt-link{font-size:12px;align-self:flex-start}
 </style>
 <script>
