@@ -3,7 +3,7 @@ version: alpha
 name: unraid-vitals
 description: Unraid plugin that adds a "Vitals" nav tab (Preact + uPlot monitoring app) and a compact Stock-Dashboard tile. One accent/status palette on `.vitals`, translucent neutral surfaces, and text colour inherited from the active Unraid webGui theme (black / white / azure / gray).
 colors:
-  # Source: src/usr/local/emhttp/plugins/unraid-vitals/css/vitals.css:9-48 (the `.vitals { }`
+  # Source: src/usr/local/emhttp/plugins/unraid-vitals/css/vitals.css:9-53 (the `.vitals { }`
   # token block — scoped to the app root, NOT :root). Key == CSS custom property without `--`.
   # There are no -dark siblings: the plugin ships ONE palette for every Unraid theme
   # (see "Colors > Theme inheritance" — the -fg tints are dark-theme tuned).
@@ -27,6 +27,10 @@ colors:
   v-border: "rgba(127, 127, 127, .18)"
   v-card: "rgba(127, 127, 127, .045)"
   v-card-hover: "rgba(127, 127, 127, .085)"
+  # Opaque overlay surface (modal, drawer, chart popover, toast). Code value is
+  # `var(--background-color, #1d1b1b)`: it follows the active Unraid theme background, and the hex
+  # here is the fallback used only when the host does not define `--background-color`.
+  v-surface: "#1d1b1b"  # code: var(--background-color, #1d1b1b), vitals.css:32
   # --v-muted is `currentColor` (inherits the Unraid theme text colour; muting is done with opacity),
   # so it is documented in prose, not as a colour token.
   # Fixed contrast colours used on filled status surfaces (raw literals today, see docs/design-audit.md UV5).
@@ -115,6 +119,10 @@ components:
     padding: "{spacing.card-padding}"
   stat-card-hover:
     backgroundColor: "{colors.v-card-hover}"
+  overlay:
+    # modal, drawers, chart popover, toasts (all on --v-surface, never --v-card)
+    backgroundColor: "{colors.v-surface}"
+    rounded: 10px
   tab-active:
     textColor: "{colors.v-accent-fg}"
     backgroundColor: "{colors.v-card}"
@@ -156,7 +164,7 @@ Stack (all paths relative to `src/usr/local/emhttp/plugins/unraid-vitals/`):
 | Concern | Where | Notes |
 |---|---|---|
 | Mount + assets | `Vitals.page` | `<div id="vitals-root" class="vitals">`; loads `css/uPlot.min.css`, `css/vitals.css`, `js/vendor/{preact.min.js, preact-hooks.umd.min.js, uPlot.iife.min.js}`, `js/vitals.js` |
-| Tokens | `css/vitals.css:9-48` | the `.vitals { }` rule. This is the only token block. |
+| Tokens | `css/vitals.css:9-53` | the `.vitals { }` rule. This is the only token block. |
 | Components + styles | `css/vitals.css` (849 lines), `js/vitals.js` (3770 lines, Preact `h()` without JSX) | BEM-ish `v-*` classes, all scoped under `.vitals` |
 | Dashboard tile | `Vitals.Dashboard.page` | self-contained: own inline `<style>` (`vt-*` classes) and vanilla JS. It does not load vitals.css. |
 | Charts | uPlot (vendored), wrapper `Chart()` at `js/vitals.js:451` | canvas colours are concrete hex values (`PAL`, `SERIES_COLORS`) |
@@ -180,7 +188,7 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 
 ## Colors
 
-### Token block (`css/vitals.css:9-48`)
+### Token block (`css/vitals.css:9-53`)
 
 | Token | Value | Role |
 |---|---|---|
@@ -193,6 +201,7 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 | `--v-border` | `rgba(127,127,127,.18)` | every hairline: panels, tables, inputs, tab strip |
 | `--v-card` | `rgba(127,127,127,.045)` | resting surface of panels, cards, inputs, buttons |
 | `--v-card-hover` | `rgba(127,127,127,.085)` | hover surface |
+| `--v-surface` | `var(--background-color, #1d1b1b)` | opaque overlay surface: modal, drawers, chart popover, toasts. Follows the active Unraid theme background; `#1d1b1b` is the fallback when the host lacks the var (UV1/UV2). |
 | `--v-muted` | `currentColor` | "secondary" text. It is NOT a grey: it resolves to the inherited theme text colour, and muting comes from `opacity` (`.muted` .55, `.v-sub` .62, `th` .58, `.v-foot` .45). |
 
 Pattern for tinted status surfaces (pills, warn notes, delta chips, tag badges):
@@ -212,14 +221,18 @@ work on both light and dark themes.
 
 ### Theme inheritance (black / white / azure / gray)
 
-The plugin does **not** read any Unraid CSS variable. Count of `var(--<non-v>)` in vitals.css and
-vitals.js: 0. The header comment at `vitals.css:5-7` says it does, which is drift (UV20).
-It follows the active theme only through:
+The plugin reads exactly one Unraid CSS variable: `--background-color`, through `--v-surface`
+(`vitals.css:32`). Count of `var(--<non-v>)` in vitals.css and vitals.js: 1. The header comment at
+`vitals.css:5-7` names `--text`, `--background` and `--primary-bg`, which the code does not use, so
+it is still drift (UV20). It follows the active theme only through:
 
 1. `color: inherit` on `.vitals` (body text = Unraid `--text-color`).
 2. Translucent mid-grey surfaces and borders (`--v-card`, `--v-border`) that tint either a light
    or a dark page.
 3. `--v-muted: currentColor` plus opacity.
+4. `--v-surface: var(--background-color, #1d1b1b)`: overlays (modal, drawers, chart popover,
+   toasts) paint the theme's own page background, opaque, and separate from the page through the
+   backdrop dim, `--v-border` and their shadow.
 
 Host theme values (upstream `unraid/webgui` master, formerly `limetech/webgui`;
 `html.Theme--<name>` + `:root` vars, fetched 2026-11-13; not re-verified on a device):
@@ -232,11 +245,12 @@ Host theme values (upstream `unraid/webgui` master, formerly `limetech/webgui`;
 | gray | `#1d1b1b` | `#606e7f` | dark |
 
 Dark/light handling: there is **no theme switch inside the plugin** (no `.Theme--*` selectors, no
-`prefers-color-scheme`). The status `-fg` tints and the overlay fallbacks (`#1a1a1a`, `#161616`)
-are tuned for dark themes. On white and azure they fail contrast or break outright. See the
-Accessibility table and UV1–UV3. Fix direction (not current state): theme-scoped overrides on
-`html.Theme--white .vitals, html.Theme--azure .vitals { … }` inside the token section, and
-overlays bound to Unraid's `--background-color`.
+`prefers-color-scheme`). Overlays already follow the theme through `--v-surface` (UV1/UV2,
+fixed). The status `-fg` tints are still tuned for dark themes and fail contrast on white and
+azure (Accessibility table, UV3). Fix direction for UV3 (not current state): theme-scoped overrides
+of the `-fg` tokens inside the token section, keyed on however webGui actually tags the active
+theme (the proposed `html.Theme--white .vitals, html.Theme--azure .vitals { … }` selector must be
+verified against the live webGui markup first).
 
 ## Typography
 
@@ -379,21 +393,23 @@ pan sideways. Names `.v-name` 600. Code/paths `.v-mono`.
 - `.warn-badge` :644 and `.v-warnbadge` :690 are two more "red label" variants (UV17).
 - Do: counts → `.v-badge`, status → `Pill`, filters → `.v-chip` rendered as `<button>`.
 
-### Modal (`ShareBrowser()` :2054, `.v-modal*` :165-173)
+### Modal (`ShareBrowser()` :2054, `.v-modal*` :170-173)
 Fixed backdrop `rgba(0,0,0,.55)`, centred box `min(640px,92vw)`, max-height 78vh, header +
 scroll body. Closes on backdrop click and the header ✕ button. No Escape, no focus trap, no
-`role="dialog"` (UV8). Background `var(--v-panel, #1a1a1a)` with `--v-panel` undefined, so it is
-always dark (UV1).
+`role="dialog"` (UV8). Background `var(--v-surface)` (`:171`), so the box is opaque and takes the
+active theme's page background, with the inherited theme text on top (UV1, fixed).
 
-### Drawers (`LogDrawer()` :1119, `FindingsDrawer()` :1431, `.v-drawer*` :262-284)
+### Drawers (`LogDrawer()` :1119, `FindingsDrawer()` :1431, `.v-drawer*` :269-289)
 Right side, `min(560px,92vw)`, slide-in `.18s ease-out`, backdrop click closes. Log body is
 monospace 11.5px. The findings variant switches to normal type through `:has(.v-ai-item)`.
-Same overlay gaps as the modal (UV1, UV8).
+Background `var(--v-surface)` (`:272`), like the modal (UV1, fixed). Same dialog gaps as the
+modal: no Escape, focus trap or `role="dialog"` (UV8).
 
-### Toasts (`ToastStack()` :2661, `.v-toast*` :792-807)
+### Toasts (`ToastStack()` :2661, `.v-toast*` :797-812)
 Bottom-right stack, z 1000, 3px left border by kind (`-success` ok, `-warn` bad, `-info` accent),
-whole card clickable. The background is translucent `--v-card` (UV2), and the toast is not
-announced: no `role="status"`/`aria-live` (UV10).
+whole card clickable. The background is the opaque `--v-surface` (`:800`; UV2, fixed), like the
+chart `⋮` popover (`.v-chart-menu`, `:556`). The toast is not announced: no
+`role="status"`/`aria-live` (UV10).
 
 ### Charts: uPlot (`Chart()` :451, css :522-582)
 Props: `series[{name,color,points}]`, `height` (150–220, per call site), `area` (canvas
@@ -489,11 +505,15 @@ Filled surfaces (theme-independent):
 | #1a1a1a on #f59e0b (warning badge, high chip on) | 8.10 | pass |
 | #1a1a1a on `--v-ok-fg` #4ade80 (low chip on) | 9.99 | pass |
 
-Verified rendering (static harness of the real `vitals.css` on the four theme backgrounds,
-headless Chromium, 2026-11-13): on white, `.v-modal` computes `rgb(26,26,26)` with inherited
-`#1d1b1b` text, and the modal title and rows are invisible. `.v-toast` and `.v-chart-menu`
-compute `rgba(127,127,127,0.043)`, so they are see-through over charts and page content.
-This was not checked on a live Unraid server.
+Verified rendering (static harness of the real `vitals.css` with each theme's `--background-color`
+and `--text-color` set on the page, headless Chrome 157, 2026-11-14, after UV1/UV2): `.v-modal`,
+`.v-drawer`, `.v-toast` and `.v-chart-menu` all compute an opaque background equal to the theme
+background: black and gray `rgb(29,27,27)`, white `rgb(242,242,242)`, azure `rgb(232,232,232)`;
+with no host `--background-color` they fall back to `rgb(29,27,27)`. Overlay text is the inherited
+theme text, so it has the same contrast as body text (first row of the table above). Before the
+fix, white rendered the modal `rgb(26,26,26)` under `#1d1b1b` text (invisible) and the toast and
+chart popover were see-through `rgba(127,127,127,0.043)`. This was not checked on a live Unraid
+server.
 
 Focus: `:focus-visible` 2px `--v-accent` outline exists for `.v-btn`, `.v-select`, `.v-input`,
 `.v-tab` only. `.v-ibtn`, `.v-seg-btn`, `.v-chip`, `.v-chart-menu-btn` and `.v-tag-badge` have none (UV9).
@@ -515,14 +535,14 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 ## HARD RULES
 
 1. No hex/`rgb()`/`hsl()` literal and no `font-family` in `css/vitals.css` outside the
-   `.vitals { }` token block (lines 9-48), or in `js/vitals.js` / `*.page`; vendor files are
+   `.vitals { }` token block (lines 9-53), or in `js/vitals.js` / `*.page`; vendor files are
    exempt. Enforced by `npm run lint:tokens` (`scripts/check-design-tokens.sh`, part of
-   `npm run check`). It is a ratchet: today's 173 literals are tolerated (`MAX_HITS` baseline), no
+   `npm run check`). It is a ratchet: today's 170 literals are tolerated (`MAX_HITS` baseline), no
    new ones are allowed, and the baseline is lowered as literals move to tokens.
 2. Canvas/SVG colours in vitals.js come from `PAL` (refreshed by `resolvePalette()`) or
    `SERIES_COLORS`. No hex at call sites.
 3. Every `var(--v-*)` used must be defined in the token block. No `var(--v-x, #hex)` fallbacks.
-4. Overlays (modal, drawer, toast, popover) use an opaque surface token, never `--v-card`.
+4. Overlays (modal, drawer, toast, popover) use the opaque `--v-surface` token, never `--v-card`.
 5. Every clickable element is a `<button>`/`<a href>` with a visible `:focus-visible` ring.
 6. Icon-only buttons have `aria-label`. Dialogs/drawers have `role="dialog"` and `aria-modal`, and close on Escape.
 7. New font sizes use `--v-fs-*`. New radii use `--v-radius`, `--v-radius-sm`, 999px or 50%.
@@ -538,8 +558,8 @@ a Plane ticket (project Unraid Plugins, label `design-system`):
 
 | ID | Mismatch | Plane |
 |---|---|---|
-| UV1 | overlay surfaces dark-only | UNRAIDPLUG-207 |
-| UV2 | translucent toast/popover | UNRAIDPLUG-201 |
+| UV1 | overlay surfaces dark-only (fixed: `--v-surface`) | UNRAIDPLUG-207 |
+| UV2 | translucent toast/popover (fixed: `--v-surface`) | UNRAIDPLUG-201 |
 | UV3 | status text fails on light themes | UNRAIDPLUG-202 |
 | UV4 | undefined custom properties | UNRAIDPLUG-204 |
 | UV5 | raw status hex + wrong fallbacks in CSS | UNRAIDPLUG-205 |
