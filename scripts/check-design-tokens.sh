@@ -4,13 +4,13 @@
 # See DESIGN.md and docs/design-audit.md.
 #
 # Usage: scripts/check-design-tokens.sh [plugin_dir]
-#   MAX_HITS=<n>  baseline of tolerated literals (default 173, the count at 31de94e).
+#   MAX_HITS=<n>  baseline of tolerated literals (default 170, the count after UV1/UV2).
 #                 Exit 1 only when hits > MAX_HITS. Lower it as literals are migrated
 #                 to tokens; MAX_HITS=0 makes the check strict.
 set -euo pipefail
 ROOT="${1:-src/usr/local/emhttp/plugins/unraid-vitals}"
 CSS="$ROOT/css/vitals.css"
-MAX_HITS="${MAX_HITS:-173}"
+MAX_HITS="${MAX_HITS:-170}"
 COLOR_RE='#[0-9a-fA-F]{3,8}\b|\b(rgba?|hsla?)\('
 FONT_RE='font-family|fontFamily'
 PATTERN="($COLOR_RE)|($FONT_RE)"
