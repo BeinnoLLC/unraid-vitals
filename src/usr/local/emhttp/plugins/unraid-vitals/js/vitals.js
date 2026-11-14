@@ -801,14 +801,14 @@ function DockerActions(P) {
   return h('div', { class: 'v-row-actions' },
     P.running
       ? [
-          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Restart',
+          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Restart', 'aria-label': 'Restart',
             onClick: function () { run('docker_restart', P.name, { confirm: 'Restart ' + P.name + '?' }); } },
             h('i', { class: 'fa fa-refresh' })),
-          h('button', { key: 'stop', class: 'v-btn xs danger', disabled: isBusy, title: 'Stop',
+          h('button', { key: 'stop', class: 'v-btn xs danger', disabled: isBusy, title: 'Stop', 'aria-label': 'Stop',
             onClick: function () { run('docker_stop', P.name, { confirm: 'Stop ' + P.name + '?' }); } },
             h('i', { class: 'fa fa-stop' }))
         ]
-      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start',
+      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start', 'aria-label': 'Start',
           onClick: function () { run('docker_start', P.name, {}); } },
           h('i', { class: 'fa fa-play' })),
     isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
@@ -821,17 +821,17 @@ function VmActions(P) {
   return h('div', { class: 'v-row-actions' },
     running
       ? [
-          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Reboot (graceful)',
+          h('button', { key: 'restart', class: 'v-btn xs', disabled: isBusy, title: 'Reboot (graceful)', 'aria-label': 'Reboot (graceful)',
             onClick: function () { run('vm_restart', P.name, { confirm: 'Reboot VM ' + P.name + '?' }); } },
             h('i', { class: 'fa fa-refresh' })),
-          h('button', { key: 'stop', class: 'v-btn xs', disabled: isBusy, title: 'Shutdown (graceful)',
+          h('button', { key: 'stop', class: 'v-btn xs', disabled: isBusy, title: 'Shutdown (graceful)', 'aria-label': 'Shutdown (graceful)',
             onClick: function () { run('vm_stop', P.name, { confirm: 'Shut down VM ' + P.name + ' gracefully?' }); } },
             h('i', { class: 'fa fa-power-off' })),
-          h('button', { key: 'force', class: 'v-btn xs danger', disabled: isBusy, title: 'Force off',
+          h('button', { key: 'force', class: 'v-btn xs danger', disabled: isBusy, title: 'Force off', 'aria-label': 'Force off',
             onClick: function () { run('vm_force_stop', P.name, { confirm: 'Force off VM ' + P.name + '? Unsaved data will be lost, same as pulling the power.' }); } },
             h('i', { class: 'fa fa-bolt' }))
         ]
-      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start',
+      : h('button', { key: 'start', class: 'v-btn xs primary', disabled: isBusy, title: 'Start', 'aria-label': 'Start',
           onClick: function () { run('vm_start', P.name, {}); } },
           h('i', { class: 'fa fa-play' })),
     isBusy ? h('i', { class: 'fa fa-spinner fa-spin', style: 'margin-left:6px' }) : null);
@@ -1076,17 +1076,17 @@ function App() {
                 onClick: function () { setRange(o[0]); } }, o[1]);
             })),
           h('div', { class: 'v-iconbar' },
-            h('button', { class: 'v-ibtn' + (status === 'busy' ? ' disabled' : ''), title: status === 'busy' ? 'Refreshing…' : 'Refresh now', 
+            h('button', { class: 'v-ibtn' + (status === 'busy' ? ' disabled' : ''), title: status === 'busy' ? 'Refreshing…' : 'Refresh now', 'aria-label': status === 'busy' ? 'Refreshing…' : 'Refresh now',
               disabled: status === 'busy', onClick: function () { if (status !== 'busy') load(true); } },
               h('i', { class: 'fa ' + (status === 'busy' ? 'fa-spinner fa-spin' : 'fa-refresh') })),
             h(AiBell, { findings: findings, open: findingsOpen, onClick: function () { setFindingsOpen(!findingsOpen); } }),
-            h('button', { class: 'v-ibtn' + (drawerOpen ? ' on' : ''), title: 'Critical system logs',
+            h('button', { class: 'v-ibtn' + (drawerOpen ? ' on' : ''), title: 'Critical system logs', 'aria-label': 'Critical system logs',
               onClick: function () { setDrawerOpen(!drawerOpen); } },
               h('i', { class: 'fa fa-file-text-o' }))))),
 
       h('div', { class: 'v-tabs' },
         TABS.map(function (t) {
-          return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''),
+          return h('button', { key: t.id, class: 'v-tab' + (tab === t.id ? ' on' : ''), 'aria-label': t.label,
             onClick: function () { setTab(t.id); } },
             h('i', { class: 'fa ' + t.icon }), h('span', null, t.label));
         }))),
@@ -1158,11 +1158,11 @@ function LogDrawer(P) {
         h('i', { class: 'fa fa-file-text-o' }),
         h('span', { class: 'v-drawer-title' }, 'System logs'),
         h('span', { class: 'v-ai-agent' + (nCrit ? ' warn' : '') }, nCrit + ' critical'),
-        h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
+        h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
-        h('select', { class: 'v-select', value: src, onChange: function (e) { setSrc(e.target.value); setData(null); } },
+        h('select', { class: 'v-select', 'aria-label': 'Log source', value: src, onChange: function (e) { setSrc(e.target.value); setData(null); } },
           sources.map(function (s) { return h('option', { key: s.id, value: s.id }, s.label); })),
-        h('input', { class: 'v-input v-drawer-q', placeholder: 'filter…', value: q,
+        h('input', { class: 'v-input v-drawer-q', 'aria-label': 'Filter log lines', placeholder: 'filter…', value: q,
           onInput: function (e) { setQ(e.target.value); } }),
         h('button', { class: 'v-chip' + (criticalOnly ? ' on' : ''), style: 'border-radius:6px',
           onClick: function () { setCriticalOnly(!criticalOnly); } }, 'critical only'),
@@ -1314,7 +1314,7 @@ function DashTab(P) {
         (hcReport.diff ? (' — ' + (hcReport.diff.new || []).length + ' new, ' + (hcReport.diff.resolved || []).length + ' resolved vs previous run') : '')) : 'runs every check in the engine now'
     },
       h('div', null,
-        h('button', { class: 'v-btn', onClick: runHealth, disabled: hcRunning === 'busy' },
+        h('button', { class: 'v-btn', 'aria-live': 'polite', onClick: runHealth, disabled: hcRunning === 'busy' },
           hcRunning === 'busy' ? 'Running…' : 'Run health check now'),
         hcReport ? h('div', { style: 'margin-top:10px' },
           hcReport.diff && hcReport.diff.new && hcReport.diff.new.length
@@ -1420,7 +1420,8 @@ function AiBell(P) {
     return (SEV_ORDER[f.severity] ?? 5) < (SEV_ORDER[w] ?? 5) ? f.severity : w;
   }, 'info');
   return h('button', { class: 'v-ibtn v-bell' + (P.open ? ' on' : '') + (interesting.length ? ' has-badge' : ''),
-      title: 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''), onClick: P.onClick },
+      title: 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''),
+      'aria-label': 'AI health findings' + (interesting.length ? ' (' + interesting.length + ')' : ''), onClick: P.onClick },
     h('i', { class: 'fa fa-magic' }),
     interesting.length ? h('span', { class: 'v-badge v-badge-' + worst }, interesting.length) : null);
 }
@@ -1444,9 +1445,9 @@ function FindingsDrawer(P) {
         h('i', { class: 'fa fa-magic' }),
         h('span', { class: 'v-drawer-title' }, 'AI health findings'),
         h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
-        h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
+        h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
-        h('select', { class: 'v-select', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
+        h('select', { class: 'v-select', 'aria-label': 'Filter by agent', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
           h('option', { value: 'all' }, 'All agents'),
           agents.map(function (a) { return h('option', { key: a, value: a }, a); })),
         h('span', { class: 'muted', style: 'align-self:center;font-size:11.5px' }, 'updated hourly by local agents')),
@@ -1892,7 +1893,7 @@ function SysTab(P) {
     h(Panel, { title: 'Diagnostics export', span2: true,
       hint: 'Diagnostics bundle for support threads + an anonymized summary safe to paste in a forum post' },
       h('div', null,
-        h('button', { class: 'v-btn', onClick: trigBundle, disabled: diagBusy === 'busy' },
+        h('button', { class: 'v-btn', 'aria-live': 'polite', onClick: trigBundle, disabled: diagBusy === 'busy' },
           diagBusy === 'busy' ? 'Collecting…' : 'Collect Unraid diagnostics (.zip)'),
         h('div', { class: 'muted', style: 'margin-top:10px;margin-bottom:4px' },
           'Anonymized summary (shares, host, IPs, serials masked) — paste this in a forum post:'),
@@ -2072,7 +2073,7 @@ function ShareBrowser(P) {
       h('div', { class: 'v-modal-head' },
         h('div', null, h('i', { class: 'fa fa-folder-open' }), ' ', P.share,
           parts.length ? h('span', { class: 'muted' }, ' / ' + parts.join(' / ')) : null),
-        h('button', { class: 'v-btn xs', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
+        h('button', { class: 'v-btn xs', 'aria-label': 'Close', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
       h('div', { class: 'v-modal-body' },
         path ? h('div', { class: 'v-browse-row muted', onClick: function () {
                   var up = parts.slice(0, -1).join('/'); go(up);
@@ -2152,7 +2153,7 @@ function ShareCommentCell(P) {
   return h('div', { class: 'v-share-comment' },
     P.existing ? h('div', { class: 'muted' }, P.existing) : h('div', { class: 'muted' }, '—'),
     failed ? h('div', { class: 'v-share-comment-err' }, 'AI generation failed.') : null,
-    h('button', { class: 'v-btn xs' + (P.existing ? '' : ' primary'), style: 'margin-top:4px',
+    h('button', { class: 'v-btn xs' + (P.existing ? '' : ' primary'), style: 'margin-top:4px', 'aria-live': 'polite',
       disabled: busy || applying, onClick: generate },
       h('i', { class: 'fa ' + icon }), ' ' + label));
 }
@@ -2248,8 +2249,8 @@ function PowerTab(P) {
           h('div', { class: 'v-price-row' },
             h('label', { class: 'muted' }, 'Price per kWh: $'),
             h('input', { type: 'number', step: '0.01', min: '0', value: priceInput, class: 'v-price-input',
-              onInput: function (e) { setPriceInput(e.target.value); } }),
-            h('button', { class: 'v-btn xs', onClick: savePrice }, justSaved ? 'Saved ✓' : 'Save')),
+              'aria-label': 'Price per kWh', onInput: function (e) { setPriceInput(e.target.value); } }),
+            h('button', { class: 'v-btn xs', 'aria-live': 'polite', onClick: savePrice }, justSaved ? 'Saved ✓' : 'Save')),
           !energy || !energy.days.length ? h('div', { class: 'v-empty', style: 'margin-top:10px' },
             'No hourly history with power data yet — check back after a few hours of uptime.')
           : h('div', null,
@@ -2661,10 +2662,12 @@ var ToastBus = (function () {
 function ToastStack() {
   var s = useState([]); var list = s[0], setList = s[1];
   useEffect(function () { return ToastBus.subscribe(setList); }, []);
-  if (!list.length) return null;
-  return h('div', { class: 'v-toasts' },
+  // The container stays mounted even when empty — its live region must exist
+  // before the first toast arrives, or screen readers announce nothing.
+  return h('div', { class: 'v-toasts', role: 'status', 'aria-live': 'polite' },
     list.map(function (t, i) {
       return h('div', { key: i, class: 'v-toast v-toast-' + t.kind,
+                        role: t.kind === 'warn' ? 'alert' : undefined,
                         onClick: function () { ToastBus.dismiss(t); if (t.onClick) t.onClick(); } },
         h('i', { class: 'fa ' + (t.icon || 'fa-info-circle') }),
         h('div', { class: 'v-toast-body' },
@@ -2735,20 +2738,20 @@ function KbWorkspace() {
         return h('button', { key: o[0], class: 'v-seg-btn' + (view === o[0] ? ' active' : ''),
           onClick: function () { setView(o[0]); } }, o[1]);
       }),
-      h('select', { class: 'v-select', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); },
+      h('select', { class: 'v-select', 'aria-label': 'Filter by kind', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); },
         style: 'margin-left:8px' },
         h('option', { value: '' }, 'all kinds'),
         LESSON_KINDS.map(function (k) { return h('option', { key: k, value: k }, k); })),
-      view === 'events' ? h('select', { class: 'v-select', value: statusFilter || '', onChange: function (e) { setStatusFilter(e.target.value || null); },
+      view === 'events' ? h('select', { class: 'v-select', 'aria-label': 'Filter by status', value: statusFilter || '', onChange: function (e) { setStatusFilter(e.target.value || null); },
         style: 'margin-left:6px' },
         h('option', { value: '' }, 'all statuses'),
         ['open', 'resolved', 'superseded'].map(function (k) { return h('option', { key: k, value: k }, k); })) : null,
       h('button', { class: 'v-btn xs', style: 'margin-left:8px', onClick: function () { setNewLessonOpen(!newLessonOpen); } }, '+ manual lesson'),
       h('a', { class: 'v-btn xs', style: 'margin-left:6px', href: ENDPOINT + '?action=kb_export' }, 'Export KB')),
-    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    msg ? h('div', { class: 'v-empty', 'aria-live': 'polite' }, msg) : null,
     newLessonOpen ? h('div', { style: 'margin-bottom:10px' },
-      h('input', { class: 'v-input', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); }, style: 'margin-bottom:4px' }),
-      h('textarea', { class: 'v-input', rows: 2, placeholder: 'your lesson text', style: 'margin-bottom:4px', onInput: function (e) { setEditText(e.target.value); } }),
+      h('input', { class: 'v-input', 'aria-label': 'Entity', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); }, style: 'margin-bottom:4px' }),
+      h('textarea', { class: 'v-input', 'aria-label': 'Lesson text', rows: 2, placeholder: 'your lesson text', style: 'margin-bottom:4px', onInput: function (e) { setEditText(e.target.value); } }),
       h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () {
         act('kb_lesson_manual', { entity: editText, text: editText }, function () { setEditText(''); setNewLessonOpen(false); });
       } }, 'Save manual lesson')) : null,
@@ -2776,7 +2779,7 @@ function KbWorkspace() {
                   l.confidence >= 0.9 ? h('span', { class: 'v-badge ok', style: 'margin-left:6px' }, 'pinned') : null),
                 editId === l.id
                   ? h('div', { style: 'margin-top:6px' },
-                      h('textarea', { class: 'v-input', rows: 3, value: editText, onInput: function (e) { setEditText(e.target.value); } }),
+                      h('textarea', { class: 'v-input', 'aria-label': 'Lesson text', rows: 3, value: editText, onInput: function (e) { setEditText(e.target.value); } }),
                       h('button', { class: 'v-btn xs', style: 'margin-top:4px', disabled: busy !== 'idle', onClick: function () {
                         act('kb_lesson_edit', { id: l.id, text: editText }, function () { setEditId(null); });
                       } }, 'Save'))
@@ -2785,7 +2788,7 @@ function KbWorkspace() {
                   h('button', { class: 'v-btn xs', onClick: function () { setEditId(l.id); setEditText(l.lesson); } }, 'Edit'),
                   ' ',
                   mergeInto === null ? h('button', { class: 'v-btn xs', onClick: function () { setMergeInto(l.id); } }, 'Merge into…')
-                    : h('select', { class: 'v-select', onChange: function (e) {
+                    : h('select', { class: 'v-select', 'aria-label': 'Merge target lesson', onChange: function (e) {
                         if (e.target.value && e.target.value !== String(l.id)) act('kb_lesson_merge', { id: l.id, into: e.target.value });
                         setMergeInto(null);
                       } },
@@ -2854,7 +2857,7 @@ function KbTab() {
     h(Panel, { title: 'Search the knowledge base', span2: true,
       hint: 'built from everything the background AI agents have learned' },
       h('form', { class: 'v-kb-search', onSubmit: search },
-        h('input', { class: 'v-input', style: 'flex:1', placeholder: 'e.g. cache pool temperature, disk errors, network drops…',
+        h('input', { class: 'v-input', 'aria-label': 'Search the knowledge base', style: 'flex:1', placeholder: 'e.g. cache pool temperature, disk errors, network drops…',
           value: q, onInput: function (e) { setQ(e.target.value); } }),
         h('button', { class: 'v-btn primary', type: 'submit', disabled: searching },
           h('i', { class: 'fa fa-search' }), ' Search')),
@@ -3036,12 +3039,12 @@ function ResearchTab() {
       h('form', { class: 'v-kb-search', onSubmit: submit, style: 'flex-direction:column;align-items:stretch;gap:8px' },
         h('textarea', { class: 'v-input', rows: 3,
           placeholder: 'e.g. "I need to monitor CPU spikes", "Why has the cache pool been running hot this week?", "Study the system for the next 12 hours"…',
-          value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
+          'aria-label': 'Research question', value: prompt, onInput: function (e) { setPrompt(e.target.value); } }),
         plan ? h('div', { class: 'v-plan-hint' + (plan.study ? ' study' : '') },
           h('i', { class: 'fa ' + (plan.study ? 'fa-binoculars' : 'fa-flask') }),
           h('span', null, plan.eta_label),
           plan.study ? h('span', { class: 'v-plan-meta' }, 'checks every ' + plan.tick + ' min') : null) : null,
-        h('button', { class: 'v-btn primary', type: 'submit', disabled: submitting || !prompt.trim(), style: 'align-self:flex-start' },
+        h('button', { class: 'v-btn primary', type: 'submit', 'aria-live': 'polite', disabled: submitting || !prompt.trim(), style: 'align-self:flex-start' },
           h('i', { class: 'fa ' + (plan && plan.study ? 'fa-binoculars' : 'fa-flask') }),
           submitting ? ' Submitting…' : ' Research'))),
     activeJob ? h(Panel, { title: activeJob.mode === 'study' ? 'Study' : 'Result', span2: true,
@@ -3071,7 +3074,7 @@ function ResearchTab() {
         : activeJob.status === 'error'
         ? h('div', { class: 'v-empty' },
             h('div', null, 'Failed: ', activeJob.error),
-            h('button', { class: 'v-btn xs', style: 'margin-top:8px', disabled: retryBusy,
+            h('button', { class: 'v-btn xs', style: 'margin-top:8px', 'aria-live': 'polite', disabled: retryBusy,
                 onClick: function () { retryJob(activeJob.id); } },
               h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), retryBusy ? ' Retrying…' : ' Retry'))
         : h('div', null,
@@ -3123,7 +3126,7 @@ function ResearchTab() {
               h('td', null,
                 h('button', { class: 'v-btn xs', onClick: function () { openJob(j.id); } }, 'View'),
                 j.status === 'error' ? h('button', {
-                  class: 'v-btn xs', style: 'margin-left:6px', disabled: retryBusy,
+                  class: 'v-btn xs', style: 'margin-left:6px', 'aria-live': 'polite', disabled: retryBusy,
                   onClick: function () { retryJob(j.id); },
                 }, h('i', { class: 'fa ' + (retryBusy ? 'fa-spinner fa-spin' : 'fa-refresh') }), ' Retry') : null));
           }))),
@@ -3433,7 +3436,7 @@ function SchedulesPanel() {
     span2: true,
     hint: (sys && sys.quiet ? 'quiet hours active · ' : '') + (sys && sys.busy ? 'parity/mover busy — heavy jobs skip' : 'all clear')
   },
-    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    msg ? h('div', { class: 'v-empty', 'aria-live': 'polite' }, msg) : null,
     !jobs ? h('div', { class: 'v-empty' }, 'Loading jobs…')
       : h(Table, null,
         h('tr', null, h('th', null, 'Job'), h('th', null, 'Schedule'), h('th', null, 'Last run'), h('th', null, '')),
@@ -3450,7 +3453,7 @@ function SchedulesPanel() {
               !j.enabled ? h('span', { class: 'v-badge', style: 'margin-left:6px' }, 'disabled') : null),
             h('td', null, last),
             h('td', null,
-              h('button', { class: 'v-btn xs', onClick: function () { setOpenJob(openJob === id ? null : id); } }, ''),
+              h('button', { class: 'v-btn xs', 'aria-label': 'Toggle last log lines', onClick: function () { setOpenJob(openJob === id ? null : id); } }, ''),
               ' ',
               h('button', { class: 'v-btn xs', onClick: function () { runNow(id, false); }, disabled: actState !== 'idle' || j.running }, 'Run now')));
         })),
@@ -3509,7 +3512,7 @@ function BackupsPanel() {
     title: 'Backups & restore', span2: true,
     hint: data && data.same_pool ? '⚠ backup destination is on the SAME pool as the DB — set BACKUP_DIR to another pool/array for real safety' : 'destination: ' + ((data && data.dest) || '…')
   },
-    msg ? h('div', { class: 'v-empty' }, msg) : null,
+    msg ? h('div', { class: 'v-empty', 'aria-live': 'polite' }, msg) : null,
     data && data.integrity && data.integrity !== 'ok'
       ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' },
         h('b', { class: 'crit' }, 'Live DB integrity: '), data.integrity, ' — restore advised; existing backups are NOT pruned while this shows.')
@@ -3518,9 +3521,9 @@ function BackupsPanel() {
       ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' }, 'Schema upgraded to v' + data.schema.version + ' — pre-upgrade backup ' + data.schema.pre_upgrade + ' kept.')
       : null,
     h('div', { style: 'margin-bottom:10px' },
-      h('button', { class: 'v-btn', onClick: runNow, disabled: state !== 'idle' }, state === 'backing' ? 'Backing up…' : 'Back up now'),
+      h('button', { class: 'v-btn', 'aria-live': 'polite', onClick: runNow, disabled: state !== 'idle' }, state === 'backing' ? 'Backing up…' : 'Back up now'),
       ' ',
-      h('button', { class: 'v-btn xs', onClick: bundle, disabled: state !== 'idle' }, state === 'bundling' ? 'Bundling…' : 'Full state bundle (.zip)')),
+      h('button', { class: 'v-btn xs', 'aria-live': 'polite', onClick: bundle, disabled: state !== 'idle' }, state === 'bundling' ? 'Bundling…' : 'Full state bundle (.zip)')),
     !data ? h('div', { class: 'v-empty' }, 'Loading backups…')
       : !(data.backups || []).length ? h('div', { class: 'v-empty' }, 'No backups yet — the daily 03:00 job creates the first one.')
       : h(Table, null,
@@ -3646,29 +3649,29 @@ function SettingsTab() {
     h(Panel, { title: 'Preferences' },
       h('table', null,
         h('tr', null, h('td', { class: 'muted' }, 'Sample interval'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.INTERVAL, onChange: set('INTERVAL') },
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Sample interval', value: cfg.INTERVAL, onChange: set('INTERVAL') },
             [1, 2, 5, 10].map(function (i) { return h('option', { key: i, value: i }, i + ' minute' + (i > 1 ? 's' : '')); })))),
         h('tr', null, h('td', { class: 'muted' }, 'Keep daily rollups'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.KEEP_DAYS, onChange: set('KEEP_DAYS') },
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Keep daily rollups', value: cfg.KEEP_DAYS, onChange: set('KEEP_DAYS') },
             [30, 90, 180, 365].map(function (d) { return h('option', { key: d, value: d }, d + ' days'); })))),
         h('tr', null, h('td', { class: 'muted' }, 'Start page'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.SET_STARTPAGE, onChange: set('SET_STARTPAGE') },
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Start page', value: cfg.SET_STARTPAGE, onChange: set('SET_STARTPAGE') },
             h('option', { value: 'no' }, 'Stock Unraid dashboard'),
             h('option', { value: 'yes' }, 'Vitals')))),
         h('tr', null, h('td', { class: 'muted' }, 'Disk temp alert'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 30, max: 80,
-            value: cfg.ALERT_TEMP, onInput: set('ALERT_TEMP') }), ' °C')),
+            'aria-label': 'Disk temp alert', value: cfg.ALERT_TEMP, onInput: set('ALERT_TEMP') }), ' °C')),
         h('tr', null, h('td', { class: 'muted' }, 'Array fill alert'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 50, max: 100,
-            value: cfg.ALERT_FILL, onInput: set('ALERT_FILL') }), ' %')),
+            'aria-label': 'Array fill alert', value: cfg.ALERT_FILL, onInput: set('ALERT_FILL') }), ' %')),
         h('tr', null, h('td', { class: 'muted' }, 'Load-average alert'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 256, step: 0.5,
-            value: cfg.ALERT_LOAD, onInput: set('ALERT_LOAD') }), ' (0 = off)')),
+            'aria-label': 'Load-average alert', value: cfg.ALERT_LOAD, onInput: set('ALERT_LOAD') }), ' (0 = off)')),
         h('tr', null, h('td', { class: 'muted' }, 'Container-down samples'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 0, max: 60,
-            value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)')),
+            'aria-label': 'Container-down samples', value: cfg.ALERT_RESTARTS, onInput: set('ALERT_RESTARTS') }), ' (0 = off)')),
         h('tr', null, h('td', { class: 'muted' }, 'Dashboard refresh rate'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.UI_REFRESH_SECONDS,
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Dashboard refresh rate', value: cfg.UI_REFRESH_SECONDS,
             onChange: set('UI_REFRESH_SECONDS') },
             [
               [5, 'Every 5 seconds'], [10, 'Every 10 seconds (default)'], [15, 'Every 15 seconds'],
@@ -3682,12 +3685,12 @@ function SettingsTab() {
         h('tr', null, h('td', { class: 'muted' }, 'Primary endpoint'),
           h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
             placeholder: 'http://127.0.0.1:11434 (default: remote)',
-            value: cfg.LLM_STUDIO_PRIMARY, onInput: set('LLM_STUDIO_PRIMARY') }))),
+            'aria-label': 'Primary endpoint', value: cfg.LLM_STUDIO_PRIMARY, onInput: set('LLM_STUDIO_PRIMARY') }))),
         h('tr', null, h('td', { class: 'muted' }, 'Backup endpoint'),
           h('td', null, h('input', { class: 'v-input', type: 'text', style: 'width:280px',
             placeholder: '(default: remote)',
-            value: cfg.LLM_STUDIO_BACKUP, onInput: set('LLM_STUDIO_BACKUP') })))),
-      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
+            'aria-label': 'Backup endpoint', value: cfg.LLM_STUDIO_BACKUP, onInput: set('LLM_STUDIO_BACKUP') })))),
+      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center', 'aria-live': 'polite' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
           h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')),
         saveState === 'saved' ? h('span', { class: 'ok' }, h('i', { class: 'fa fa-check' }), ' Saved & reapplied') : null,
@@ -3699,7 +3702,7 @@ function SettingsTab() {
         'Runs on its own interval, independent of the hourly per-domain agents.'),
       h('table', null,
         h('tr', null, h('td', { class: 'muted' }, 'Scan interval'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_DIAG_INTERVAL_MINUTES,
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Scan interval', value: cfg.VITALS_DIAG_INTERVAL_MINUTES,
             onChange: set('VITALS_DIAG_INTERVAL_MINUTES') },
             [
               [60, 'Every hour'], [180, 'Every 3 hours'], [360, 'Every 6 hours (default)'],
@@ -3707,10 +3710,10 @@ function SettingsTab() {
             ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); })))),
         h('tr', null, h('td', { class: 'muted' }, 'Look-back window'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 1, max: 72,
-            value: cfg.VITALS_DIAG_WINDOW_HOURS, onInput: set('VITALS_DIAG_WINDOW_HOURS') }), ' hours')),
+            'aria-label': 'Look-back window', value: cfg.VITALS_DIAG_WINDOW_HOURS, onInput: set('VITALS_DIAG_WINDOW_HOURS') }), ' hours')),
         h('tr', null, h('td', { class: 'muted' }, 'Agent run budget'),
           h('td', null, h('input', { class: 'v-input', type: 'number', min: 5, max: 240,
-            value: cfg.VITALS_RUN_BUDGET_MINUTES || '55', onInput: set('VITALS_RUN_BUDGET_MINUTES') }), ' minutes / pass')),
+            'aria-label': 'Agent run budget', value: cfg.VITALS_RUN_BUDGET_MINUTES || '55', onInput: set('VITALS_RUN_BUDGET_MINUTES') }), ' minutes / pass')),
         h('tr', null, h('td', { class: 'muted', style: 'vertical-align:top;padding-top:6px' }, 'Models (multi-model corroboration)'),
           h('td', null,
             !modelInfo ? h('div', { class: 'muted' }, 'Loading model list from your LLM studios…')
@@ -3749,13 +3752,13 @@ function SettingsTab() {
                           m.embedding_only ? 'Embedding-only — cannot be used for diagnostics.' : (m.blurb || 'No description available.'))));
                   }))))),
         h('tr', null, h('td', { class: 'muted' }, 'Container-update check interval'),
-          h('td', null, h('select', { class: 'v-select', value: cfg.VITALS_UPDATE_INTERVAL_MINUTES,
+          h('td', null, h('select', { class: 'v-select', 'aria-label': 'Container-update check interval', value: cfg.VITALS_UPDATE_INTERVAL_MINUTES,
             onChange: set('VITALS_UPDATE_INTERVAL_MINUTES') },
             [
               [60, 'Every hour'], [360, 'Every 6 hours (default)'], [720, 'Every 12 hours'],
               [1440, 'Once a day'], [10080, 'Once a week'], [43200, 'Once a month']
             ].map(function (o) { return h('option', { key: o[0], value: o[0] }, o[1]); }))))),
-      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center' },
+      h('div', { style: 'margin-top:12px;display:flex;gap:8px;align-items:center', 'aria-live': 'polite' },
         h('button', { class: 'v-btn primary', onClick: save, disabled: saveState === 'saving' },
           h('i', { class: 'fa fa-save' }), ' ' + (saveState === 'saving' ? 'Saving…' : 'Save')))),
     h(Panel, { title: 'Collector log', span2: true },
