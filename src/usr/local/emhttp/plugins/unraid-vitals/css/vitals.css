@@ -301,7 +301,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 .vitals .v-input:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; border-color: var(--v-accent); }
 .vitals .v-btn.xs { padding: 3px 7px; font-size: var(--v-fs-sm); line-height: 1; }
-.vitals .v-btn.xs.active { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
+.vitals .v-btn.xs.on { background: var(--v-accent-fill); color: var(--v-on-accent); border-color: var(--v-accent); }
 
 /* P15-05: storage analyzer */
 .vitals .v-tabs-mini { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
@@ -404,8 +404,8 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;
 }
 .vitals .v-seg-btn + .v-seg-btn { border-left: 1px solid var(--v-border); }
-.vitals .v-seg-btn.active { background: var(--v-accent-fill); color: var(--v-on-accent); }
-.vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
+.vitals .v-seg-btn.on { background: var(--v-accent-fill); color: var(--v-on-accent); }
+.vitals .v-seg-btn:not(.on):hover { background: var(--v-card-hover); }
 
 /* Inline row used by the study duration/cadence selects. */
 .vitals .v-row { display: flex; align-items: flex-end; }

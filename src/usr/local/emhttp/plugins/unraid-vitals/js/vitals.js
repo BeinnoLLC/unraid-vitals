@@ -1135,7 +1135,7 @@ function App() {
         h('div', { class: 'v-toolbar' },
           h('div', { class: 'v-seg', role: 'group', 'aria-label': 'Time range' },
             [[60, '1h'], [360, '6h'], [1440, '24h']].map(function (o) {
-              return h('button', { key: o[0], class: 'v-seg-btn' + (range === o[0] ? ' active' : ''),
+              return h('button', { key: o[0], class: 'v-seg-btn' + (range === o[0] ? ' on' : ''),
                 onClick: function () { setRange(o[0]); } }, o[1]);
             })),
           h('div', { class: 'v-iconbar' },
@@ -2068,7 +2068,7 @@ function SharesTab(P) {
             'No scan results yet — the nightly storage-analyzer scan (03:10) hasn\'t run, or every share\'s disks were spun down at scan time. Run scripts/vitals-storage-scan.php --force to seed data now.')
         : h('div', null,
             h('div', { class: 'v-tabs-mini' }, saShares.map(function (s) {
-              return h('button', { key: s.share, class: 'v-btn xs' + (s.share === selectedShare ? ' active' : ''),
+              return h('button', { key: s.share, class: 'v-btn xs' + (s.share === selectedShare ? ' on' : ''),
                 onClick: function () { setSelectedShare(s.share); } }, s.share + ' · ' + bytes(s.total_bytes));
             })),
             current ? h('div', { class: 'v-storage-detail' },
@@ -2811,7 +2811,7 @@ function KbWorkspace() {
       hint: 'Events (what happened) · Lessons (what we learned) · Solutions (what was done) — curated here' },
     h('div', { class: 'v-seg', role: 'group', style: 'margin-bottom:8px' },
       [['events', 'Events'], ['lessons', 'Lessons'], ['solutions', 'Solutions']].map(function (o) {
-        return h('button', { key: o[0], class: 'v-seg-btn' + (view === o[0] ? ' active' : ''),
+        return h('button', { key: o[0], class: 'v-seg-btn' + (view === o[0] ? ' on' : ''),
           onClick: function () { setView(o[0]); } }, o[1]);
       }),
       h('select', { class: 'v-select', 'aria-label': 'Filter by kind', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); },
