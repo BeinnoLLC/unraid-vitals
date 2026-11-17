@@ -106,6 +106,9 @@
      limitation, tracked in UNRAIDPLUG-212. */
   --v-muted-opacity: .72;
 
+  /* Monospace stack (UV17, UNRAIDPLUG-217) — one token for all mono text. */
+  --v-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
   --v-gap: 16px;
   --v-radius: 12px;
   --v-radius-sm: 8px;
@@ -307,7 +310,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-storage-stale { margin-top: 10px; font-size: var(--v-fs-sm); color: var(--v-warn-fg); display: flex; align-items: center; gap: 6px; }
 .vitals .v-storage-types { margin-top: 14px; }
 .vitals .v-storage-type-row { display: grid; grid-template-columns: 56px 1fr 64px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: var(--v-fs-sm); }
-.vitals .v-storage-type-name { font-family: monospace; opacity: .8; }
+.vitals .v-storage-type-name { font-family: var(--v-font-mono); opacity: .8; }
 .vitals .v-storage-type-size { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
 .vitals .v-dup-paths { font-size: var(--v-fs-xs); max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-txt-warn { color: var(--v-warn-fg); font-weight: 600; }
@@ -404,9 +407,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-seg-btn.active { background: var(--v-accent-fill); color: var(--v-on-accent); }
 .vitals .v-seg-btn:not(.active):hover { background: var(--v-card-hover); }
 
-/* Labeled inline form field (used by study duration/cadence selects). */
-.vitals .v-field { display: flex; flex-direction: column; gap: 4px; font-size: var(--v-fs-xs); color: var(--v-muted); }
-.vitals .v-field .v-input { width: auto; min-width: 110px; }
+/* Inline row used by the study duration/cadence selects. */
 .vitals .v-row { display: flex; align-items: flex-end; }
 
 /* Study observation journal. */
@@ -415,7 +416,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-journal .muted { font-variant-numeric: tabular-nums; margin-right: 4px; }
 
 /* ---- hwmon sensor tiles ------------------------------------------------ */
-.vitals .v-sensor-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .vitals .v-sensor { padding: 8px 10px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); border-left-width: 3px; }
 .vitals .v-sensor-val { font-size: var(--v-fs-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
 .vitals .v-sensor-label { font-size: var(--v-fs-xs); color: var(--v-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -454,7 +454,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-drawer-title { font-size: var(--v-fs-md); }
 .vitals .v-drawer-tools { display: flex; gap: 8px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--v-border); flex-wrap: wrap; }
 .vitals .v-drawer-q { width: auto; flex: 1; min-width: 120px; }
-.vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--v-fs-xs); line-height: 1.45; }
+.vitals .v-drawer-body { flex: 1; overflow-y: auto; padding: 6px 0; font-family: var(--v-font-mono); font-size: var(--v-fs-xs); line-height: 1.45; }
 .vitals .v-log-line { padding: 1.5px 14px; white-space: pre-wrap; word-break: break-word; color: var(--v-muted); }
 .vitals .v-log-line.crit { color: var(--v-bad); background: color-mix(in srgb, var(--v-bad) 6%, transparent); }
 .vitals .v-log-ts { color: var(--v-muted); opacity: .65; margin-right: 8px; }
@@ -546,8 +546,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-fan.stall { opacity: 1; border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
 .vitals .v-volt-oor { border-left-color: var(--v-bad); animation: v-fan-stall-pulse 1.6s ease-in-out infinite; }
 .vitals .v-fan-text { min-width: 0; flex: 1; }
-.vitals .v-fan-bar { height: 5px; border-radius: var(--v-radius-xs); background: color-mix(in srgb, var(--v-neutral) 15%, transparent); margin-top: 6px; overflow: hidden; }
-.vitals .v-fan-bar i { display: block; height: 100%; background: var(--v-cpu); border-radius: var(--v-radius-xs); }
 .vitals .v-sensor-th b { font-weight: 700; }
 .vitals .v-sensor-th b.warn { color: var(--v-warn); }
 .vitals .v-sensor-th b.crit { color: var(--v-bad); }
@@ -693,7 +691,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   display: inline-block; width: 8px; height: 8px; border-radius: var(--v-radius-pill); margin-right: 6px;
   box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 16%, transparent);
 }
-.vitals .v-stamp .v-dot { background: var(--v-ok); color: var(--v-ok); }
 @keyframes v-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
 /* Charts ------------------------------------------------------------------ */
@@ -734,12 +731,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-chart-menu-name { font-weight: 650; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-chart-menu-vals { color: var(--v-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .vitals .v-chart-menu-vals b { color: var(--v-fg); font-weight: 650; }
-.vitals .v-legend {
-  display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--v-fs-xs);
-  opacity: .8; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--v-border);
-}
-.vitals .v-legend-item { display: inline-flex; align-items: center; gap: 6px; font-weight: 500; }
-.vitals .v-legend-item i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
 /* Native uPlot multi-series legend (u-legend/u-series) — used by charts
    that don't render the custom ChartStats block. Default uPlot markup is
    a plain unstyled <table>; without this it inherits nothing from the
@@ -773,7 +764,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals tr:last-child td { border-bottom: none; }
 .vitals td.num, .vitals th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .vitals .v-name { font-weight: 600; }
-.vitals .v-mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--v-fs-xs); }
+.vitals .v-mono { font-family: var(--v-font-mono); font-size: var(--v-fs-xs); }
 
 /* Pills / badges ------------------------------------------------------------*/
 
