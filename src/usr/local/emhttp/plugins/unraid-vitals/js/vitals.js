@@ -2814,20 +2814,18 @@ function KbWorkspace() {
         return h('button', { key: o[0], class: 'v-seg-btn' + (view === o[0] ? ' on' : ''),
           onClick: function () { setView(o[0]); } }, o[1]);
       }),
-      h('select', { class: 'v-select', 'aria-label': 'Filter by kind', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); },
-        style: 'margin-left:8px' },
+      h('select', { class: 'v-select v-ml-md', 'aria-label': 'Filter by kind', value: kindFilter || '', onChange: function (e) { setKindFilter(e.target.value || null); } },
         h('option', { value: '' }, 'all kinds'),
         LESSON_KINDS.map(function (k) { return h('option', { key: k, value: k }, k); })),
-      view === 'events' ? h('select', { class: 'v-select', 'aria-label': 'Filter by status', value: statusFilter || '', onChange: function (e) { setStatusFilter(e.target.value || null); },
-        style: 'margin-left:6px' },
+      view === 'events' ? h('select', { class: 'v-select v-ml-sm', 'aria-label': 'Filter by status', value: statusFilter || '', onChange: function (e) { setStatusFilter(e.target.value || null); } },
         h('option', { value: '' }, 'all statuses'),
         ['open', 'resolved', 'superseded'].map(function (k) { return h('option', { key: k, value: k }, k); })) : null,
-      h('button', { class: 'v-btn xs', style: 'margin-left:8px', onClick: function () { setNewLessonOpen(!newLessonOpen); } }, '+ manual lesson'),
-      h('a', { class: 'v-btn xs', style: 'margin-left:6px', href: ENDPOINT + '?action=kb_export' }, 'Export KB')),
+      h('button', { class: 'v-btn xs v-ml-md', onClick: function () { setNewLessonOpen(!newLessonOpen); } }, '+ manual lesson'),
+      h('a', { class: 'v-btn xs v-ml-sm', href: ENDPOINT + '?action=kb_export' }, 'Export KB')),
     msg ? h('div', { class: 'v-empty', 'aria-live': 'polite' }, msg) : null,
-    newLessonOpen ? h('div', { style: 'margin-bottom:10px' },
-      h('input', { class: 'v-input', 'aria-label': 'Entity', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); }, style: 'margin-bottom:4px' }),
-      h('textarea', { class: 'v-input', 'aria-label': 'Lesson text', rows: 2, placeholder: 'your lesson text', style: 'margin-bottom:4px', onInput: function (e) { setEditText(e.target.value); } }),
+    newLessonOpen ? h('div', { class: 'v-mb-lg' },
+      h('input', { class: 'v-input v-mb-xs', 'aria-label': 'Entity', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); } }),
+      h('textarea', { class: 'v-input v-mb-xs', 'aria-label': 'Lesson text', rows: 2, placeholder: 'your lesson text', onInput: function (e) { setEditText(e.target.value); } }),
       h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () {
         act('kb_lesson_manual', { entity: editText, text: editText }, function () { setEditText(''); setNewLessonOpen(false); });
       } }, 'Save manual lesson')) : null,
@@ -2854,13 +2852,13 @@ function KbWorkspace() {
                   h('span', { class: 'muted' }, 'seen ×' + l.times_seen + ' · confidence ' + Math.round((l.confidence ?? 0) * 100) + '%'),
                   l.confidence >= 0.9 ? h('span', { class: 'v-badge ok', style: 'margin-left:6px' }, 'pinned') : null),
                 editId === l.id
-                  ? h('div', { style: 'margin-top:6px' },
+                  ? h('div', { class: 'v-mt-sm' },
                       h('textarea', { class: 'v-input', 'aria-label': 'Lesson text', rows: 3, value: editText, onInput: function (e) { setEditText(e.target.value); } }),
-                      h('button', { class: 'v-btn xs', style: 'margin-top:4px', disabled: busy !== 'idle', onClick: function () {
+                      h('button', { class: 'v-btn xs v-mt-xs', disabled: busy !== 'idle', onClick: function () {
                         act('kb_lesson_edit', { id: l.id, text: editText }, function () { setEditId(null); });
                       } }, 'Save'))
                   : h('div', { class: 'muted', style: 'white-space:pre-wrap;margin-top:4px' }, l.lesson),
-                h('div', { style: 'margin-top:6px' },
+                h('div', { class: 'v-mt-sm' },
                   h('button', { class: 'v-btn xs', onClick: function () { setEditId(l.id); setEditText(l.lesson); } }, 'Edit'),
                   ' ',
                   mergeInto === null ? h('button', { class: 'v-btn xs', onClick: function () { setMergeInto(l.id); } }, 'Merge into…')
