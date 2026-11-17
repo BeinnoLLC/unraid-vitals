@@ -304,7 +304,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-storage-type-row { display: grid; grid-template-columns: 56px 1fr 64px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: var(--v-fs-sm); }
 .vitals .v-storage-type-name { font-family: monospace; opacity: .8; }
 .vitals .v-storage-type-size { text-align: right; font-variant-numeric: tabular-nums; opacity: .8; }
-@media (max-width: 860px) { .vitals .v-storage-detail { grid-template-columns: 1fr; } }
 .vitals .v-dup-paths { font-size: var(--v-fs-xs); max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vitals .v-txt-warn { color: var(--v-warn-fg); font-weight: 600; }
 .vitals .v-txt-ok { color: var(--v-ok-fg); font-weight: 600; }
@@ -578,9 +577,11 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    dashboard card doesn't force ugly leftover whitespace when there are
    8 of them (user: "top cards should be smaller and better organized"). */
 .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* documented exception (DESIGN.md breakpoints): cards-4 column step at 800px */
 @media (min-width: 800px) {
   .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
+/* documented exception (DESIGN.md breakpoints): cards-4 column step at 1300px */
 @media (min-width: 1300px) {
   .vitals .v-cards.v-cards-4 { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 }
@@ -591,8 +592,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 .vitals .v-grid > * { min-width: 0; }
 .vitals .v-span2 { grid-column: span 2; }
-@media (max-width: 900px) { .vitals .v-span2 { grid-column: span 1; } }
-
 /* Panels — subtle card, lifts a touch on hover so the surface reads as a
    real object rather than a flat divider box. */
 .vitals .v-panel {
@@ -879,6 +878,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 @media (max-width: 1023px) {
   .vitals .v-grid { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
   .vitals .v-span2 { grid-column: span 1; }
+  .vitals .v-storage-detail { grid-template-columns: 1fr; }
   .vitals .v-panel { padding: 14px 15px; }
   /* Tables never widen the page: the .v-scroll wrapper pans sideways. */
   .vitals .v-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -933,6 +933,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 }
 
 /* Very narrow phones (≤380): cards go 1-up so numbers never wrap mid-digit. */
+/* documented exception (DESIGN.md breakpoints): cards at 380px */
 @media (max-width: 380px) {
   .vitals .v-cards.v-cards-4 { grid-template-columns: 1fr; }
 }
