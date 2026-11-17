@@ -1821,7 +1821,7 @@ function DockerTab(P) {
       !weekly ? h('div', { class: 'v-empty' }, 'Loading…')
       : !weekly.containers.length ? h('div', { class: 'v-empty' }, 'Not enough hourly history yet — check back after a day or two of uptime.')
       : h('div', null,
-          !weekly.have_last_week ? h('div', { class: 'v-empty', style: 'margin-bottom:10px' },
+          !weekly.have_last_week ? h('div', { class: 'v-empty v-mb-lg' },
             'Less than a week of history — week-over-week change will appear once a full prior week exists.') : null,
           h(Table, null,
             h('tr', null, h('th', null, 'Container'), h('th', { class: 'num' }, 'Avg CPU'),
