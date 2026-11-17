@@ -1227,7 +1227,7 @@ function LogDrawer(P) {
         h('i', { class: 'fa fa-file-text-o', 'aria-hidden': 'true' }),
         h('span', { class: 'v-drawer-title', id: 'v-logdrawer-title' }, 'System logs'),
         h('span', { class: 'v-ai-agent' + (nCrit ? ' warn' : '') }, nCrit + ' critical'),
-        h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
+        h('button', { class: 'v-btn xs v-ml-auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
         h('select', { class: 'v-select', 'aria-label': 'Log source', value: src, onChange: function (e) { setSrc(e.target.value); setData(null); } },
           sources.map(function (s) { return h('option', { key: s.id, value: s.id }, s.label); })),
@@ -1385,11 +1385,11 @@ function DashTab(P) {
       h('div', null,
         h('button', { class: 'v-btn', 'aria-live': 'polite', onClick: runHealth, disabled: hcRunning === 'busy' },
           hcRunning === 'busy' ? 'Running…' : 'Run health check now'),
-        hcReport ? h('div', { style: 'margin-top:10px' },
+        hcReport ? h('div', { class: 'v-mt-lg' },
           hcReport.diff && hcReport.diff.new && hcReport.diff.new.length
             ? h('div', { class: 'v-empty' }, 'New since last run: ' + hcReport.diff.new.length) : null,
           (hcReport.findings || []).map(function (f, i) {
-            return h('div', { key: i, style: 'margin-bottom:6px' },
+            return h('div', { key: i, class: 'v-mb-sm' },
               h('span', { class: 'v-badge ' + (f.severity === 'critical' || f.severity === 'alert' ? 'v-badge-error' : f.severity === 'warning' ? 'v-badge-warning' : '') },
                 f.severity), ' ',
               h('span', null, f.title), ' ',
@@ -1518,7 +1518,7 @@ function FindingsDrawer(P) {
         h('i', { class: 'fa fa-magic', 'aria-hidden': 'true' }),
         h('span', { class: 'v-drawer-title', id: 'v-finddrawer-title' }, 'AI health findings'),
         h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
-        h('button', { class: 'v-btn xs', style: 'margin-left:auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
+        h('button', { class: 'v-btn xs v-ml-auto', 'aria-label': 'Close', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
         h('select', { class: 'v-select', 'aria-label': 'Filter by agent', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
           h('option', { value: 'all' }, 'All agents'),
@@ -2230,7 +2230,7 @@ function ShareCommentCell(P) {
   return h('div', { class: 'v-share-comment' },
     P.existing ? h('div', { class: 'muted' }, P.existing) : h('div', { class: 'muted' }, '—'),
     failed ? h('div', { class: 'v-share-comment-err' }, 'AI generation failed.') : null,
-    h('button', { class: 'v-btn xs' + (P.existing ? '' : ' primary'), style: 'margin-top:4px', 'aria-live': 'polite',
+    h('button', { class: 'v-btn xs v-mt-xs' + (P.existing ? '' : ' primary'), 'aria-live': 'polite',
       disabled: busy || applying, onClick: generate },
       h('i', { class: 'fa ' + icon, 'aria-hidden': 'true' }), ' ' + label));
 }
@@ -2328,7 +2328,7 @@ function PowerTab(P) {
             h('input', { type: 'number', step: '0.01', min: '0', value: priceInput, class: 'v-price-input',
               'aria-label': 'Price per kWh', onInput: function (e) { setPriceInput(e.target.value); } }),
             h('button', { class: 'v-btn xs', 'aria-live': 'polite', onClick: savePrice }, justSaved ? 'Saved ✓' : 'Save')),
-          !energy || !energy.days.length ? h('div', { class: 'v-empty', style: 'margin-top:10px' },
+          !energy || !energy.days.length ? h('div', { class: 'v-empty v-mt-lg' },
             'No hourly history with power data yet — check back after a few hours of uptime.')
           : h('div', null,
               h(Chart, { series: [{ name: 'kWh/day', color: tok('v-warn-fg'),
@@ -2979,7 +2979,7 @@ function KbTab() {
                   onClick: function () { setTagFilter(tagFilter === t ? null : t); } }, t);
               }),
               doc.topic ? h('span', { class: 'v-ai-agent' }, doc.topic) : null,
-              h('span', { class: 'muted', style: 'margin-left:auto' }, ts(doc.created_at))),
+              h('span', { class: 'muted v-ml-auto' }, ts(doc.created_at))),
             doc.summary ? h('div', { class: 'v-kb-doc-summary' }, doc.summary) : null,
             doc.images && doc.images.length ? h('div', { class: 'v-kb-doc-images' },
               doc.images.map(function (im, i) {
@@ -3532,7 +3532,7 @@ function SchedulesPanel() {
               h('button', { class: 'v-btn xs', onClick: function () { runNow(id, false); }, disabled: actState !== 'idle' || j.running }, 'Run now')));
         })),
     openJob && jobs[openJob]
-      ? h('div', { style: 'margin-top:8px' },
+      ? h('div', { class: 'v-mt-md' },
         h('div', { class: 'muted' }, 'Last log lines of ' + openJob + ':'),
         h('pre', { class: 'v-pre', style: 'white-space:pre-wrap;max-height:220px;overflow:auto;background:transparent' },
           ((jobs[openJob].lines || []).join('\n')) || '(no output yet)'))
@@ -3588,13 +3588,13 @@ function BackupsPanel() {
   },
     msg ? h('div', { class: 'v-empty', 'aria-live': 'polite' }, msg) : null,
     data && data.integrity && data.integrity !== 'ok'
-      ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' },
+      ? h('div', { class: 'v-empty v-mb-sm' },
         h('b', { class: 'crit' }, 'Live DB integrity: '), data.integrity, ' — restore advised; existing backups are NOT pruned while this shows.')
       : null,
     data && data.schema && data.schema.migrated
-      ? h('div', { class: 'v-empty', style: 'margin-bottom:6px' }, 'Schema upgraded to v' + data.schema.version + ' — pre-upgrade backup ' + data.schema.pre_upgrade + ' kept.')
+      ? h('div', { class: 'v-empty v-mb-sm' }, 'Schema upgraded to v' + data.schema.version + ' — pre-upgrade backup ' + data.schema.pre_upgrade + ' kept.')
       : null,
-    h('div', { style: 'margin-bottom:10px' },
+    h('div', { class: 'v-mb-lg' },
       h('button', { class: 'v-btn', 'aria-live': 'polite', onClick: runNow, disabled: state !== 'idle' }, state === 'backing' ? 'Backing up…' : 'Back up now'),
       ' ',
       h('button', { class: 'v-btn xs', 'aria-live': 'polite', onClick: bundle, disabled: state !== 'idle' }, state === 'bundling' ? 'Bundling…' : 'Full state bundle (.zip)')),
