@@ -3349,7 +3349,7 @@ function CleanupTab() {
     h(Panel, { title: 'Mover', hint: 'Starts /usr/local/sbin/mover; refuses during a parity check unless confirmed' },
       !mover ? h('div', { class: 'v-empty' }, 'Loading…')
         : h('div', null,
-            h('div', { style: 'margin-bottom:8px' },
+            h('div', { class: 'v-mb-md' },
               h('span', { class: mover.running ? 'v-badge ok' : 'v-badge' },
                 mover.running ? ('running (pid ' + mover.pid + ')' + (mover.parity_busy ? ' — parity busy' : '')) : 'not running'),
               mover.parity_busy && !mover.running ? h('span', { class: 'v-badge warn', style: 'margin-left:8px' }, 'parity check/sync active') : null),
@@ -3387,7 +3387,7 @@ function CleanupTab() {
       hint: preview.kind.confirm2 ? 'Type-on confirmation required below' : null
     },
       h('div', null,
-        h('div', { class: 'muted', style: 'margin-bottom:6px' },
+        h('div', { class: 'muted v-mb-sm' },
           (preview.data.items || []).length + ' item(s), reclaiming ' + fmt(preview.data.total_bytes) +
           ' — expires ' + ts(preview.data.expires_at)),
         h('div', { style: 'max-height:260px;overflow:auto' },
@@ -3403,7 +3403,7 @@ function CleanupTab() {
                 onChange: function (e) { setConfirm2(e.target.checked); } }),
               ' I understand this deletes unused docker volumes (data loss risk)')
           : null,
-        h('div', { style: 'margin-top:10px' },
+        h('div', { class: 'v-mt-lg' },
           h('button', { class: 'v-btn', onClick: doApply,
             disabled: applyState !== 'idle' || (preview.kind.confirm2 && !confirm2) },
             'Apply — delete ' + (preview.data.items || []).length + ' item(s)'),
@@ -3447,7 +3447,7 @@ function CleanupTab() {
               });
               return rows.length ? rows : h('tr', { key: di }, h('td', { class: 'muted' }, dayRow.day), h('td', { colspan: 2, class: 'muted' }, 'no changes'));
             }).flat(),
-            h('div', { class: 'v-empty', style: 'margin-top:6px' }, 'Acceptance-worthy row: updating a container image shows old tag → new tag.'))
+            h('div', { class: 'v-empty v-mt-sm' }, 'Acceptance-worthy row: updating a container image shows old tag → new tag.'))
         : h('div', { class: 'v-empty' }, 'Timeline builds from daily snapshots — check again after the next day rolls over.')),
     h(Panel, { title: 'Audit log', hint: 'Every apply/reject is recorded — who, when, what, bytes' },
       !audit ? h('div', { class: 'v-empty' }, 'Loading…')
