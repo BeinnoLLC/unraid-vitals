@@ -5,3 +5,6 @@ dist/
 node_modules/
 *.swp
 .DS_Store
+
+# git worktrees (local only)
+.worktrees/
