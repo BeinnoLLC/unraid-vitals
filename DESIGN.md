@@ -188,7 +188,7 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 
 ## Colors
 
-### Token block (`css/vitals.css:9-53`)
+### Token block (`css/vitals.css:9-67`)
 
 | Token | Value | Role |
 |---|---|---|
@@ -197,7 +197,12 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 | `--v-ok` / `--v-ok-fg` | `#22c55e` / `#4ade80` | healthy: fill+border tints / text |
 | `--v-warn` / `--v-warn-fg` | `#f59e0b` / `#fbbf24` | warning: fills / text |
 | `--v-bad` / `--v-bad-fg` | `#ef4444` / `#f87171` | critical: fills, danger button text / text |
+| `--v-on-accent` | `#fff` | text/icon on filled accent and status surfaces (primary button, active seg/chip/icon button, severity chips `.on`, badges) |
+| `--v-on-warn` | `#1a1a1a` | dark text on the light fills (`--v-warn`, `--v-ok-fg`): warn badge, high/low severity chips `.on` |
 | `--v-cpu` `--v-mem` `--v-load` `--v-rx` `--v-tx` `--v-temp` `--v-gpu` | `#4f9cf9` `#b07cf9` `#f9a94f` `#35c48a` `#f97066` `#f97066` `#22d3ee` | metric identity (series strokes, card icon tints, bars). `--v-tx` and `--v-temp` share a value. |
+| `--v-info` | `#4f9cf9` | informational status: info badge, medium severity chip, chart event markers (replaces the raw `#4f9cf9`/`#60a5fa`) |
+| `--v-think` | `#2dd4bf` | "think" capability pill hue |
+| `--v-neutral` | `rgb(127, 127, 127)` | base neutral for per-use alpha tints: `color-mix(in srgb, var(--v-neutral) N%, transparent)` reproduces the old `rgba(127,127,127,…)` literals (UV5) |
 | `--v-border` | `rgba(127,127,127,.18)` | every hairline: panels, tables, inputs, tab strip |
 | `--v-card` | `rgba(127,127,127,.045)` | resting surface of panels, cards, inputs, buttons |
 | `--v-card-hover` | `rgba(127,127,127,.085)` | hover surface |
@@ -384,7 +389,7 @@ pan sideways. Names `.v-name` 600. Code/paths `.v-mono`.
 
 ### Pills, badges, chips
 - `Pill()` :404 / `.v-pill` :603: neutral, `.run` (ok), `.warn`, `.info` (accent), `.stop`
-  (opacity), capability hues `.think` (`#2dd4bf`, raw), `.vision` (`--v-cpu`), `.scope` (warn).
+  (opacity), capability hues `.think` (`--v-think`), `.vision` (`--v-cpu`), `.scope` (warn).
   `align-self:flex-start` stops Unraid's flex `td` from stretching it.
 - `.v-badge` :288: numeric count bubble (17px, radius 9px); `-critical/-alert/-error` red/white,
   `-warning` amber/#1a1a1a, `-info` #4f9cf9/white.
@@ -445,8 +450,8 @@ local `--vt-*` custom properties declared once at the top of its `<style>`.
   background. Fixed text colours are only allowed on filled status surfaces (`on-accent`, `on-warn`).
 - Do check every new colour on all four Unraid themes (black, white, azure, gray).
 - Do render clickable things as `<button>` (or `<a href>`), never `div`/`span` with `onClick`.
-- Don't write `var(--v-x, #hex)` fallbacks. The token is always defined on `.vitals`, and five
-  fallbacks today disagree with their tokens (UV5).
+- Don't write `var(--v-x, #hex)` fallbacks. The token is always defined on `.vitals`, and UV5
+  removed the fallbacks (five of which disagreed with their own token).
 - Don't reference undefined properties (`--v-fg`, `--v-bg`, `--v-bg2`, `--v-panel`, `--v-panel-bg`).
 - Don't add inline `style:` for colour or spacing in vitals.js. Add a class.
 - Don't add NEW `@media` breakpoints beyond the existing ones. Tiers are 639/640 and 1023/1024;
