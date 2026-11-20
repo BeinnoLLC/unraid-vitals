@@ -22,11 +22,15 @@ theme backgrounds: black/gray `#1d1b1b`, white `#f2f2f2`, azure `#e8e8e8`.
    (Unraid's own theme var, the fallback kept only inside the token block) used by modal and
    drawer. — **High** — PR: add `--v-surface` to the token block, swap the 2 declarations, and
    screenshot all 4 themes.
+   **Status: fixed (UNRAIDPLUG-207)** on branch `fix/uv1-overlay-surface`: `--v-surface` at `css:32`,
+   used by `.v-modal` (`css:171`) and `.v-drawer` (`css:272`); the `--v-panel`/`--v-bg` fallbacks are gone.
 2. **UV2 (UNRAIDPLUG-201) Floating surfaces are translucent** — `css:551` `.v-chart-menu` and `css:795` `.v-toast`
    use `var(--v-card)` (`rgba(127,127,127,.045)`, computed `rgba(127,127,127,0.043)`). The chart or page
    shows through the legend popover and the toasts. The toast fallback `#1b1e24` is dead. →
    `--v-surface` from UV1, keep `--v-border` + shadow. — **High** — PR: 2 declarations (can ride
    with UV1 if kept to these 4 overlay rules).
+   **Status: fixed (UNRAIDPLUG-201)**, rode with UV1: `.v-chart-menu` (`css:556`) and `.v-toast`
+   (`css:800`) use `--v-surface`; the dead `#1b1e24` fallback is deleted.
 3. **UV3 (UNRAIDPLUG-202) Status and accent text tints fail on white and azure** — `--v-ok-fg` 1.56/1.42,
    `--v-warn-fg` 1.49/1.36, `--v-bad-fg` 2.47/2.26, `--v-accent-fg` 2.66/2.43, `--v-bad` 3.36/3.07
    (white/azure). They are used by `.ok/.warn/.crit` (`css:509-511`), pills, active tab (`css:673`),
@@ -50,7 +54,8 @@ theme backgrounds: black/gray `#1d1b1b`, white `#f2f2f2`, azure `#e8e8e8`.
    `css:333` `color-mix(… var(--v-fg) 4% …)` is invalid, so the chart-stat chip loses its fill.
    `.v-price-input` gets no background. → define `--v-fg: currentColor` in the token block,
    replace `--v-bg2` with `--v-card`, and use `--v-surface` (UV1) for `--v-panel`/`--v-bg`/`--v-panel-bg`.
-   — **Medium** — PR: token block + 12 replacements.
+   — **Medium** — PR: token block + 12 replacements. (UV1 already removed the `--v-panel` and
+   `--v-bg` uses, so 10 remain.)
 6. **UV5 (UNRAIDPLUG-205) Raw status hex and wrong fallbacks in vitals.css** — 95 lint hits in `css` outside the
    token block (see the lint section). Largest groups: `#ef4444` ×18 (11 are `var(--v-bad,
    #ef4444)` fallbacks, plus `css:819-820` raw), `#f59e0b` ×13 (`css:181, 185, 243, 244, 259, 295,
@@ -221,6 +226,8 @@ exit=1
 
 **173 hits** (occurrences) on 111 lines: 145 hex + 24 `rgb[a](` + 4 `font-family`. By file:
 `css` 95, `js` 71, `tile` 7.
+
+After UV1/UV2 (`--v-surface`): **170 hits**, and the script default is ratcheted to `MAX_HITS=170`.
 
 Rollout (the build must stay green): add the script with a **baseline** first (`MAX_HITS=173`;
 fail only when the count rises), wire it into `npm run check` as `lint:tokens`, and lower the

@@ -26,6 +26,11 @@
   --v-temp: #f97066;
   --v-gpu: #22d3ee;
 
+  /* Opaque base surface for overlays (modal, drawer, popover, toast) — Unraid's
+     own theme background var, so overlays follow the active theme instead of a
+     fixed dark. The fallback lives only here in the token block. */
+  --v-surface: var(--background-color, #1d1b1b);
+
   --v-border: rgba(127, 127, 127, .18);
   --v-card: rgba(127, 127, 127, .045);
   --v-card-hover: rgba(127, 127, 127, .085);
@@ -163,7 +168,7 @@
 .vitals .v-share-comment-err { color: var(--v-bad); font-size: 11px; margin-top: 3px; }
 .vitals .v-kb-search .v-input, .vitals textarea.v-input { width: auto; }
 .vitals .v-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.vitals .v-modal { background: var(--v-panel, #1a1a1a); border: 1px solid var(--v-border); border-radius: 10px; width: min(640px, 92vw); max-height: 78vh; display: flex; flex-direction: column; overflow: hidden; }
+.vitals .v-modal { background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 10px; width: min(640px, 92vw); max-height: 78vh; display: flex; flex-direction: column; overflow: hidden; }
 .vitals .v-modal-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid var(--v-border); font-weight: 600; }
 .vitals .v-modal-body { padding: 8px; overflow-y: auto; flex: 1 1 auto; }
 .vitals .v-browse-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px; cursor: default; font-size: 13px; }
@@ -264,7 +269,7 @@
 .vitals .v-drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9998; }
 .vitals .v-drawer {
   position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 92vw);
-  background: var(--v-bg, #161616); border-left: 1px solid var(--v-border);
+  background: var(--v-surface); border-left: 1px solid var(--v-border);
   box-shadow: -18px 0 42px rgba(0,0,0,.5); z-index: 9999;
   display: flex; flex-direction: column; animation: v-drawer-in .18s ease-out;
 }
@@ -548,7 +553,7 @@
 .vitals .v-chart-menu-backdrop { position: fixed; inset: 0; z-index: 9; }
 .vitals .v-chart-menu {
   position: absolute; top: 24px; right: 2px; z-index: 10; min-width: 220px; max-width: 320px;
-  background: var(--v-card); border: 1px solid var(--v-border); border-radius: 8px;
+  background: var(--v-surface); border: 1px solid var(--v-border); border-radius: 8px;
   box-shadow: 0 12px 28px rgba(0,0,0,.35); padding: 6px; display: flex; flex-direction: column; gap: 2px;
 }
 .vitals .v-chart-menu-row { display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: 6px; font-size: 11.5px; }
@@ -792,7 +797,7 @@
 .vitals .v-toasts { position: fixed; right: 16px; bottom: 16px; z-index: 1000;
   display: flex; flex-direction: column; gap: 8px; max-width: min(360px, calc(100vw - 32px)); }
 .vitals .v-toast { display: flex; align-items: flex-start; gap: 10px; cursor: pointer;
-  background: var(--v-card, #1b1e24); border: 1px solid var(--v-border);
+  background: var(--v-surface); border: 1px solid var(--v-border);
   border-left: 3px solid var(--v-accent); border-radius: 10px; padding: 10px 13px;
   box-shadow: 0 8px 24px rgba(0,0,0,.35); animation: v-toast-in .22s ease-out; }
 .vitals .v-toast-success { border-left-color: var(--v-ok, #34d399); }
