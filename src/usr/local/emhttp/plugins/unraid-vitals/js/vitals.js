@@ -456,6 +456,15 @@ function Chart(P) {
   var redrawRef = useRef(function () {});
   var seriesRef = useRef(null); seriesRef.current = P.series || [];
   var menuState = useState(false); var menuOpen = menuState[0], setMenuOpen = menuState[1];
+  // UV8: Escape dismisses the legend/stats menu like its backdrop does.
+  useEffect(function () {
+    if (!menuOpen) return;
+    var onKey = function (e) {
+      if (e.key === 'Escape' || e.key === 'Esc') setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return function () { document.removeEventListener('keydown', onKey); };
+  }, [menuOpen]);
   var series = P.series || [];
   var n = series.reduce(function (m, s) { return Math.max(m, (s.points || []).length); }, 0);
   var minV = P.floor || 0;
@@ -766,6 +775,56 @@ function ContainerTable(P) {
         h('td', { class: 'muted' }, (c.status || '').replace(/^Up\s*/, '') || '—'),
         P.compact ? null : h('td', null, h(DockerActions, { name: c.name, running: run })));
     }));
+}
+
+/* ---------------------------------------------------------- dialog a11y */
+
+var FOCUSABLE_SEL = 'a[href],button:not([disabled]),input:not([disabled]),' +
+  'select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+function focusables(root) {
+  return Array.prototype.filter.call(root.querySelectorAll(FOCUSABLE_SEL), function (el) {
+    return !el.disabled && (el.offsetWidth > 0 || el.offsetHeight > 0 || el === document.activeElement);
+  });
+}
+
+/** Shared dialog behaviour (UV8): Escape closes the dialog, focus moves
+ *  into it on open (first focusable, else the container — which must carry
+ *  tabIndex="-1"), Tab/Shift+Tab cycle inside it, and focus returns to the
+ *  element that opened it when it closes (or unmounts). Attach `rootRef` to
+ *  the role="dialog" container. */
+function useDialog(open, onClose, rootRef) {
+  var closeRef = useRef(onClose); closeRef.current = onClose;
+  var openerRef = useRef(null);
+  useEffect(function () {
+    if (!open) return;
+    var root = rootRef.current;
+    var opener = document.activeElement;
+    openerRef.current = opener && opener !== document.body && opener.focus ? opener : null;
+    if (root) {
+      var items = focusables(root);
+      (items[0] || root).focus();
+    }
+    var onKey = function (e) {
+      if (e.key === 'Escape' || e.key === 'Esc') { e.preventDefault(); closeRef.current(); return; }
+      if (e.key !== 'Tab') return;
+      var r = rootRef.current;
+      if (!r) return;
+      var f = focusables(r);
+      if (!f.length) { e.preventDefault(); r.focus(); return; }
+      var first = f[0], last = f[f.length - 1], a = document.activeElement;
+      if (e.shiftKey ? (a === first || !r.contains(a)) : (a === last || !r.contains(a))) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return function () {
+      document.removeEventListener('keydown', onKey, true);
+      var op = openerRef.current;
+      if (op && document.contains(op)) op.focus();
+    };
+  }, [open]);
 }
 
 /* --------------------------------------------------------------- actions */
@@ -1123,6 +1182,8 @@ function LogDrawer(P) {
   var s4 = useState(''); var q = s4[0], setQ = s4[1];
   var s5 = useState(true); var autoScroll = s5[0], setAutoScroll = s5[1];
   var bodyRef = useRef(null);
+  var dialogRef = useRef(null);
+  useDialog(P.open, P.onClose, dialogRef);
 
   var loadLogs = function (source) {
     fetch(ENDPOINT + '?action=logs&source=' + encodeURIComponent(source) + '&lines=500', { cache: 'no-store' })
@@ -1153,10 +1214,11 @@ function LogDrawer(P) {
 
   return P.open ? h('div', null,
     h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
-    h('div', { class: 'v-drawer' },
+    h('div', { class: 'v-drawer', ref: dialogRef, tabIndex: -1, role: 'dialog',
+        'aria-modal': 'true', 'aria-labelledby': 'v-logdrawer-title' },
       h('div', { class: 'v-drawer-head' },
         h('i', { class: 'fa fa-file-text-o' }),
-        h('span', { class: 'v-drawer-title' }, 'System logs'),
+        h('span', { class: 'v-drawer-title', id: 'v-logdrawer-title' }, 'System logs'),
         h('span', { class: 'v-ai-agent' + (nCrit ? ' warn' : '') }, nCrit + ' critical'),
         h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
@@ -1437,12 +1499,16 @@ function FindingsDrawer(P) {
   var shown = pool.filter(function (f) { return agentFilter === 'all' || f.agent === agentFilter; })
     .slice().sort(function (a, b) { return (SEV_ORDER[a.severity] ?? 5) - (SEV_ORDER[b.severity] ?? 5); });
 
+  var drawerRef = useRef(null);
+  useDialog(P.open, P.onClose, drawerRef);
+
   return P.open ? h('div', null,
     h('div', { class: 'v-drawer-backdrop', onClick: P.onClose }),
-    h('div', { class: 'v-drawer' },
+    h('div', { class: 'v-drawer', ref: drawerRef, tabIndex: -1, role: 'dialog',
+        'aria-modal': 'true', 'aria-labelledby': 'v-finddrawer-title' },
       h('div', { class: 'v-drawer-head' },
         h('i', { class: 'fa fa-magic' }),
-        h('span', { class: 'v-drawer-title' }, 'AI health findings'),
+        h('span', { class: 'v-drawer-title', id: 'v-finddrawer-title' }, 'AI health findings'),
         h('span', { class: 'v-ai-agent' + (interesting.length ? ' warn' : '') }, interesting.length + ' active'),
         h('button', { class: 'v-btn xs', style: 'margin-left:auto', onClick: P.onClose }, '✕')),
       h('div', { class: 'v-drawer-tools' },
@@ -2055,6 +2121,8 @@ function ShareBrowser(P) {
   var s1 = useState(''); var path = s1[0], setPath = s1[1];
   var s2 = useState(null); var data = s2[0], setData = s2[1];
   var s3 = useState(false); var loading = s3[0], setLoading = s3[1];
+  var dialogRef = useRef(null);
+  useDialog(true, P.onClose, dialogRef);  // mounted only while open
 
   var go = function (p) {
     setLoading(true);
@@ -2068,9 +2136,11 @@ function ShareBrowser(P) {
 
   var parts = path ? path.split('/') : [];
   return h('div', { class: 'v-modal-backdrop', onClick: P.onClose },
-    h('div', { class: 'v-modal', onClick: function (e) { e.stopPropagation(); } },
+    h('div', { class: 'v-modal', ref: dialogRef, tabIndex: -1, role: 'dialog',
+        'aria-modal': 'true', 'aria-labelledby': 'v-modal-title',
+        onClick: function (e) { e.stopPropagation(); } },
       h('div', { class: 'v-modal-head' },
-        h('div', null, h('i', { class: 'fa fa-folder-open' }), ' ', P.share,
+        h('div', { id: 'v-modal-title' }, h('i', { class: 'fa fa-folder-open' }), ' ', P.share,
           parts.length ? h('span', { class: 'muted' }, ' / ' + parts.join(' / ')) : null),
         h('button', { class: 'v-btn xs', onClick: P.onClose }, h('i', { class: 'fa fa-times' }))),
       h('div', { class: 'v-modal-body' },
