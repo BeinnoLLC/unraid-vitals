@@ -410,6 +410,21 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 /* Inline row used by the study duration/cadence selects. */
 .vitals .v-row { display: flex; align-items: flex-end; }
 
+/* Spacing utilities (UV19, UNRAIDPLUG-219) */
+.vitals .v-mt-xs { margin-top: 4px; }
+.vitals .v-mt-sm { margin-top: 6px; }
+.vitals .v-mt-md { margin-top: 8px; }
+.vitals .v-mt-lg { margin-top: 10px; }
+.vitals .v-mt-xl { margin-top: 12px; }
+.vitals .v-mb-xs { margin-bottom: 4px; }
+.vitals .v-mb-sm { margin-bottom: 6px; }
+.vitals .v-mb-md { margin-bottom: 8px; }
+.vitals .v-mb-lg { margin-bottom: 10px; }
+.vitals .v-ml-xs { margin-left: 4px; }
+.vitals .v-ml-sm { margin-left: 6px; }
+.vitals .v-ml-md { margin-left: 8px; }
+.vitals .v-ml-auto { margin-left: auto; }
+
 /* Study observation journal. */
 .vitals .v-journal { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .vitals .v-journal li { font-size: var(--v-fs-sm); line-height: 1.5; padding: 6px 8px; border-radius: var(--v-radius-sm); background: var(--v-card); border: 1px solid var(--v-border); }
