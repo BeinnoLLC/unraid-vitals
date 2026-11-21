@@ -130,6 +130,10 @@
   --v-z-drawer-backdrop: 9998;
   --v-z-drawer: 9999;
 
+  /* Duration tokens (UV16, UNRAIDPLUG-216) */
+  --v-dur-fast: .14s;
+  --v-dur-enter: .2s;
+
   /* Radius scale mapping (UV14, UNRAIDPLUG-214) — literal -> token -> delta:
      - 8px x3 (v-ai-item, v-chart-menu, v-plan-hint) -> sm, exact, 0.
      - 999px x4 (v-chip, v-card-delta, v-pill, v-tag-badge) -> pill, exact, 0.
@@ -252,7 +256,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-ibtn {
   position: relative; width: 34px; height: 30px; border: none; background: var(--v-card); color: var(--v-muted);
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: var(--v-fs-md);
-  transition: background .14s ease, color .14s ease;
+  transition: background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;
 }
 .vitals .v-ibtn + .v-ibtn { border-left: 1px solid var(--v-border); }
 .vitals .v-ibtn:hover { background: var(--v-card-hover); color: inherit; }
@@ -269,7 +273,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-btn, .vitals .v-select {
   background: var(--v-card); border: 1px solid var(--v-border); color: inherit;
   border-radius: var(--v-radius-sm); padding: 6px 12px; font-size: var(--v-fs-sm);
-  cursor: pointer; transition: border-color .14s ease, background .14s ease, color .14s ease;
+  cursor: pointer; transition: border-color var(--v-dur-fast) ease, background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;
 }
 .vitals .v-btn:hover, .vitals .v-select:hover { border-color: var(--v-accent); background: var(--v-card-hover); }
 .vitals .v-btn:focus-visible, .vitals .v-select:focus-visible { outline: 2px solid var(--v-accent); outline-offset: 1px; }
@@ -393,7 +397,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-seg { display: inline-flex; border: 1px solid var(--v-border); border-radius: var(--v-radius-sm); overflow: hidden; align-self: flex-start; }
 .vitals .v-seg-btn {
   background: var(--v-card); border: none; color: var(--v-muted); padding: 6px 12px; font-size: var(--v-fs-sm);
-  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .14s ease, color .14s ease;
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;
 }
 .vitals .v-seg-btn + .v-seg-btn { border-left: 1px solid var(--v-border); }
 .vitals .v-seg-btn.active { background: var(--v-accent-fill); color: var(--v-on-accent); }
@@ -563,9 +567,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   display: flex; align-items: center; justify-content: center; line-height: 1; box-shadow: 0 0 0 2px var(--v-card); }
 @keyframes v-fanicon-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 @keyframes v-fan-stall-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--v-bad) 35%, transparent); } 50% { box-shadow: 0 0 0 5px transparent; } }
-@media (prefers-reduced-motion: reduce) {
-  .vitals .v-fanicon-blades { animation: none; }
-}
 
 /* Grids --------------------------------------------------------------------*/
 
@@ -623,14 +624,13 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   background: var(--v-card); border: 1px solid var(--v-border);
   border-radius: var(--v-radius); padding: 11px 13px; position: relative; overflow: hidden;
   display: flex; align-items: center; gap: 10px;
-  transition: transform .14s ease, border-color .14s ease, box-shadow .14s ease, background .14s ease;
+  transition: transform var(--v-dur-fast) ease, border-color var(--v-dur-fast) ease, box-shadow var(--v-dur-fast) ease, background var(--v-dur-fast) ease;
 }
 .vitals .v-card:hover {
   transform: translateY(-2px); background: var(--v-card-hover);
   border-color: color-mix(in srgb, var(--v-accent) 30%, var(--v-border));
   box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
 }
-@media (prefers-reduced-motion: reduce) { .vitals .v-card:hover { transform: none; } }
 .vitals .v-card-body { min-width: 0; flex: 1; }
 /* Every card gets an icon badge now — never a bare donut gauge in its place
    (user: "we should have an icon for CPU, instead of the circle, same for
@@ -841,7 +841,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   font-size: var(--v-fs-sm); font-weight: 600; padding: 8px 14px;
   border-radius: var(--v-radius-sm) var(--v-radius-sm) 0 0;
   display: inline-flex; align-items: center; gap: 7px;
-  transition: opacity .14s ease, background .14s ease, color .14s ease;
+  transition: opacity var(--v-dur-fast) ease, background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;
   margin-bottom: -1px;
 }
 .vitals .v-tab:hover { opacity: .9; background: var(--v-card); }
@@ -1025,3 +1025,17 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-radar-name { flex: 1; }
 .vitals .v-radar-val { font-variant-numeric: tabular-nums; color: var(--v-muted); }
 
+
+@media (prefers-reduced-motion: reduce) {
+  .vitals .v-fanicon-blades { animation: none; }
+  .vitals .v-card:hover { transform: none; }
+  .vitals .v-sub .v-dot { animation: none; }
+  .vitals .v-drawer { animation: none; }
+  .vitals .v-toast { animation: none; }
+  .vitals .v-fan.stall { animation: none; }
+  .vitals .v-volt-oor { animation: none; }
+  .vitals .v-therm-crit { animation: none; }
+  .vitals .v-therm:hover { transform: none; }
+  .vitals .v-hbar-track i { transition: none; }
+  .vitals .v-bar > i { transition: none; }
+}
