@@ -16,7 +16,7 @@ $plugin = '/plugins/unraid-vitals';
 <link rel="stylesheet" type="text/css" href="<?=$plugin?>/css/uPlot.min.css">
 <link rel="stylesheet" type="text/css" href="<?=$plugin?>/css/vitals.css">
 
-<div id="vitals-root" class="vitals" data-endpoint="<?=$plugin?>/include/ajax.php">
+<div id="vitals-root" class="vitals" dir="ltr" data-endpoint="<?=$plugin?>/include/ajax.php">
   <div class="v-panel"><div class="v-empty">Loading unraid-vitals…</div></div>
 </div>
 
