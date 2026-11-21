@@ -30,6 +30,12 @@
   --v-bad-fill: #dc2626;
   --v-info-fill: #2563eb;
 
+  /* Fill under the one dark-text filled surface (.v-chip-sev-low.on carries
+     --v-on-warn dark text; UNRAIDPLUG-206 follow-up) — dedicated token because
+     UV3 retunes the shared --v-ok-fg in the white/azure themes, which dropped
+     the chip to 2.44:1. Light text contrast unchanged: 9.99:1 in all themes. */
+  --v-ok-fill: #4ade80;
+
   --v-cpu: #4f9cf9;
   --v-mem: #b07cf9;
   --v-load: #f9a94f;
@@ -297,7 +303,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-chip-sev-critical.on { background: var(--v-bad-fill); border-color: var(--v-bad-fg); color: var(--v-on-accent); }
 .vitals .v-chip-sev-high.on { background: var(--v-warn); border-color: var(--v-warn); color: var(--v-on-warn); }
 .vitals .v-chip-sev-medium.on { background: var(--v-info-fill); border-color: var(--v-info); color: var(--v-on-accent); }
-.vitals .v-chip-sev-low.on { background: var(--v-ok-fg); border-color: var(--v-ok-fg); color: var(--v-on-warn); }
+.vitals .v-chip-sev-low.on { background: var(--v-ok-fill); border-color: var(--v-ok-fg); color: var(--v-on-warn); }
 .vitals .v-kb-doc { padding: 10px 0; border-bottom: 1px solid var(--v-border); }
 .vitals .v-kb-doc:last-child { border-bottom: none; }
 .vitals .v-kb-doc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
