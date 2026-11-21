@@ -1731,7 +1731,7 @@ function DailyTable(P) {
       });
       return h('tr', { key: r.day },
         h('td', { class: 'v-name' }, r.day,
-          warns.map(function (w) { return h('span', { key: w, class: 'v-warnbadge' }, w); })),
+          warns.map(function (w) { return h('span', { key: w, class: 'v-badge v-badge-error' }, w); })),
         h('td', { class: 'num' }, r.cpu == null ? '—' : r.cpu + '%'),
         h('td', { class: 'num' }, r.mem == null ? '—' : r.mem + '%'),
         h('td', { class: 'num ' + lvl(r.temp_max, 50, 58) }, r.temp_max == null ? '—' : r.temp_max + '°'),

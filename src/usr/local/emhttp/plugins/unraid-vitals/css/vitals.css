@@ -824,11 +824,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    the panel just grows to fit. */
 .vitals .v-scroll.v-scroll-off { max-height: none; overflow-y: visible; }
 
-.vitals .warn-badge, .vitals .v-empty .warn-badge {
-  font-size: var(--v-fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
-  padding: 1px 6px; border-radius: var(--v-radius-xs);
-  background: color-mix(in srgb, var(--v-bad) 15%, transparent); color: var(--v-bad-fg);
-}
 
 .vitals .v-foot {
   opacity: var(--v-muted-opacity); font-size: var(--v-fs-xs); text-align: right; margin-top: 6px;
@@ -869,11 +864,6 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
   background: color-mix(in srgb, var(--v-warn) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--v-warn) 38%, transparent);
   color: var(--v-warn-fg);
-}
-.vitals .v-warnbadge {
-  display: inline-block; margin-left: 6px; font-size: var(--v-fs-2xs); font-weight: 700;
-  padding: 1px 5px; border-radius: var(--v-radius-xs); vertical-align: middle;
-  background: color-mix(in srgb, var(--v-bad) 18%, transparent); color: var(--v-bad-fg);
 }
 
 /* Responsive ---------------------------------------------------------------
