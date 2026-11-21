@@ -166,18 +166,6 @@ function gradientFill(hex, topAlpha) {
   };
 }
 
-/* Grafana-style stat tile: value on a tinted background, tone-driven colour.
-   P: {label, value, sub, tone: ok|info|warn|crit|muted, spark: [[t,v]...]} */
-var TONE_TOKEN = { ok: 'v-ok-fg', info: 'v-info', warn: 'v-warn-fg', crit: 'v-bad-fg', muted: 'v-muted-fg' };
-function StatTile(P) {
-  var tone = tok(TONE_TOKEN[P.tone || 'muted']);
-  return h('div', { class: 'v-stat-tile', style: '--tile:' + tone },
-    h('div', { class: 'v-stat-tile-label' }, P.label),
-    h('div', { class: 'v-stat-tile-value' }, P.value),
-    P.sub ? h('div', { class: 'v-stat-tile-sub' }, P.sub) : null,
-    P.spark ? h(Spark, { points: P.spark, color: tone }) : null);
-}
-
 /* hwmon sensors come with opaque labels ("Sensor 1", "temp3") when the
  * chip has no name for the input — prefix the chip family so two "Sensor 1"
  * tiles from different chips are distinguishable at a glance. */
