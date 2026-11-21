@@ -2,9 +2,10 @@
    Design language borrowed from the LLM-Telemetry dashboard: accent-tinted
    icon badges, subtle hover lift + shadow instead of flat boxes, a fluid
    clamp() type scale, tabular numerals, and a proper status-colour system.
-   Built on Unraid's own CSS variables (--text, --background, --primary-bg
-   colour ramps) where present, so it still follows the active theme
-   (black / azure / gray / white) instead of imposing its own palette. */
+   Defines its own --v-* tokens in the .vitals token block (see DESIGN.md),
+   with theme overrides per Unraid webGui theme (black / white / azure / gray)
+   so it follows the active theme; only var(--background-color) is borrowed
+   from Unraid, with a fallback, everywhere else is --v-*. */
 
 .vitals {
   /* Accent + status palette. Falls back gracefully if Unraid doesn't expose
