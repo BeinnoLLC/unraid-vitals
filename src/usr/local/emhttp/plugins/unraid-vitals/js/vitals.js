@@ -1535,7 +1535,7 @@ function FindingsDrawer(P) {
         h('select', { class: 'v-select', 'aria-label': 'Filter by agent', value: agentFilter, onChange: function (e) { setAgentFilter(e.target.value); } },
           h('option', { value: 'all' }, 'All agents'),
           agents.map(function (a) { return h('option', { key: a, value: a }, a); })),
-        h('span', { class: 'muted', style: 'align-self:center;font-size:11.5px' }, 'updated hourly by local agents')),
+        h('span', { class: 'muted', style: 'align-self:center;font-size:var(--v-fs-xs, 11.5px)' }, 'updated hourly by local agents')),
       h('div', { class: 'v-drawer-body' },
         !shown.length ? h('div', { class: 'v-empty' }, 'No findings yet — the agents run hourly.')
         : shown.map(function (f) {
@@ -3207,7 +3207,7 @@ function ResearchTab() {
                 ? h('div', { style: 'display:flex;align-items:center;gap:6px;min-width:90px' },
                     h('div', { class: 'v-bar', style: 'flex:1;margin:0' },
                       h('i', { style: 'width:' + pct.toFixed(0) + '%;background:var(--v-accent)' })),
-                    h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums;font-size:11px' }, pct.toFixed(0) + '%'))
+                    h('span', { class: 'muted', style: 'font-variant-numeric:tabular-nums;font-size:var(--v-fs-xs, 11px)' }, pct.toFixed(0) + '%'))
                 : (j.status === 'pending' || j.status === 'running')
                   ? h('i', { class: 'fa fa-spinner fa-spin muted' }) : h('span', { class: 'muted' }, '—')),
               h('td', { class: 'muted' }, ts(j.created_at)),
