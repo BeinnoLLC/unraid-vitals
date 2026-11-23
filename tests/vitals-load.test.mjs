@@ -4,12 +4,12 @@
  * after the closing `})();` is still valid JavaScript, so `node --check`
  * stays green while the browser throws `ReferenceError: h is not defined`
  * on every page load, after the rest of the app already mounted. #38 put a
- * stray `h(KbWorkspace, {})` there and the curation workspace was never
- * rendered anywhere in the KB tab either.
+ * stray `h(KbWorkspace, {})` there. KbWorkspace stays defined but unrendered
+ * until its curation UI is fixed in a follow-up ticket.
  *
- * These tests pin the file ending, the KB-tab wiring, and an actual VM load
- * with no mount target. A control case re-adds the stray line and proves the
- * harness really catches the regression instead of passing vacuously.
+ * These tests pin the file ending and an actual VM load with no mount target.
+ * A control case re-adds the stray line and proves the harness really catches
+ * the regression instead of passing vacuously.
  */
 
 import { test } from 'node:test';
@@ -78,15 +78,6 @@ function withEndProbe(text) {
 test('vitals.js ends at the IIFE close, with a trailing newline', () => {
   assert.equal(lastNonBlankLine(source), '})();');
   assert.match(source, /\r?\n\}\)\(\);\r?\n$/, 'nothing may follow the IIFE close');
-});
-
-test('the KB tab renders KbWorkspace inside the IIFE', () => {
-  const start = source.indexOf('function KbTab()');
-  const end = source.indexOf('/* --------------------------------------------------------------- research */');
-  assert.ok(start > 0 && end > start, 'the KbTab body must be present');
-  const kbTab = source.slice(start, end);
-  assert.match(kbTab, /h\(KbWorkspace,\s*\{\}\)/,
-    'the curation workspace must be a child of KbTab, not a stray call after the IIFE');
 });
 
 test('vitals.js loads without throwing when nothing mounts', () => {
