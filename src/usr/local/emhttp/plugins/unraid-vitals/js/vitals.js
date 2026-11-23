@@ -2989,7 +2989,8 @@ function KbTab() {
               })) : null,
             h('div', { class: 'v-kb-doc-body' + (doc.kind === 'report' || doc.kind === 'study' ? ' v-kb-doc-rich' : '') },
               renderMd(doc.content)));
-        })));
+        })),
+    h(KbWorkspace, {}));
 }
 
 /* --------------------------------------------------------------- research */
@@ -3844,4 +3845,3 @@ function SettingsTab() {
 
 if (mountEl) render(h('div', null, h(App), h(ToastStack)), mountEl);
 })();
-    h(KbWorkspace, {})
