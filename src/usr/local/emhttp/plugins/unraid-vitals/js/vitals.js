@@ -995,7 +995,7 @@ var TABS = [
   { id: 'shares', label: 'Shares',        icon: 'fa-folder-open-o' },
   { id: 'hw',     label: 'Hardware',      icon: 'fa-tv' },
   { id: 'power',  label: 'Power',         icon: 'fa-bolt' },
-  { id: 'kb',     label: 'Knowledge',     icon: 'fa-book' },
+{ id: 'kbworkspace', label: 'KB curation', icon: 'fa-book-edit' },
   { id: 'research', label: 'Research',   icon: 'fa-flask' },
   { id: 'cleanup', label: 'Cleanup',     icon: 'fa-trash-o' },
   { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
@@ -2779,7 +2779,8 @@ function KbWorkspace() {
   var s3 = useState(null); var statusFilter = s3[0], setStatusFilter = s3[1];
   var s4 = useState(null); var editId = s4[0], setEditId = s4[1];
   var s5 = useState(''); var editText = s5[0], setEditText = s5[1];
-  var s6 = useState(null); var mergeInto = s6[0], setMergeInto = s6[1];
+  var s6 = useState(''); var entityInput = s6[0], setEntityInput = s6[1];
+  var s7 = useState(null); var mergeInto = s7[0], setMergeInto = s7[1];
   var s7 = useState(''); var msg = s7[0], setMsg = s7[1];
   var s8 = useState('idle'); var busy = s8[0], setBusy = s8[1];
   var s9 = useState(false); var newLessonOpen = s9[0], setNewLessonOpen = s9[1];
@@ -2789,7 +2790,8 @@ function KbWorkspace() {
              (view === 'events' && statusFilter ? '&status=' + encodeURIComponent(statusFilter) : '');
     fetch(ENDPOINT + '?action=kb_curate_list' + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) setData(j); });
+.then(function (j) { if (j && j.ok) setData(j); })
+      .catch(function () { setData(null); });
   };
   useEffect(load, [view, kindFilter, statusFilter]);
 
@@ -2827,7 +2829,7 @@ function KbWorkspace() {
       h('input', { class: 'v-input v-mb-xs', 'aria-label': 'Entity', placeholder: 'entity (disk name, container, "system"…)', value: editText, onInput: function (e) { setEditText(e.target.value); } }),
       h('textarea', { class: 'v-input v-mb-xs', 'aria-label': 'Lesson text', rows: 2, placeholder: 'your lesson text', onInput: function (e) { setEditText(e.target.value); } }),
       h('button', { class: 'v-btn xs', disabled: busy !== 'idle', onClick: function () {
-        act('kb_lesson_manual', { entity: editText, text: editText }, function () { setEditText(''); setNewLessonOpen(false); });
+act('kb_lesson_manual', { entity: entityInput, text: editText }, function () { setEntityInput(''); setEditText(''); setNewLessonOpen(false); });
       } }, 'Save manual lesson')) : null,
     !data ? h('div', { class: 'v-empty' }, 'Loading…')
       : view === 'events'
@@ -2863,7 +2865,7 @@ function KbWorkspace() {
                   ' ',
                   mergeInto === null ? h('button', { class: 'v-btn xs', onClick: function () { setMergeInto(l.id); } }, 'Merge into…')
                     : h('select', { class: 'v-select', 'aria-label': 'Merge target lesson', onChange: function (e) {
-                        if (e.target.value && e.target.value !== String(l.id)) act('kb_lesson_merge', { id: l.id, into: e.target.value });
+if (e.target.value && e.target.value !== String(l.id)) merge(l.id, e.target.value);
                         setMergeInto(null);
                       } },
                       h('option', { value: '' }, 'target lesson…'),
@@ -2907,7 +2909,8 @@ function KbTab() {
     if (tag) qs += '&tag=' + encodeURIComponent(tag);
     fetch(ENDPOINT + '?action=kb_recent' + qs, { cache: 'no-store' })
       .then(function (r) { return r.json(); })
-      .then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); setTagCounts(j.tag_counts || {}); } });
+.then(function (j) { if (j && j.ok) { setResults(j.docs || []); setTopics(j.topics || []); setSevCounts(j.severity_counts || {}); setTagCounts(j.tag_counts || {}); } })
+      .catch(function () { setResults([]); setTopics([]); setSevCounts({}); setTagCounts({}); });
   };
   useEffect(function () { loadRecent(sevFilter, tagFilter); }, [sevFilter, tagFilter]);
 
