@@ -90,6 +90,13 @@
      fixed dark. The fallback lives only here in the token block. */
   --v-surface: var(--background-color, #1d1b1b);
 
+  /* Sticky hero offset (UNRAIDPLUG-146). The webGui sticks its top nav at
+     top:0; the upstream desktop nav row is 4rem tall, but no nav-height
+     token is exposed by the host and this repo cannot prove its runtime
+     height. 4rem is therefore an assumption to verify in QA on all themes
+     and with non-default Display font sizes. */
+  --v-hero-top: 4rem;
+
   /* Base neutral for per-use alpha tints — color-mix(in srgb, var(--v-neutral)
      N%, transparent) reproduces the old rgba(127,127,127,…) literals exactly. */
   --v-neutral: rgb(127, 127, 127);
@@ -117,7 +124,9 @@
 
   /* Z-index scale (UV15, UNRAIDPLUG-215) — paint order preserved exactly:
      --v-z-chart-1: 2 (threshold line) ; --v-z-chart-2: 3 (event marker) ;
-     --v-z-chart-3: 4 (chart badge) ; --v-z-chart-4: 9 (chart menu backdrop,
+     --v-z-chart-3: 4 (chart badge) ; --v-z-hero: 5 (sticky hero, above chart
+       decorations, below chart menu backdrop/popover) ;
+     --v-z-chart-4: 9 (chart menu backdrop,
        extra step — 5 chart-layer values need 4 distinct steps) ;
      --v-z-popover: 10 (chart menu popover) ; --v-z-modal: 200 (modal backdrop) ;
      --v-z-toast: 1000 (toast stack) ; --v-z-drawer-backdrop: 9998 (drawer
@@ -127,12 +136,17 @@
   --v-z-chart-1: 2;
   --v-z-chart-2: 3;
   --v-z-chart-3: 4;
+  --v-z-hero: 5;
   --v-z-chart-4: 9;
   --v-z-popover: 10;
   --v-z-modal: 200;
   --v-z-toast: 1000;
   --v-z-drawer-backdrop: 9998;
   --v-z-drawer: 9999;
+
+  /* Low elevation for the sticky hero and stat-card hover — the existing
+     card-lift shadow, tokenized instead of introducing a new shadow value. */
+  --v-shadow-low: 0 10px 24px rgba(0, 0, 0, .16);
 
   /* Duration tokens (UV16, UNRAIDPLUG-216) */
   --v-dur-fast: .14s;
@@ -232,9 +246,10 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
    header IS the navigation surface, not a banner sitting above it. */
 
 .vitals .v-hero {
+  position: sticky; top: var(--v-hero-top); z-index: var(--v-z-hero);
   margin-bottom: var(--v-gap);
-  background: var(--v-card); border: 1px solid var(--v-border); border-radius: var(--v-radius);
-  overflow: hidden;
+  background: var(--v-surface); border-bottom: 1px solid var(--v-border); border-radius: var(--v-radius);
+  box-shadow: var(--v-shadow-low); overflow: hidden;
 }
 .vitals .v-hero-row {
   display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
@@ -643,7 +658,7 @@ html.Theme--white .vitals, html.Theme--azure .vitals {
 .vitals .v-card:hover {
   transform: translateY(-2px); background: var(--v-card-hover);
   border-color: color-mix(in srgb, var(--v-accent) 30%, var(--v-border));
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .16);
+  box-shadow: var(--v-shadow-low);
 }
 .vitals .v-card-body { min-width: 0; flex: 1; }
 /* Every card gets an icon badge now — never a bare donut gauge in its place

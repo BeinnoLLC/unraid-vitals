@@ -3,7 +3,7 @@ version: alpha
 name: unraid-vitals
 description: Unraid plugin that adds a "Vitals" nav tab (Preact + uPlot monitoring app) and a compact Stock-Dashboard tile. One accent/status palette on `.vitals`, translucent neutral surfaces, and text colour inherited from the active Unraid webGui theme (black / white / azure / gray).
 colors:
-  # Source: src/usr/local/emhttp/plugins/unraid-vitals/css/vitals.css:9-53 (the `.vitals { }`
+  # Source: src/usr/local/emhttp/plugins/unraid-vitals/css/vitals.css:10-202 (the `.vitals { }`
   # token block — scoped to the app root, NOT :root). Key == CSS custom property without `--`.
   # There are no -dark siblings: the plugin ships ONE palette for every Unraid theme
   # (see "Colors > Theme inheritance" — the -fg tints are dark-theme tuned).
@@ -80,6 +80,8 @@ typography:
 spacing:
   v-gap: 16px
   v-gap-phone: 12px
+  # Sticky hero offset; 4rem is an assumed nav height to verify in QA.
+  v-hero-top: 4rem
   panel-padding: "16px 18px"
   card-padding: "11px 13px"
 rounded:
@@ -123,6 +125,10 @@ components:
     # modal, drawers, chart popover, toasts (all on --v-surface, never --v-card)
     backgroundColor: "{colors.v-surface}"
     rounded: 10px
+  hero:
+    # sticky app bar; opaque theme background, not the translucent --v-card
+    backgroundColor: "{colors.v-surface}"
+    rounded: "{rounded.v-radius}"
   tab-active:
     textColor: "{colors.v-accent-fg}"
     backgroundColor: "{colors.v-card}"
@@ -164,7 +170,7 @@ Stack (all paths relative to `src/usr/local/emhttp/plugins/unraid-vitals/`):
 | Concern | Where | Notes |
 |---|---|---|
 | Mount + assets | `Vitals.page` | `<div id="vitals-root" class="vitals">`; loads `css/uPlot.min.css`, `css/vitals.css`, `js/vendor/{preact.min.js, preact-hooks.umd.min.js, uPlot.iife.min.js}`, `js/vitals.js` |
-| Tokens | `css/vitals.css:9-53` | the `.vitals { }` rule. This is the only token block. |
+| Tokens | `css/vitals.css:10-202` | the `.vitals { }` rule. This is the only token block. |
 | Components + styles | `css/vitals.css` (849 lines), `js/vitals.js` (3770 lines, Preact `h()` without JSX) | BEM-ish `v-*` classes, all scoped under `.vitals` |
 | Dashboard tile | `Vitals.Dashboard.page` | self-contained: own inline `<style>` (`vt-*` classes) and vanilla JS. It does not load vitals.css. |
 | Charts | uPlot (vendored), wrapper `Chart()` at `js/vitals.js:451` | canvas colours are concrete hex values (`PAL`, `SERIES_COLORS`) |
@@ -188,7 +194,7 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 
 ## Colors
 
-### Token block (`css/vitals.css:9-67`)
+### Token block (`css/vitals.css:10-202`)
 
 | Token | Value | Role |
 |---|---|---|
@@ -286,8 +292,11 @@ verified against the live webGui markup first).
 
 ## Layout
 
-- Spacing: `--v-gap` 16px (12px on phones) is the only spacing token. It is used between grid
-  cells, cards and stacked panels. Everything else is literal px on a 2/4/6/8/10/12/16 rhythm
+- Spacing: `--v-gap` 16px (12px on phones) is the only general spacing token. It is used between
+  grid cells, cards and stacked panels. `--v-hero-top` 4rem is the sticky hero's top offset:
+  an **assumed** Unraid nav height (upstream desktop nav row is 4rem; no host height token is
+  available in this repo), so QA must check it on all themes and custom Display font sizes.
+  Everything else is literal px on a 2/4/6/8/10/12/16 rhythm
   (gap 8px×18, 6px×12, 4px×6, 10px×6), plus 111 inline `style:` attributes in vitals.js
   (mostly `margin-top/-bottom/-left`).
 - Grids: `.v-cards` `repeat(auto-fit, minmax(178px,1fr))`; `.v-cards-4` 2-up → 4-up at ≥800px →
@@ -310,11 +319,12 @@ verified against the live webGui markup first).
 
 ## Elevation & Depth
 
-Shadows in use (no tokens):
+Shadows in use (low elevation is tokenized):
 
 | Use | Value | Line |
 |---|---|---|
-| stat-card hover lift | `0 10px 24px rgba(0,0,0,.16)` + `translateY(-2px)` | css:455 |
+| stat-card hover lift | `var(--v-shadow-low)` = `0 10px 24px rgba(0,0,0,.16)` + `translateY(-2px)` | css:661 |
+| sticky hero | `var(--v-shadow-low)`, same low-elevation value as the card lift | css:248-252 |
 | chart legend popover | `0 12px 28px rgba(0,0,0,.35)` | css:552 |
 | toast | `0 8px 24px rgba(0,0,0,.35)` | css:797 |
 | right drawer | `-18px 0 42px rgba(0,0,0,.5)` | css:268 |
@@ -323,9 +333,10 @@ Shadows in use (no tokens):
 
 Panels and cards rest flat (border only). Depth comes from hover and from overlays.
 
-z-index layers (no tokens, UV15): chart threshold line 2, event marker 3, chart ⋮ button 4,
-chart menu backdrop 9, chart menu 10, modal backdrop 200, toast stack 1000, drawer backdrop
-9998, drawer 9999. Order to keep: chart overlays < chart menu < modal < toast < drawer.
+z-index layers (`--v-z-*`, UV15): chart threshold line 2, event marker 3, chart ⋮ button 4,
+sticky hero 5 (`--v-z-hero`), chart menu backdrop 9, chart menu 10 (`--v-z-popover`), modal
+backdrop 200, toast stack 1000, drawer backdrop 9998, drawer 9999. Order to keep: chart
+overlays < hero < chart menu < modal < toast < drawer.
 
 ## Shapes
 
@@ -343,10 +354,14 @@ The literals duplicate the scale (UV14). New work uses `--v-radius`, `--v-radius
 
 All functions are in `js/vitals.js`. All styles are in `css/vitals.css` and scoped `.vitals .v-*`.
 
-### Hero / header (`App()` :957, css `.v-hero` :57-98)
-One card: title row (`.v-logo` heartbeat glyph + `h2` + `.v-sub` live line with pulsing `.v-dot`),
-toolbar (time-range `.v-seg` 1h/6h/24h + `.v-iconbar` of `.v-ibtn` refresh / AI bell / logs), and
-the tab strip as the card's bottom edge (active tab = `inset 0 -2px 0 var(--v-accent)`).
+### Hero / header (`App()` :1004, css `.v-hero` :248-256)
+Sticky app bar: `position:sticky`, `top:var(--v-hero-top)`, `z-index:var(--v-z-hero)`, opaque
+`--v-surface`, a 1px `--v-border` bottom divider and the low `--v-shadow-low` elevation. Title
+row (`.v-logo` heartbeat glyph + `h2` + `.v-sub` live line with pulsing `.v-dot`), toolbar
+(time-range `.v-seg` 1h/6h/24h + `.v-iconbar` of `.v-ibtn` refresh / AI bell / logs), and the tab
+strip as the bar's bottom edge (active tab = `inset 0 -2px 0 var(--v-accent)`).
+- QA: `--v-hero-top` assumes a 4rem host nav; verify the bar sits just below the nav and does not
+  cover it on black/white/azure/gray, at default and custom Display font sizes.
 - Do: put new global actions into `.v-iconbar` as `.v-ibtn` with `title` **and** `aria-label`.
 - Don't: add a second toolbar row or labelled buttons to the hero.
 
