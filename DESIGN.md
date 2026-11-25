@@ -333,7 +333,7 @@ Shadows in use (low elevation is tokenized):
 | toast | `0 8px 24px rgba(0,0,0,.35)` | css:987 |
 | right drawer | `-18px 0 42px rgba(0,0,0,.5)` | css:479 |
 | tab underline (not elevation) | `inset 0 -2px 0 var(--v-accent)` | css:290, 868 |
-| stall/critical pulse ring | `0 0 0 5px color-mix(in srgb, var(--v-bad) 35%, transparent)` keyframes | css:598 |
+| stall/critical pulse ring | 0%/100%: `0 0 0 0 color-mix(in srgb, var(--v-bad) 35%, transparent)`; 50%: `0 0 0 5px transparent` — colour at zero spread, spread only while transparent | css:598 |
 
 Panels and cards rest flat (border only). Depth comes from hover and from overlays.
 
@@ -350,9 +350,9 @@ overlays < hero < chart menu < modal < toast < drawer.
 | `--v-radius-sm` 8px | buttons, inputs, selects, seg/icon bars, sensor/gauge tiles, journal items, images |
 | 999px | pills, chips, tag badges, delta chips |
 | 50% | dots, fan icon, card icon ring, radar dots |
-| literals | 2px swatches/markers (`css:531, 547, 760, 775`) and 0 resets (`css:182, 286`); no 10/6/7/9/4px radius literals remain |
+| literals (5) | 2px swatches/markers (`css:531, 547, 760, 775`) and 0 reset (`css:286`); no 10/6/7/9/4px radius literals remain |
 
-Six radius literals remain outside the token block (UV14 mostly fixed). New work uses `--v-radius`, `--v-radius-sm`, 999px or 50%.
+Five radius literals remain outside the token block (UV14 mostly fixed). New work uses `--v-radius`, `--v-radius-sm`, 999px or 50%.
 
 ## Components
 
@@ -611,7 +611,7 @@ a Plane ticket (project Unraid Plugins, label `design-system`):
 | UV11 | opacity-muted contrast | UNRAIDPLUG-212 |
 | UV12 | filled-surface contrast | UNRAIDPLUG-206 |
 | UV13 | px type sizes (85 token uses, 5 literals, 1 direct `clamp()`) | UNRAIDPLUG-213 |
-| UV14 | radius literals (6 swatch/reset cases remain) | UNRAIDPLUG-214 |
+| UV14 | radius literals (5 swatch/reset cases remain) | UNRAIDPLUG-214 |
 | UV15 | z-index scale | UNRAIDPLUG-215 |
 | UV16 | reduced-motion block added (`css:1041-1052`) | UNRAIDPLUG-216 |
 | UV17 | mono token; duplicate badges / dead `StatTile()` gone | UNRAIDPLUG-217 |
