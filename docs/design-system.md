@@ -40,7 +40,8 @@ not claim Plane ticket state (Plane is the source of truth for that).
 ## Colors
 
 The app's UI colours live in the `.vitals { }` token block (`css/vitals.css:10-188`). JavaScript
-resolves them at runtime: `tok(name)` reads the computed property from `.vitals` (`js/vitals.js:118-125`),
+resolves them at runtime: `tok(name)` reads the computed property from `.vitals` (`js/vitals.js:122-129`,
+`getComputedStyle` at `:126`, `getPropertyValue` at `:128`),
 and `pickColor(i)` resolves `tok('v-series-' + (i % 20 + 1))` (`:131-132`). There is no defined
 second palette object; five stale `PAL` references remain in hardware charts (see HARD RULES #2).
 The tables below are the complete `--v-*` inventory; the right column is a **real** call site or
@@ -258,7 +259,7 @@ z-index is tokenised at `css/vitals.css:127-135`:
 | `--v-z-modal` | `200` | Modal backdrop | `css/vitals.css:349`: `.v-modal-backdrop { … z-index: var(--v-z-modal); }` |
 | `--v-z-toast` | `1000` | Toast stack | `css/vitals.css:967`: `.v-toasts { … z-index: var(--v-z-toast); }` |
 | `--v-z-drawer-backdrop` | `9998` | Drawer backdrop | `css/vitals.css:460`: `.v-drawer-backdrop { … z-index: var(--v-z-drawer-backdrop); }` |
-| `--v-z-drawer` | `9999` | Right-side drawer | `css/vitals.css:460`: `.v-drawer { … z-index: var(--v-z-drawer); }` |
+| `--v-z-drawer` | `9999` | Right-side drawer | `css/vitals.css:464`: `.v-drawer { … z-index: var(--v-z-drawer); }` |
 
 Keep the order: chart overlays < chart menu < modal < toast < drawer.
 
@@ -288,7 +289,7 @@ Circular hardware dots also use `--v-radius-pill` in the current CSS (e.g.
 - **Severity chips:** `.v-chip-sev-critical|high|medium|low` in `css/vitals.css:364-371`; the `.on`
   variants are the filled surfaces listed above. Pill classes `.v-pill.run|warn|think` are at
   `:796-809`.
-- **Dialogs:** `useDialog()` (`js/vitals.js:779-805`) supplies Escape, focus entry/trap and focus
+- **Dialogs:** `useDialog()` (`js/vitals.js:779-815`) supplies Escape, focus entry/trap and focus
   return; the log drawer, findings drawer and modal use `role="dialog"` + `aria-modal="true"`
   (`:1224`, `:1515`, `:2147`).
 
@@ -314,9 +315,10 @@ Circular hardware dots also use `--v-radius-pill` in the current CSS (e.g.
 | Token | Value | Purpose | Real usage |
 |---|---|---|---|
 | `--v-dur-fast` | `.14s` | Hover/colour/transform transitions | `css/vitals.css:263`: `transition: background var(--v-dur-fast) ease, color var(--v-dur-fast) ease;` |
-| `--v-dur-enter` | `.2s` | Enter duration, defined for future use | `css/vitals.css:139`: `--v-dur-enter: .2s;` — no current `var(--v-dur-enter)` call was found; existing animations use literals (`.22s` at `:972`, `.18s` at `:464`, `.6s` at `:660`) |
+| `--v-dur-enter` | `.2s` | Enter duration, defined for future use | `css/vitals.css:139`: `--v-dur-enter: .2s;` — no current `var(--v-dur-enter)` call was found; existing animations use literals (`.22s` at `:972`, `.18s` at `:465`, `.6s` at `:659`) |
 
-`css/vitals.css:1026` has a `prefers-reduced-motion: reduce` block covering nine animations.
+`css/vitals.css:1026` has a `prefers-reduced-motion: reduce` block with 11 opt-out rules
+(`:1027-1037`): seven `animation: none`, two `transform: none` and two `transition: none`.
 Reuse it for any new motion; do not add a new duration literal.
 
 ## Accessibility
@@ -330,7 +332,7 @@ Reuse it for any new motion; do not add a new duration literal.
   badge count, `.v-pill` text, gauge number).
 - Visible focus rings now cover `.v-btn`, `.v-select`, `.v-input`, `.v-tab` and the shared selector
   `.v-ibtn, .v-seg-btn, .v-chip, .v-chart-menu-btn, .v-tag-badge, .v-price-input`
-  (`css/vitals.css:215-227,289-291`). Dialog behaviour is in `useDialog()` (`js/vitals.js:779`).
+  (`css/vitals.css:215-227,283,289-291,302,855`). Dialog behaviour is in `useDialog()` (`js/vitals.js:779-815`).
 - Keep icon-only buttons labelled and decorative `fa` icons `aria-hidden="true"`; see the header
   markup at `js/vitals.js:1127-1159`. The root spec's old "no Escape handling" note is stale.
 
@@ -353,7 +355,7 @@ These are the root `DESIGN.md` rules, annotated with what the code actually does
 4. Overlays (modal, drawer, toast, popover) use the opaque `--v-surface`, never `--v-card`.
 5. Every clickable element is a `<button>`/`<a href>` with a visible `:focus-visible` ring.
 6. Icon-only buttons have `aria-label`; dialogs/drawers have `role="dialog"`, `aria-modal`, Escape,
-   focus entry/trap and focus return (`useDialog()`, `js/vitals.js:779`).
+   focus entry/trap and focus return (`useDialog()`, `js/vitals.js:779-815`).
 7. New font sizes use `--v-fs-*`; new radii use `--v-radius`, `--v-radius-sm` or `--v-radius-pill`.
 8. No **new** breakpoints beyond the current set: 639/640 and 1023/1024 tiers plus 380, 800 and
    1300 (`css/vitals.css:596,600,875,889,900,934`).
@@ -366,7 +368,8 @@ Transcribed from `DESIGN.md` § Known mismatches and `docs/design-audit.md` (sna
 The UV labels and Plane IDs agree across both sources. Audit file:line numbers describe the older
 snapshot; several items are visibly implemented in this checkout (e.g. `--v-surface`, `tok()`,
 `useDialog()`, tokenised radii/z-index and the reduced-motion block), but this document does not
-verify Plane status. The audit explicitly marks UV1 and UV2 as fixed on their branches.
+verify Plane status. The audit marks UV1 fixed on the single branch `fix/uv1-overlay-surface`;
+UV2 is marked fixed and rode with UV1 (no separate branch).
 
 | UV | Plane ticket | Mismatch (audit label) |
 |---|---|---|
