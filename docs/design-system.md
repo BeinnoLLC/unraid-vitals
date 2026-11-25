@@ -160,7 +160,7 @@ function lvl(v, w, c) { return v == null ? '' : (v >= c ? 'crit' : v >= w ? 'war
 | `:1324` | dashboard CPU % | 80 | 95 |
 | `:1329` | dashboard memory % | 80 | 92 |
 | `:1339` | hottest disk °C | `alertTemp - 10` | `alertTemp` |
-| `:1443` | share disk temperature °C | 45 | 55 |
+| `:1443` | Pools/cache temperature °C | 45 | 55 |
 | `:1737` | NVMe `temp_max` °C | 50 | 58 |
 | `:1741` | NVMe `fill_max` % | 85 | 95 |
 | `:2000` | CPU core % | 70 | 90 |
