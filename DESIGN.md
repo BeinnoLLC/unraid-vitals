@@ -175,6 +175,9 @@ Token naming: keys in the front matter are the CSS custom property names without
 plugin tokens, and `on-accent` / `on-warn` name colours that are raw literals in code today
 (see Known mismatches).
 
+A contributor-facing walkthrough of the current token block, status thresholds and mismatch IDs
+is in [docs/design-system.md](docs/design-system.md).
+
 ### Shared Beinno basics
 
 Follows the family basics in the `beinno-design-system` skill (not copied here).

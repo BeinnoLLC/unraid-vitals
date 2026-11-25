@@ -170,6 +170,12 @@ this plugin therefore treat an absent token as "Unraid already validated it,"
 not as an attack — the same trust boundary as Unraid's own dynamix pages. A
 token still present (CLI calls, tests) is still `hash_equals`-checked.
 
+## Design system
+
+UI tokens, status thresholds and current UI conventions are documented in
+[docs/design-system.md](docs/design-system.md); the mismatch audit with Plane ticket IDs is in
+[docs/design-audit.md](docs/design-audit.md) and the normative spec is [DESIGN.md](DESIGN.md).
+
 ## Building from source
 
 ```
