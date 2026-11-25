@@ -4,9 +4,9 @@ name: unraid-vitals
 description: Unraid plugin that adds a "Vitals" nav tab (Preact + uPlot monitoring app) and a compact Stock-Dashboard tile. One accent/status palette on `.vitals`, translucent neutral surfaces, and text colour inherited from the active Unraid webGui theme (black / white / azure / gray).
 colors:
   # Source: src/usr/local/emhttp/plugins/unraid-vitals/css/vitals.css:10-202 (the `.vitals { }`
-  # token block — scoped to the app root, NOT :root). Key == CSS custom property without `--`.
-  # There are no -dark siblings: the plugin ships ONE palette for every Unraid theme
-  # (see "Colors > Theme inheritance" — the -fg tints are dark-theme tuned).
+  # token block — scoped to the app root, NOT :root), plus light-theme overrides at
+  # css:207-217. Key == CSS custom property without `--`. There are no -dark siblings;
+  # white/azure get darker tints in the override block (see "Colors > Theme inheritance").
   v-accent: "#6366f1"
   v-accent-fg: "#818cf8"
   v-ok: "#22c55e"
@@ -15,7 +15,7 @@ colors:
   v-warn-fg: "#fbbf24"
   v-bad: "#ef4444"
   v-bad-fg: "#f87171"
-  # Metric / series identity colours (also mirrored in vitals.js PAL, line 116)
+  # Metric / series identity colours (read from `--v-*` tokens in vitals.js via tok(), :122)
   v-cpu: "#4f9cf9"
   v-mem: "#b07cf9"
   v-load: "#f9a94f"
@@ -30,10 +30,11 @@ colors:
   # Opaque overlay surface (modal, drawer, chart popover, toast). Code value is
   # `var(--background-color, #1d1b1b)`: it follows the active Unraid theme background, and the hex
   # here is the fallback used only when the host does not define `--background-color`.
-  v-surface: "#1d1b1b"  # code: var(--background-color, #1d1b1b), vitals.css:32
+  v-surface: "#1d1b1b"  # code: var(--background-color, #1d1b1b), vitals.css:91
   # --v-muted is `currentColor` (inherits the Unraid theme text colour; muting is done with opacity),
   # so it is documented in prose, not as a colour token.
-  # Fixed contrast colours used on filled status surfaces (raw literals today, see docs/design-audit.md UV5).
+  # Fixed contrast colours on filled status surfaces are tokens now
+  # (--v-on-accent / --v-on-warn, css:24-25; UV5 fixed).
   on-accent: "#ffffff"
   on-warn: "#1a1a1a"
   # Unraid webGui theme references (NOT defined by the plugin; html.Theme--<name> :root vars
@@ -75,7 +76,7 @@ typography:
     lineHeight: 1.1
     letterSpacing: "-.01em"
   mono:
-    fontFamily: "ui-monospace, Menlo, Consolas, monospace"
+    fontFamily: "ui-monospace, Menlo, Consolas, monospace"  # code: var(--v-font-mono), css:117
     fontSize: "{typography.v-fs-xs.fontSize}"
 spacing:
   v-gap: 16px
@@ -170,22 +171,22 @@ Stack (all paths relative to `src/usr/local/emhttp/plugins/unraid-vitals/`):
 | Concern | Where | Notes |
 |---|---|---|
 | Mount + assets | `Vitals.page` | `<div id="vitals-root" class="vitals">`; loads `css/uPlot.min.css`, `css/vitals.css`, `js/vendor/{preact.min.js, preact-hooks.umd.min.js, uPlot.iife.min.js}`, `js/vitals.js` |
-| Tokens | `css/vitals.css:10-202` | the `.vitals { }` rule. This is the only token block. |
-| Components + styles | `css/vitals.css` (849 lines), `js/vitals.js` (3770 lines, Preact `h()` without JSX) | BEM-ish `v-*` classes, all scoped under `.vitals` |
+| Tokens | `css/vitals.css:10-202` (+ light-theme overrides `:207-217`) | the `.vitals { }` rule; no other base token block. |
+| Components + styles | `css/vitals.css` (1053 lines), `js/vitals.js` (3847 lines, Preact `h()` without JSX) | BEM-ish `v-*` classes, all scoped under `.vitals` |
 | Dashboard tile | `Vitals.Dashboard.page` | self-contained: own inline `<style>` (`vt-*` classes) and vanilla JS. It does not load vitals.css. |
-| Charts | uPlot (vendored), wrapper `Chart()` at `js/vitals.js:451` | canvas colours are concrete hex values (`PAL`, `SERIES_COLORS`) |
+| Charts | uPlot (vendored), wrapper `Chart()` at `js/vitals.js:439` | canvas colours come from `--v-*` tokens via `tok()` / `pickColor()` |
 | Icons | FontAwesome 4 glyphs supplied by the Unraid webGui (`fa fa-*`) | the plugin does not load its own icon font |
 
 Token naming: keys in the front matter are the CSS custom property names without `--`
 (`v-accent` == `--v-accent`). `unraid-*` keys are reference values from the host webGui, not
-plugin tokens, and `on-accent` / `on-warn` name colours that are raw literals in code today
-(see Known mismatches).
+plugin tokens, and `on-accent` / `on-warn` name the tokenized contrast colours
+`--v-on-accent` / `--v-on-warn` (`css:24-25`; UV5 fixed).
 
 ### Shared Beinno basics
 
 Follows the family basics in the `beinno-design-system` skill (not copied here).
 - Logo: none. The app header uses the FontAwesome `fa-heartbeat` glyph in `.v-logo`
-  (`js/vitals.js:1064`, css `:68`), the Dashboard tile uses the same glyph
+  (`js/vitals.js:1127`, css `:260`), the Dashboard tile uses the same glyph
   (`Vitals.Dashboard.page:19`), and the `.plg` icon is `fa-heartbeat` too
   (`plugins/unraid-vitals.plg:13`). Do not create or AI-generate a Beinno logo for it.
 - Promo videos: none yet. When made, they follow the shared basics: an English and an Egyptian
@@ -194,7 +195,7 @@ Follows the family basics in the `beinno-design-system` skill (not copied here).
 
 ## Colors
 
-### Token block (`css/vitals.css:10-202`)
+### Token block (`css/vitals.css:10-202`; light overrides `:207-217`)
 
 | Token | Value | Role |
 |---|---|---|
@@ -231,19 +232,20 @@ Text helpers: `.ok` → `--v-ok-fg`, `.warn` → `--v-warn-fg`, `.crit` → `--v
 
 ### Chart palette (`js/vitals.js:116-132`)
 
-uPlot draws on a canvas and needs concrete colours. `PAL` mirrors the metric tokens and is
-refreshed from `getComputedStyle(.vitals)` by `resolvePalette()` (called at `vitals.js:985`),
-so the CSS token stays the source of truth for those 11 keys. `SERIES_COLORS` (20 hues,
-`pickColor(i)`) colours per-container / per-interface / per-sensor series, and it has no CSS
-counterpart. Axis stroke `#8889`, grid `#8882`, and y2 axis `#8886` are 50%-grey with alpha, so they
-work on both light and dark themes.
+uPlot draws on a canvas and needs concrete colour strings. `tok()` (`vitals.js:122`) reads the
+computed `--v-*` values from `.vitals` (host/style cache at `:120-121`, `getComputedStyle` at `:126`),
+and `pickColor(i)` (`:132`) maps to `--v-series-1…20`. The old `PAL` / `resolvePalette()` /
+`SERIES_COLORS` arrays are gone; a few stale `PAL[...]` lookups remain in the hardware/power panels
+(`:2405`, `:2507`, `:2572`, `:2577`, `:2602`) and are debt to migrate to `tok()`. Axis strokes,
+gridlines and y2 use the tokenized greys `--v-axis`, `--v-axis-2` and `--v-grid`, so they work on
+both light and dark themes.
 
 ### Theme inheritance (black / white / azure / gray)
 
 The plugin reads exactly one Unraid CSS variable: `--background-color`, through `--v-surface`
-(`vitals.css:32`). Count of `var(--<non-v>)` in vitals.css and vitals.js: 1. The header comment at
-`vitals.css:5-7` names `--text`, `--background` and `--primary-bg`, which the code does not use, so
-it is still drift (UV20). It follows the active theme only through:
+(`vitals.css:91`). Count of `var(--<non-v>)` in vitals.css and vitals.js: 1. The header comment
+(`vitals.css:1-8`) now names only `--background-color` with a fallback, so UV20 is fixed. It follows
+the active theme through:
 
 1. `color: inherit` on `.vitals` (body text = Unraid `--text-color`).
 2. Translucent mid-grey surfaces and borders (`--v-card`, `--v-border`) that tint either a light
@@ -252,6 +254,9 @@ it is still drift (UV20). It follows the active theme only through:
 4. `--v-surface: var(--background-color, #1d1b1b)`: overlays (modal, drawers, chart popover,
    toasts) paint the theme's own page background, opaque, and separate from the page through the
    backdrop dim, `--v-border` and their shadow.
+5. Theme-scoped overrides at `css:207-217` (`html.Theme--white .vitals,
+   html.Theme--azure .vitals`) darken `--v-ok-fg`, `--v-warn-fg`, `--v-bad-fg`, `--v-bad`,
+   `--v-accent-fg` and `--v-bad-fill` on light themes (UV3). No `prefers-color-scheme` switch exists.
 
 Host theme values (upstream `unraid/webgui` master, formerly `limetech/webgui`;
 `html.Theme--<name>` + `:root` vars, fetched 2026-11-13; not re-verified on a device):
@@ -263,27 +268,24 @@ Host theme values (upstream `unraid/webgui` master, formerly `limetech/webgui`;
 | azure | `#e8e8e8` | `#606e7f` | light |
 | gray | `#1d1b1b` | `#606e7f` | dark |
 
-Dark/light handling: there is **no theme switch inside the plugin** (no `.Theme--*` selectors, no
-`prefers-color-scheme`). Overlays already follow the theme through `--v-surface` (UV1/UV2,
-fixed). The status `-fg` tints are still tuned for dark themes and fail contrast on white and
-azure (Accessibility table, UV3). Fix direction for UV3 (not current state): theme-scoped overrides
-of the `-fg` tokens inside the token section, keyed on however webGui actually tags the active
-theme (the proposed `html.Theme--white .vitals, html.Theme--azure .vitals { … }` selector must be
-verified against the live webGui markup first).
+Dark/light handling: there is **no `prefers-color-scheme` switch**, but there ARE host-theme
+selectors (`html.Theme--white .vitals, html.Theme--azure .vitals`, `css:207-217`) that override the
+status/accent `-fg` tokens and `--v-bad-fill` for light themes (UV3). Overlays follow the theme
+through `--v-surface` (UV1/UV2, fixed). The Accessibility table below uses the base (dark-theme)
+token values; re-check the light-theme overrides on a live webGui before claiming AA.
 
 ## Typography
 
 - Family: inherited from Unraid (`html { font-family: clear-sans, sans-serif }`). The plugin loads
-  no font file and declares no text family. Monospace is the only family it sets: `.v-mono`
-  (`ui-monospace, Menlo, Consolas, monospace`, `vitals.css:599`), the log drawer body
-  (`ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`, `:276`), and `.v-storage-type-name`
-  (`monospace`, `:128`). Three stacks for one role is a mismatch (UV17).
-- Scale: one fluid `clamp()` curve, `--v-fs-xs … --v-fs-xl` (front matter). Base text on
+  no font file and declares no text family. Monospace is the only family it sets, now through the
+  single `--v-font-mono` token (`vitals.css:117`): `.v-mono` (`:797`), `.v-drawer-body` (`:487`),
+  and `.v-storage-type-name` (`:328`). The three duplicate stacks are gone (UV17 fixed).
+- Scale: one fluid `clamp()` curve, `--v-fs-2xs … --v-fs-xl` (`css:192-197`). Base text on
   `.vitals` is `--v-fs-md`, line-height 1.5. Phones (<640px) pin base to 13px and h2 to 20px.
-- Only 21 `font-size` declarations use the scale. 73 use px literals (13px×10, 11px×10, 11.5px×9,
-  12.5px×8, 12px×7, 10px×7, 10.5px×5, 9.5px×4, …), plus a few `em` in inline styles (UV13).
-  Because everything is px, Unraid's Display Settings font-size (`--custom-font-size` on `html`)
-  does not scale Vitals.
+- 85 `font-size` declarations use the scale; 5 remain px literals and 1 uses `clamp()` directly
+  (`css:691`) (UV13 mostly fixed). No `fontSize:` inline styles remain in vitals.js. Because the
+  remaining values are px, Unraid's Display Settings font-size (`--custom-font-size` on `html`)
+  still does not scale those cases.
 - Weights in use: 400, 500, 600 (labels, buttons, pills), 650 (title, card value, chart stat),
   700 (panel h3, table th, big numbers), 800 (fan stall badge only).
 - Numbers: always `font-variant-numeric: tabular-nums` for values, tables (`td.num`), timestamps.
@@ -302,8 +304,10 @@ verified against the live webGui markup first).
 - Grids: `.v-cards` `repeat(auto-fit, minmax(178px,1fr))`; `.v-cards-4` 2-up → 4-up at ≥800px →
   8-up at ≥1300px → 1-up at ≤380px. `.v-grid` `repeat(auto-fit, minmax(320px,1fr))` (280px on
   tablet, 1fr on phone); `.v-span2` spans 2 columns on desktop.
-- Documented tiers (`vitals.css:696-768`): phone `<640` (`max-width: 639px`), tablet
-  `640–1023`, desktop `≥1024`. Extra ad-hoc breakpoints exist: 380, 800, 860, 900, 1300 (UV18).
+- Documented tiers (`vitals.css:890-947`): phone `<640` (`max-width: 639px` at `:915`), tablet
+  `640–1023` (`:890` and `:904`), desktop `≥1024`. Extra ad-hoc breakpoints exist: 380 (`:949`),
+  800 (`:611`), 1300 (`:615`), plus the tablet/phone rules at `:890`, `:904` and `:915` that
+  absorbed the old 860/900 one-offs (UV18).
 - Tables never widen the page. Below 1024px, `.v-scroll` scrolls sideways (`min-width` 520px,
   or 460px on phone). `.v-scroll` caps height at 340px (300px on phone); `.v-scroll-off` opts out.
 - Tabs: wrap on desktop. Below 1024px they become one horizontally scrolling row with scroll-snap.
@@ -325,11 +329,11 @@ Shadows in use (low elevation is tokenized):
 |---|---|---|
 | stat-card hover lift | `var(--v-shadow-low)` = `0 10px 24px rgba(0,0,0,.16)` + `translateY(-2px)` | css:661 |
 | sticky hero | `var(--v-shadow-low)`, same low-elevation value as the card lift | css:248-252 |
-| chart legend popover | `0 12px 28px rgba(0,0,0,.35)` | css:552 |
-| toast | `0 8px 24px rgba(0,0,0,.35)` | css:797 |
-| right drawer | `-18px 0 42px rgba(0,0,0,.5)` | css:268 |
-| tab underline (not elevation) | `inset 0 -2px 0 var(--v-accent)` | css:98, 675 |
-| stall/critical pulse ring | `0 0 0 5px rgba(239,68,68,…)` keyframes | css:389 |
+| chart legend popover | `0 12px 28px rgba(0,0,0,.35)` | css:756 |
+| toast | `0 8px 24px rgba(0,0,0,.35)` | css:987 |
+| right drawer | `-18px 0 42px rgba(0,0,0,.5)` | css:479 |
+| tab underline (not elevation) | `inset 0 -2px 0 var(--v-accent)` | css:290, 868 |
+| stall/critical pulse ring | `0 0 0 5px color-mix(in srgb, var(--v-bad) 35%, transparent)` keyframes | css:598 |
 
 Panels and cards rest flat (border only). Depth comes from hover and from overlays.
 
@@ -346,9 +350,9 @@ overlays < hero < chart menu < modal < toast < drawer.
 | `--v-radius-sm` 8px | buttons, inputs, selects, seg/icon bars, sensor/gauge tiles, journal items, images |
 | 999px | pills, chips, tag badges, delta chips |
 | 50% | dots, fan icon, card icon ring, radar dots |
-| literals | 10px (logo, modal, toast, therm tile, card icon), 6px (core tile, browse row, chart menu row, hbar), 7px (chart stat), 9px (badge), 4px (warn badges), 3px/2px (bars, swatches) |
+| literals | 2px swatches/markers (`css:531, 547, 760, 775`) and 0 resets (`css:182, 286`); no 10/6/7/9/4px radius literals remain |
 
-The literals duplicate the scale (UV14). New work uses `--v-radius`, `--v-radius-sm`, 999px or 50%.
+Six radius literals remain outside the token block (UV14 mostly fixed). New work uses `--v-radius`, `--v-radius-sm`, 999px or 50%.
 
 ## Components
 
@@ -365,90 +369,92 @@ strip as the bar's bottom edge (active tab = `inset 0 -2px 0 var(--v-accent)`).
 - Do: put new global actions into `.v-iconbar` as `.v-ibtn` with `title` **and** `aria-label`.
 - Don't: add a second toolbar row or labelled buttons to the hero.
 
-### Tabs (`TABS` :942, `.v-tab` :662-678)
+### Tabs (`TABS` :989, `.v-tab` :855-870)
 `<button class="v-tab [on]">` with `fa` icon + `<span>` label. Focus: `outline 2px var(--v-accent)`,
-offset -2px. Phone: icon-only. Mini tabs (`.v-tabs-mini`, :122) are `.v-btn.xs` buttons with `.active`.
+offset -2px. Phone: icon-only. Mini tabs (`.v-tabs-mini`, :322) are `.v-btn.xs` buttons with `.active`.
 - Do: keep the label in the DOM (it is hidden visually on phone). Add `aria-label`, `role="tab"`,
   and `aria-selected` when you touch this (UV10).
 - Don't: create another tab style. Use `.v-tabs` for top-level tabs and `.v-tabs-mini` for in-panel tabs.
 
-### Buttons (`.v-btn` :100-119, `.v-ibtn` :83-91, `.v-seg-btn` :218-224)
+### Buttons (`.v-btn` :292-311, `.v-ibtn` :275-283, `.v-seg-btn` :417-423)
 Variants: default, `.primary` (accent fill, white 600), `.danger` (red outline/text, 12% red hover
 fill), `.xs` (3px 7px, 12px, used for row actions), `.xs.active`. States: hover = accent border +
 `--v-card-hover`; `:focus-visible` = 2px accent outline, offset 1px; `:disabled` = opacity .55 +
-`not-allowed`; busy = sibling `fa-spinner fa-spin` (`DockerActions` :798). Icon-only row actions
+`not-allowed`; busy = sibling `fa-spinner fa-spin` (`DockerActions` :845). Icon-only row actions
 (Docker/VM start/stop/restart) carry `title` only. Destructive actions confirm with
 `window.confirm` via `useAction`.
-- Do: use `.v-btn.danger` for destructive actions. Do not use inline `style:'color:#c00'` (`vitals.js:2800`).
+- Do: use `.v-btn.danger` for destructive actions. Do not reintroduce inline colour styles such as
+  the former `style:'color:#c00'`; no such inline style remains in vitals.js.
 - Don't: add new `.on`/`.active` naming. Toggle state is `.on` for `.v-ibtn/.v-tab/.v-chip` and
   `.active` for `.v-seg-btn/.v-btn.xs` today, so match the component you extend.
 
-### Inputs (`.v-input` :112-117, `.v-select` :100, `.v-field` :227)
+### Inputs (`.v-input` :312-317, `.v-select` :292, `.v-price-input` :334)
 Same surface as buttons. Width defaults to 90px (numeric). Use `width:auto` inside
-`.v-kb-search`, `.v-field` or `textarea`. Focus = accent outline + accent border. `.v-price-input`
-(:135) is a one-off duplicate of `.v-input` with an undefined `--v-bg2` background (UV4).
+`.v-kb-search` or `textarea` (`:363`). Focus = accent outline + accent border. `.v-price-input`
+is a one-off duplicate of `.v-input`; the old undefined `--v-bg2` background is gone (UV4).
 - Do: give every input a `<label for>` or `aria-label`. Only 4 `<label>` exist for 29 inputs/selects today.
 
-### Panels (`Panel()` :398, `.v-panel` :421-439)
+### Panels (`Panel()` :386, `.v-panel` :627-636)
 `<section class="v-panel [v-span2]"><h3>Title <span class="v-hint">…</span></h3>…`. Hover tints
 the border toward the accent. Never `overflow:hidden`, because the chart popover must escape.
-Stacked panels get `--v-gap` from the rhythm guard (:774-777).
+Stacked panels get `--v-gap` from the rhythm guard (:960-967).
 
-### Stat cards / tiles (`StatCard()` :408, `.v-card` :446-507)
+### Stat cards / tiles (`StatCard()` :396, `.v-card` :652-710)
 Icon badge (always present) optionally wrapped in a conic-gradient ring, then label (uppercase
 10.5px), value (`card-value`, tabular, `.ok/.warn/.crit`), sub line, optional `.v-bar` or
 sparkline + floating `.v-card-delta` (`.up` ok tint, `.down` red tint). Hover: lift 2px + shadow.
 Reduced motion disables the lift. Phone: sparkline hidden, delta inline.
 Sensor-type tiles are separate families: `.v-sensor` (hwmon, 3px status left border),
-`.v-gauge-tile` (SVG arc `Gauge()` :334), `.v-therm` (heat tile), `.v-core` (per-core %),
-`.v-fan` + `FanIcon()` :234. `StatTile()` :172 is dead code with no CSS (UV17).
+`.v-gauge-tile` (SVG arc `Gauge()` :322), `.v-therm` (heat tile), `.v-core` (per-core %),
+`.v-fan` + `FanIcon()` :222. The old dead `StatTile()` is gone (UV17 fixed).
 - Do: use `StatCard` for KPIs and a status left border (`.v-temp-ok/-warn/-crit`) for sensors.
 - Don't: add a sixth tile family.
 
-### Tables (`Table()` :746, css :588-599)
+### Tables (`Table()` :743, css :782-796)
 Hairline rows, `th` uppercase `--v-fs-xs` at opacity .58, `tbody tr:hover` = 6% accent tint, and
 `td.num`/`th.num` right-aligned tabular. Always wrap in `Table()` (`.v-scroll`) so small screens
 pan sideways. Names `.v-name` 600. Code/paths `.v-mono`.
 
 ### Pills, badges, chips
-- `Pill()` :404 / `.v-pill` :603: neutral, `.run` (ok), `.warn`, `.info` (accent), `.stop`
+- `Pill()` :392 / `.v-pill` :801: neutral, `.run` (ok), `.warn`, `.info` (accent), `.stop`
   (opacity), capability hues `.think` (`--v-think`), `.vision` (`--v-cpu`), `.scope` (warn).
   `align-self:flex-start` stops Unraid's flex `td` from stretching it.
-- `.v-badge` :288: numeric count bubble (17px, radius 9px); `-critical/-alert/-error` red/white,
+- `.v-badge` :499: numeric count bubble (17px, radius 9px); `-critical/-alert/-error` red/white,
   `-warning` amber/#1a1a1a, `-info` #4f9cf9/white.
-- `.v-chip` :176: filter chip; `.on` = accent fill; severity tints `.v-chip-sev-*` :180-187.
-- `.v-tag-badge` :826: KB category tag, which also acts as a filter.
-- `.warn-badge` :644 and `.v-warnbadge` :690 are two more "red label" variants (UV17).
+- `.v-chip` :375: filter chip; `.on` = accent fill; severity tints `.v-chip-sev-*` :379-386.
+- `.v-tag-badge` :1016: KB category tag, which also acts as a filter.
+- The former `.warn-badge` / `.v-warnbadge` "red label" variants are gone (UV17 fixed); use
+  `.v-badge-warning` or `.v-warnnote` instead.
 - Do: counts → `.v-badge`, status → `Pill`, filters → `.v-chip` rendered as `<button>`.
 
-### Modal (`ShareBrowser()` :2054, `.v-modal*` :170-173)
+### Modal (`ShareBrowser()` :2128, `.v-modal*` :364-367)
 Fixed backdrop `rgba(0,0,0,.55)`, centred box `min(640px,92vw)`, max-height 78vh, header +
 scroll body. Closes on backdrop click and the header ✕ button. No Escape, no focus trap, no
-`role="dialog"` (UV8). Background `var(--v-surface)` (`:171`), so the box is opaque and takes the
+`role="dialog"` (UV8). Background `var(--v-surface)` (`:365`), so the box is opaque and takes the
 active theme's page background, with the inherited theme text on top (UV1, fixed).
 
-### Drawers (`LogDrawer()` :1119, `FindingsDrawer()` :1431, `.v-drawer*` :269-289)
+### Drawers (`LogDrawer()` :1185, `FindingsDrawer()` :1501, `.v-drawer*` :475-495)
 Right side, `min(560px,92vw)`, slide-in `.18s ease-out`, backdrop click closes. Log body is
 monospace 11.5px. The findings variant switches to normal type through `:has(.v-ai-item)`.
-Background `var(--v-surface)` (`:272`), like the modal (UV1, fixed). Same dialog gaps as the
+Background `var(--v-surface)` (`:478`), like the modal (UV1, fixed). Same dialog gaps as the
 modal: no Escape, focus trap or `role="dialog"` (UV8).
 
-### Toasts (`ToastStack()` :2661, `.v-toast*` :797-812)
+### Toasts (`ToastStack()` :2739, `.v-toast*` :982-995)
 Bottom-right stack, z 1000, 3px left border by kind (`-success` ok, `-warn` bad, `-info` accent),
-whole card clickable. The background is the opaque `--v-surface` (`:800`; UV2, fixed), like the
-chart `⋮` popover (`.v-chart-menu`, `:556`). The toast is not announced: no
+whole card clickable. The background is the opaque `--v-surface` (`:985`; UV2, fixed), like the
+chart `⋮` popover (`.v-chart-menu`, `:753`). The toast is not announced: no
 `role="status"`/`aria-live` (UV10).
 
-### Charts: uPlot (`Chart()` :451, css :522-582)
+### Charts: uPlot (`Chart()` :439, css :726-780)
 Props: `series[{name,color,points}]`, `height` (150–220, per call site), `area` (canvas
 gradient `gradientFill` 0.38 → 0.02 alpha), `stack` (0.55 alpha), `y2Fmt`, `thresholds`
-(dashed `.v-th-line`, `#f87171`), `events` (dashed `.v-ev-marker`, `#60a5fa`), `hideLegend`.
+(dashed `.v-th-line` using `--v-bad-fg`), `events` (dashed `.v-ev-marker`, `--v-info`), `hideLegend`.
 Cursor sync key `'vit'`. Every chart gets a `⋮` `.v-chart-menu-btn` (has `aria-label`) that
 opens a stats popover (current/min/max/avg). Native `u-legend` is restyled as inline swatches
-(:571-578). Empty state: `.v-empty` inside `.v-chart`. Other SVG charts: `Donut()` :299,
-`Gauge()` :334, `HBars()` :352, `RadarChart()` :197, `Spark()` :274 (34px, no axes).
-- Do: take series colours from `PAL[...]` (metric) or `pickColor(i)` (enumerations).
-- Don't: pass hex strings at call sites (`'#f8717166'`, `'#666'`, `'#8b8f9a'`, UV6). Colour must
+(:769-776). Empty state: `.v-empty` inside `.v-chart`. Other SVG charts: `Donut()` :287,
+`Gauge()` :322, `HBars()` :340, `RadarChart()` :185, `Spark()` :262 (34px, no axes).
+- Do: read `--v-*` values with `tok()` for metrics or call `pickColor(i)` for enumerations.
+- Don't: reintroduce hex strings at call sites (`'#f8717166'`, `'#666'`, `'#8b8f9a'`, UV6). Colour must
   never be the only signal, so pair it with a label or value in the legend or stats.
 
 ### Empty / loading / error
@@ -459,10 +465,9 @@ Inline warnings use `.v-warnnote`.
 
 ### Dashboard tile (`Vitals.Dashboard.page`)
 5 `vt-cell` numbers + worst finding + link, refreshed every 60s, with a self-contained inline
-`<style>` (:32-47). It uses its own literal palette (`#888`, `#666`, `#b8860b`, `#c0392b`), not
-`--v-*` and not Unraid vars (UV7). It must stay self-contained (no vitals.css dependency). It
-should take colour from Unraid's theme variables (`--text-color`, `--alt-text-color`) and from
-local `--vt-*` custom properties declared once at the top of its `<style>`.
+`<style>` (:32-51). Colours are local `--vt-*` custom properties declared in that block, with
+`--vt-muted` deferring to Unraid's `--alt-text-color` and white/azure overrides at `:47-51` (UV7/UV3).
+It must stay self-contained (no vitals.css dependency).
 
 ## Do's and Don'ts
 
@@ -470,7 +475,8 @@ local `--vt-*` custom properties declared once at the top of its `<style>`.
   `.vitals { }` token block first, then use `var(--v-…)`.
 - Do use the `color-mix(in srgb, <token> 15%/45%, transparent)` recipe for tinted status surfaces.
 - Do keep text colour inherited. Never set `color:#fff`/`#000` on text that sits on the page
-  background. Fixed text colours are only allowed on filled status surfaces (`on-accent`, `on-warn`).
+  background. Fixed text colours are only allowed on filled status surfaces (`--v-on-accent`,
+  `--v-on-warn`, `css:24-25`).
 - Do check every new colour on all four Unraid themes (black, white, azure, gray).
 - Do render clickable things as `<button>` (or `<a href>`), never `div`/`span` with `onClick`.
 - Don't write `var(--v-x, #hex)` fallbacks. The token is always defined on `.vitals`, and UV5
@@ -478,8 +484,8 @@ local `--vt-*` custom properties declared once at the top of its `<style>`.
 - Don't reference undefined properties (`--v-fg`, `--v-bg`, `--v-bg2`, `--v-panel`, `--v-panel-bg`).
 - Don't add inline `style:` for colour or spacing in vitals.js. Add a class.
 - Don't add NEW `@media` breakpoints beyond the existing ones. Tiers are 639/640 and 1023/1024;
-  the existing extras 380, 800, 860, 900 and 1300 (`vitals.css:759, 404, 130, 417, 407`) are UV18
-  and get folded in over time.
+  the existing extras are 380 (`vitals.css:949`), 800 (`:611`), 1300 (`:615`) and the
+  tablet/phone rules at `:890`, `:904`, `:915` that absorbed the old 860/900 one-offs (UV18).
 - Don't edit `js/vendor/*` or `css/uPlot.min.css`.
 
 ## Motion
@@ -497,10 +503,11 @@ local `--vt-*` custom properties declared once at the top of its `<style>`.
 | 2s | infinite | `v-pulse` live dot |
 | RPM-derived | linear, infinite | `v-fanicon-spin` |
 
-Reduced motion (`prefers-reduced-motion: reduce`) is honoured only for fan blades (:390) and the
-card hover lift (:457). The pulses, drawer/toast entrance, therm lift and `fa-spin` keep
-animating (UV16). Rule going forward: every new animation ships with its reduced-motion opt-out
-in the same PR, and new transitions use .14s ease.
+Reduced motion (`prefers-reduced-motion: reduce`, `vitals.css:1041-1052`) now disables the fan-blade
+spin, the card hover lift, the live-dot pulse, drawer/toast entrances, the fan-stall/voltage/
+critical-therm pulses, the therm hover lift, and the hbar/progress width transitions (UV16 fixed).
+`fa-spin` is still not covered. Rule going forward: every new animation ships with its
+reduced-motion opt-out in the same PR, and new transitions use .14s ease.
 
 ## Accessibility
 
@@ -543,8 +550,9 @@ fix, white rendered the modal `rgb(26,26,26)` under `#1d1b1b` text (invisible) a
 chart popover were see-through `rgba(127,127,127,0.043)`. This was not checked on a live Unraid
 server.
 
-Focus: `:focus-visible` 2px `--v-accent` outline exists for `.v-btn`, `.v-select`, `.v-input`,
-`.v-tab` only. `.v-ibtn`, `.v-seg-btn`, `.v-chip`, `.v-chart-menu-btn` and `.v-tag-badge` have none (UV9).
+Focus: `:focus-visible` 2px `--v-accent` outline now exists for `.v-btn`, `.v-select`, `.v-input`,
+`.v-tab`, `.v-ibtn`, `.v-seg-btn`, `.v-chip`, `.v-chart-menu-btn`, `.v-tag-badge`, `.v-price-input`,
+`.v-browse-row` and `.v-toast` (`css:237-238, 298, 304, 317, 870`) (UV9 fixed).
 
 Keyboard and semantics today: 54 `<button>`s carry clicks, but 15 click handlers sit on
 `div`/`span` (chips ×7, share-browser rows, toast, backdrops). No Escape handling anywhere, no
@@ -562,20 +570,24 @@ return; status is never colour-only (pair it with text: the badge count, pill la
 
 ## HARD RULES
 
-1. No hex/`rgb()`/`hsl()` literal and no `font-family` in `css/vitals.css` outside the
-   `.vitals { }` token block (lines 9-53), or in `js/vitals.js` / `*.page`; vendor files are
-   exempt. Enforced by `npm run lint:tokens` (`scripts/check-design-tokens.sh`, part of
-   `npm run check`). It is a ratchet: today's 170 literals are tolerated (`MAX_HITS` baseline), no
-   new ones are allowed, and the baseline is lowered as literals move to tokens.
-2. Canvas/SVG colours in vitals.js come from `PAL` (refreshed by `resolvePalette()`) or
-   `SERIES_COLORS`. No hex at call sites.
+1. No hex/`rgb()`/`hsl()` literal and no literal `font-family` stack in `css/vitals.css` outside the
+   `.vitals { }` token block (lines 10-202) and the light-theme override block (`:207-217`), or in
+   `js/vitals.js` / `*.page`; vendor files are exempt. Uses of `var(--v-font-mono)` at
+   `css:328, 487, 797` are fine. Enforced by `npm run lint:tokens`
+   (`scripts/check-design-tokens.sh`, part of `npm run check`). It is a ratchet: 17 literals are
+   tolerated today (`MAX_HITS=19` baseline), no new ones are allowed, and the baseline is lowered
+   as literals move to tokens.
+2. Canvas/SVG colours in vitals.js come from `--v-*` tokens via `tok()` / `pickColor()`. No hex at
+   call sites. The old `PAL` / `resolvePalette()` / `SERIES_COLORS` arrays are gone; the remaining
+   `PAL[...]` lookups are debt to migrate.
 3. Every `var(--v-*)` used must be defined in the token block. No `var(--v-x, #hex)` fallbacks.
 4. Overlays (modal, drawer, toast, popover) use the opaque `--v-surface` token, never `--v-card`.
 5. Every clickable element is a `<button>`/`<a href>` with a visible `:focus-visible` ring.
 6. Icon-only buttons have `aria-label`. Dialogs/drawers have `role="dialog"` and `aria-modal`, and close on Escape.
 7. New font sizes use `--v-fs-*`. New radii use `--v-radius`, `--v-radius-sm`, 999px or 50%.
 8. Breakpoints: no NEW breakpoints beyond the existing ones: tiers 639/640 and 1023/1024, plus the
-   existing 380, 800, 860, 900 and 1300 rules (UV18, to be folded in over time).
+   existing 380 (`css:949`), 800 (`:611`), 1300 (`:615`) and tablet/phone rules at `:890`, `:904`,
+   `:915` that absorbed 860/900 (UV18).
 9. Every animation has a `prefers-reduced-motion: reduce` opt-out.
 10. Check text contrast against black, white, azure and gray before merging.
 
@@ -588,27 +600,27 @@ a Plane ticket (project Unraid Plugins, label `design-system`):
 |---|---|---|
 | UV1 | overlay surfaces dark-only (fixed: `--v-surface`) | UNRAIDPLUG-207 |
 | UV2 | translucent toast/popover (fixed: `--v-surface`) | UNRAIDPLUG-201 |
-| UV3 | status text fails on light themes | UNRAIDPLUG-202 |
-| UV4 | undefined custom properties | UNRAIDPLUG-204 |
-| UV5 | raw status hex + wrong fallbacks in CSS | UNRAIDPLUG-205 |
-| UV6 | duplicate JS palette | UNRAIDPLUG-208 |
-| UV7 | Dashboard tile palette | UNRAIDPLUG-211 |
+| UV3 | light-theme tints via overrides (`css:207-217`; verify on device) | UNRAIDPLUG-202 |
+| UV4 | undefined custom properties (`--v-bg2` gone; UV4 fixed) | UNRAIDPLUG-204 |
+| UV5 | raw status hex + wrong fallbacks in CSS (tokenized; UV5 fixed) | UNRAIDPLUG-205 |
+| UV6 | token colour readers `tok()` / `pickColor()`; stale `PAL` lookups remain | UNRAIDPLUG-208 |
+| UV7 | Dashboard tile palette (local `--vt-*`, theme overrides) | UNRAIDPLUG-211 |
 | UV8 | keyboard/dialog semantics | UNRAIDPLUG-203 |
-| UV9 | missing focus rings | UNRAIDPLUG-209 |
+| UV9 | focus rings widened to all interactive variants (`css:237-238, 304`) | UNRAIDPLUG-209 |
 | UV10 | unlabeled controls | UNRAIDPLUG-210 |
 | UV11 | opacity-muted contrast | UNRAIDPLUG-212 |
 | UV12 | filled-surface contrast | UNRAIDPLUG-206 |
-| UV13 | px type sizes | UNRAIDPLUG-213 |
-| UV14 | radius literals | UNRAIDPLUG-214 |
+| UV13 | px type sizes (85 token uses, 5 literals, 1 direct `clamp()`) | UNRAIDPLUG-213 |
+| UV14 | radius literals (6 swatch/reset cases remain) | UNRAIDPLUG-214 |
 | UV15 | z-index scale | UNRAIDPLUG-215 |
-| UV16 | reduced motion | UNRAIDPLUG-216 |
-| UV17 | duplicate components/dead code | UNRAIDPLUG-217 |
+| UV16 | reduced-motion block added (`css:1041-1052`) | UNRAIDPLUG-216 |
+| UV17 | mono token; duplicate badges / dead `StatTile()` gone | UNRAIDPLUG-217 |
 | UV18 | breakpoints | UNRAIDPLUG-218 |
 | UV19 | inline styles | UNRAIDPLUG-219 |
-| UV20 | header comment drift | UNRAIDPLUG-220 |
+| UV20 | header comment fixed (`css:1-8`) | UNRAIDPLUG-220 |
 | UV21 | RTL hardening | UNRAIDPLUG-221 |
 
-`npx -y @google/design.md lint DESIGN.md` (2026-11-13): **0 errors, 24 warnings, 1 info**.
+`npx -y @google/design.md lint DESIGN.md` (2026-11-25): **0 errors, 24 warnings, 1 info**.
 - `contrast-ratio` ×5: `button-primary` and `chip-on` (white on `#6366f1`, 4.47:1) and
   `badge-critical` (white on `#ef4444`, 3.76:1) are real failures, tracked as UV12.
   `button-danger` (1.06:1) and `tab-active` (1.34:1) are linter artifacts: their background is the
