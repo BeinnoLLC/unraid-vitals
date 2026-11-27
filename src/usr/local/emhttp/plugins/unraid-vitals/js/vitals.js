@@ -1001,10 +1001,19 @@ var TABS = [
   { id: 'settings', label: 'Settings',    icon: 'fa-cog' }
 ];
 
+/* P22-01: the active tab lives in the URL hash so a reload (or a shared
+   link) reopens the same section. Only ids from TABS count — an empty or
+   unknown hash falls back to the Dashboard, never a blank tab panel. */
+function tabFromHash(hash) {
+  var id = String(hash || '').replace(/^#/, '');
+  for (var i = 0; i < TABS.length; i++) if (TABS[i].id === id) return id;
+  return 'dash';
+}
+
 function App() {
   var s1 = useState(null), payload = s1[0], setPayload = s1[1];
   var s2 = useState(360), range = s2[0], setRange = s2[1];
-  var s3 = useState('dash'), tab = s3[0], setTab = s3[1];
+  var s3 = useState(tabFromHash(window.location.hash)), tab = s3[0], setTab = s3[1];
   var s4 = useState('loading'), status = s4[0], setStatus = s4[1];
   var s5 = useState(null), daily = s5[0], setDaily = s5[1];
   var s6 = useState([]), findings = s6[0], setFindings = s6[1];
@@ -1033,6 +1042,21 @@ function App() {
     loadFindings();
     var iv2 = setInterval(loadFindings, 60000);
     return function () { clearInterval(iv2); };
+  }, []);
+
+  // P22-01: mirror the tab in the hash without adding a history entry per
+  // click. Keep the page's own path/query intact — only the fragment changes.
+  useEffect(function () {
+    var want = '#' + tab;
+    if (window.location.hash !== want) {
+      window.history.replaceState(window.history.state, '',
+        window.location.pathname + window.location.search + want);
+    }
+  }, [tab]);
+  useEffect(function () {
+    var onHash = function () { setTab(tabFromHash(window.location.hash)); };
+    window.addEventListener('hashchange', onHash);
+    return function () { window.removeEventListener('hashchange', onHash); };
   }, []);
 
   var d = payload && payload.data;
