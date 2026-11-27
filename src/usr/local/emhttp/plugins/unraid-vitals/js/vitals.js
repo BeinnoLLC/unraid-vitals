@@ -22,6 +22,20 @@ var KB_ASSET_BASE = ENDPOINT + '?action=kb_asset&f=';
 
 /* --------------------------------------------------------------- helpers */
 
+/* CSRF channel (UNRAIDPLUG-223 hardening). Unraid's global auto_prepend
+ * validates the standard csrf_token on POSTs and then strips it ($_POST
+ * ['csrf_token'] and the X-CSRF-Token header) before plugin code runs, so the
+ * server cannot require it. The server instead requires its own channel — the
+ * X-Vitals-CSRF header, which auto_prepend does not touch — carrying the real
+ * var.ini token, validated server-side with hash_equals. Every state-mutating
+ * POST must send vCsrfHeaders() AND keep the legacy csrf_token body field (so
+ * auto_prepend's own check still passes under either contract); read-only
+ * GETs are unaffected. window.__V_CSRF__ is seeded from the ?action=settings
+ * payload (and every data payload's csrf_token). */
+function vCsrfHeaders() {
+  return { 'X-Vitals-CSRF': window.__V_CSRF__ || '' };
+}
+
 function bytes(n, p) {
   if (n == null || n === '' || isNaN(n)) return '—';
   var u = ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'], i = 0;
@@ -827,7 +841,7 @@ function useAction() {
     if (opts.confirm && !window.confirm(opts.confirm)) return;
     setBusy(function (b) { var n = merge(b, {}); n[target] = op; return n; });
     var body = new URLSearchParams({ op: op, target: target, csrf_token: window.__V_CSRF__ || '' });
-    fetch(ENDPOINT.replace('/ajax.php', '/actions.php'), { method: 'POST', body: body })
+    fetch(ENDPOINT.replace('/ajax.php', '/actions.php'), { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setBusy(function (b) { var n = merge(b, {}); delete n[target]; return n; });
@@ -1916,7 +1930,7 @@ function SysTab(P) {
   useEffect(loadDiag, []);
   var trigBundle = function () {
     setDiagBusy('busy');
-    fetch(ENDPOINT + '?action=diag_bundle', { method: 'POST', body: new URLSearchParams({}) })
+    fetch(ENDPOINT + '?action=diag_bundle', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setDiagBusy('idle');
@@ -2192,7 +2206,7 @@ function ShareCommentCell(P) {
   var apply = function (comment) {
     setApplying(true);
     var body = new URLSearchParams({ share: P.share, comment: comment, csrf_token: window.__V_CSRF__ || '' });
-    fetch(ENDPOINT + '?action=apply_share_comment', { method: 'POST', body: body })
+    fetch(ENDPOINT + '?action=apply_share_comment', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function () { setApplying(false); })
       .catch(function () { setApplying(false); });
   };
@@ -2218,7 +2232,7 @@ function ShareCommentCell(P) {
   var generate = function () {
     setBusy(true);
     var body = new URLSearchParams({ share: P.share, csrf_token: window.__V_CSRF__ || '' });
-    fetch(ENDPOINT + '?action=gen_share_comment', { method: 'POST', body: body })
+    fetch(ENDPOINT + '?action=gen_share_comment', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function () { timerRef.current = setTimeout(poll, 6000); })
       .catch(function () { setBusy(false); });
   };
@@ -2268,7 +2282,7 @@ function PowerTab(P) {
     var v = parseFloat(priceInput);
     if (!(v > 0)) return;
     var body = new URLSearchParams({ PRICE_PER_KWH: String(v), csrf_token: (window.__V_CSRF__ || '') });
-    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', body: body })
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function () { setJustSaved(true); setTimeout(function () { setJustSaved(false); }, 2000);
         fetch(ENDPOINT + '?action=energy_report', { cache: 'no-store' }).then(function (r) { return r.json(); })
@@ -2684,7 +2698,7 @@ function SmartSelfTestPanel() {
 
   var start = function (disk, type) {
     setBusy(disk);
-    fetch(ENDPOINT + '?action=smart_test_start', { method: 'POST', body: new URLSearchParams({ disk: disk, type: type }) })
+    fetch(ENDPOINT + '?action=smart_test_start', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ disk: disk, type: type, csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setBusy(null);
@@ -2795,7 +2809,9 @@ function KbWorkspace() {
 
   var act = function (action, body, after) {
     setBusy('busy');
-    fetch(ENDPOINT + '?action=' + action, { method: 'POST', body: new URLSearchParams(body) })
+    var p = new URLSearchParams(body);
+    p.set('csrf_token', window.__V_CSRF__ || '');
+    fetch(ENDPOINT + '?action=' + action, { method: 'POST', headers: vCsrfHeaders(), body: p })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setBusy('idle');
@@ -3058,7 +3074,7 @@ function ResearchTab() {
   var retryJob = function (id) {
     setRetryBusy(true);
     var body = new URLSearchParams({ id: String(id), csrf_token: window.__V_CSRF__ || '' });
-    fetch(ENDPOINT + '?action=research_retry', { method: 'POST', body: body })
+    fetch(ENDPOINT + '?action=research_retry', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) { setRetryBusy(false); if (j && j.ok) { loadJobs(); openJob(id); } })
       .catch(function () { setRetryBusy(false); });
@@ -3079,7 +3095,7 @@ function ResearchTab() {
     setSubmitting(true);
     // Free text only — the planner decides how the job runs.
     var body = new URLSearchParams({ prompt: prompt, csrf_token: window.__V_CSRF__ || '' });
-    fetch(ENDPOINT + '?action=research_ask', { method: 'POST', body: body })
+    fetch(ENDPOINT + '?action=research_ask', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setSubmitting(false);
@@ -3287,8 +3303,8 @@ function CleanupTab() {
 
   var moverStart = function () {
     setMoverState('starting');
-    var body = new URLSearchParams({ confirm_parity: moveParityConfirm ? 'yes' : '' });
-    fetch(ENDPOINT + '?action=mover_start', { method: 'POST', body: body })
+    var body = new URLSearchParams({ confirm_parity: moveParityConfirm ? 'yes' : '', csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=mover_start', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setMoverState(j && j.ok ? 'started' : (j && j.confirm_required ? 'confirm' : 'error'));
@@ -3299,7 +3315,7 @@ function CleanupTab() {
   };
   var moverStop = function () {
     setMoverState('stopping');
-    fetch(ENDPOINT + '?action=mover_stop', { method: 'POST', body: new URLSearchParams({}) })
+    fetch(ENDPOINT + '?action=mover_stop', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function () { setMoverState('idle'); reloadMover(); })
       .catch(function () { setMoverState('error'); });
@@ -3330,8 +3346,8 @@ function CleanupTab() {
   var doApply = function () {
     if (!preview || !preview.data) return;
     setApplyState('applying');
-    var body = new URLSearchParams({ preview_id: preview.data.preview_id, confirm2: confirm2 ? 'yes' : '' });
-    fetch(ENDPOINT + '?action=cleanup_apply', { method: 'POST', body: body })
+    var body = new URLSearchParams({ preview_id: preview.data.preview_id, confirm2: confirm2 ? 'yes' : '', csrf_token: window.__V_CSRF__ || '' });
+    fetch(ENDPOINT + '?action=cleanup_apply', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setApplyState('idle');
@@ -3482,8 +3498,8 @@ function SchedulesPanel() {
 
   var toggleJob = function (id, enabled) {
     setActState('saving');
-    fetch(ENDPOINT + '?action=save_settings', { method: 'POST',
-      body: new URLSearchParams(Object.fromEntries([['csrf_token', ''],
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', headers: vCsrfHeaders(),
+      body: new URLSearchParams(Object.fromEntries([['csrf_token', window.__V_CSRF__ || ''],
         ['SCHED_' + id.toUpperCase() + '_ENABLED', enabled ? '1' : '0']])) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
@@ -3494,8 +3510,8 @@ function SchedulesPanel() {
   };
   var runNow = function (id, force) {
     setActState('running');
-    fetch(ENDPOINT + '?action=job_run', { method: 'POST',
-      body: new URLSearchParams({ job: id, force: force ? 'yes' : '' }) })
+    fetch(ENDPOINT + '?action=job_run', { method: 'POST', headers: vCsrfHeaders(),
+      body: new URLSearchParams({ job: id, force: force ? 'yes' : '', csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setActState('idle');
@@ -3553,7 +3569,7 @@ function BackupsPanel() {
   useEffect(load, []);
   var runNow = function () {
     setState('backing');
-    fetch(ENDPOINT + '?action=backup_run', { method: 'POST', body: new URLSearchParams({}) })
+    fetch(ENDPOINT + '?action=backup_run', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setState('idle');
@@ -3564,7 +3580,7 @@ function BackupsPanel() {
   };
   var restore = function (f) {
     setState('restoring');
-    fetch(ENDPOINT + '?action=backup_restore', { method: 'POST', body: new URLSearchParams({ file: f }) })
+    fetch(ENDPOINT + '?action=backup_restore', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ file: f, csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setState('idle'); setConfirmRestore(null);
@@ -3574,7 +3590,7 @@ function BackupsPanel() {
   };
   var bundle = function () {
     setState('bundling');
-    fetch(ENDPOINT + '?action=backup_bundle', { method: 'POST', body: new URLSearchParams({}) })
+    fetch(ENDPOINT + '?action=backup_bundle', { method: 'POST', headers: vCsrfHeaders(), body: new URLSearchParams({ csrf_token: window.__V_CSRF__ || '' }) })
       .then(function (r) { return r.json(); })
       .then(function (j) {
         setState('idle');
@@ -3687,8 +3703,8 @@ function SettingsTab() {
 
   var save = function () {
     setSaveState('saving');
-    var body = new URLSearchParams(merge(cfg, { csrf_token: meta.csrf_token }));
-    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', body: body })
+    var body = new URLSearchParams(merge(cfg, { csrf_token: window.__V_CSRF__ || meta.csrf_token || '' }));
+    fetch(ENDPOINT + '?action=save_settings', { method: 'POST', headers: vCsrfHeaders(), body: body })
       .then(function (r) { return r.json(); })
       .then(function (j) { setSaveState(j && j.ok ? 'saved' : 'error'); if (j && j.ok) reload();
         setTimeout(function () { setSaveState('idle'); }, 2500); })
