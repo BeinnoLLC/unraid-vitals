@@ -3844,4 +3844,3 @@ function SettingsTab() {
 
 if (mountEl) render(h('div', null, h(App), h(ToastStack)), mountEl);
 })();
-    h(KbWorkspace, {})
