@@ -9,6 +9,7 @@
  *   ?action=save_settings   POST new vitals.cfg values (CSRF-checked), reapply cron/start-page
  */
 
+require_once __DIR__ . '/csrf.php';
 require_once __DIR__ . '/store.php';
 require_once __DIR__ . '/research-plan.php';
 require_once __DIR__ . '/checks.php';
@@ -37,27 +38,22 @@ const V_INSTALL_SH = '/usr/local/emhttp/plugins/unraid-vitals/scripts/install.sh
 /**
  * CSRF gate for state-changing actions.
  *
- * NB: Unraid's global auto_prepend_file already validates `csrf_token` on
- * every POST and then unsets it before plugin code runs — so an absent token
- * here means "auto_prepend already cleared it after a successful check",
- * not "missing token". Re-reading it unconditionally caused a live bug: the
- * Research and Share-comment buttons failed with "bad csrf token" in the
- * browser while CLI includes (which skip auto_prepend) passed.
- * When a token IS still present we still compare it (CLI/test paths).
+ * Delegates to the shared strict gate (include/csrf.php): the request must be
+ * a POST carrying the plugin-controlled channel token (X-Vitals-CSRF header or
+ * `vitals_csrf` field) matching var.ini's csrf_token (hash_equals). A missing
+ * or wrong token is rejected — including CLI — so a tokenless POST can never
+ * mutate state even if Unraid's auto_prepend (which validates and then STRIPS
+ * the standard csrf_token before plugin code runs) is bypassed or changes.
+ * See include/csrf.php for why the standard channels are not accepted here.
  */
 function v_csrf_ok(): bool {
-  $sent = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? null;
-  if ($sent === null) {
-    return PHP_SAPI === 'cli' || ($_SERVER['REQUEST_METHOD'] ?? '') === 'POST';
-  }
-  $real = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? null;
-  return $real && hash_equals($real, (string)$sent);
+  return v_csrf_token_ok();
 }
 
 try {
   if ($action === 'refresh') {
     $snap = v_tick(true);
-    $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
+    $snap['csrf_token'] = v_real_csrf_token() ?? '';
     // Frontend poll cadence (P8/UI): user-configurable in Settings, NOT the
     // same thing as INTERVAL (the cron collector's cadence in minutes) —
     // this is how often the open dashboard tab re-fetches, in seconds.
@@ -162,7 +158,7 @@ try {
       'checks' => v_checks_config(),
       'db_path' => $dbFile,
       'db_bytes' => $dbFile !== '' && is_file($dbFile) ? (int)@filesize($dbFile) : null,
-      'csrf_token' => @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '',
+      'csrf_token' => v_real_csrf_token() ?? '',
       'ring_samples' => is_array($ring) ? count($ring) : 0,
       'flash_files' => count($files), 'flash_bytes' => $flashBytes,
       'last_run' => $lastRun['time'] ?? null,
@@ -295,9 +291,14 @@ try {
   }
 
   if ($action === 'kb_seed') {
-    // idempotent weekly seeding of trusted Unraid docs (P20-11); POST+CSRF for --force.
+    // idempotent weekly seeding of trusted Unraid docs (P20-11). GET is the
+    // read-ish unforced path (no-op once seeded); ANY POST is a mutation and
+    // must carry the channel token, and --force additionally requires it.
     require_once __DIR__ . '/kb_seed.php';
-    $force = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') && v_csrf_ok() && ($_POST['force'] ?? '') === 'yes';
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST' && !v_csrf_ok()) {
+      http_response_code(403); echo json_encode(['ok' => false, 'error' => 'bad csrf token']); exit;
+    }
+    $force = (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') && ($_POST['force'] ?? '') === 'yes';
     $n = v_kb_seed($force);
     echo json_encode(['ok' => true, 'seeded' => $n], JSON_UNESCAPED_SLASHES);
     exit;
@@ -663,7 +664,7 @@ try {
 
   $snap = v_latest();
   if (!$snap) $snap = v_tick(true);
-  $snap['csrf_token'] = @parse_ini_file('/var/local/emhttp/var.ini')['csrf_token'] ?? '';
+  $snap['csrf_token'] = v_real_csrf_token() ?? '';
   $snap['_age'] = max(0, time() - (int)($snap['time'] ?? 0));
   $cfg = is_file(V_CFG_FILE) ? (@parse_ini_file(V_CFG_FILE) ?: []) : [];
   $snap['ui_refresh_seconds'] = max(3, min(300, (int)($cfg['UI_REFRESH_SECONDS'] ?? 10)));
